@@ -112,6 +112,30 @@ only the public API, which `testpackage` enforces; the one exception is
 of a running head — has no public surface worth exposing for it, and the
 `_internal_test.go` name is what marks that deliberate choice.
 
+## Races
+
+```sh
+go test -race ./...
+```
+
+That is necessary and not sufficient. The detector "will only find races that are
+contained in code that is exercised" (Cox-Buday, *Concurrency in Go*, printed
+p. 214), and no test exercises the extraction worker pool — the one place in this
+program where goroutines touch shared state. So the pool is checked the way the
+Go team recommends instead: a `-race` build of the indexer, pointed at a scratch
+database and a real slice of the library.
+
+```sh
+go build -race -o /tmp/indexer-race ./cmd/indexer
+DATABASE_URL=postgres://corpus:corpus@localhost:5433/corpus_race \
+  /tmp/indexer-race --books <dir> --vault <dir> --migrations ./migrations \
+  --ollama http://127.0.0.1:1 --interval 0
+```
+
+The dead ollama address is deliberate: the run then also shows the embedding pass
+failing without taking the text index down with it. Last run: 8 books, 226 notes,
+8182 chunks, no races.
+
 ## Evaluation
 
 `eval/queries.json` holds judged queries: a question, and the pages that answer
