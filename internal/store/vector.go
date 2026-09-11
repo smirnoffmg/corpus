@@ -13,13 +13,13 @@ const (
 	// bodyCharLimit bounds how much of a chunk is embedded: a long daily note
 	// would otherwise cost minutes of GPU for a tail that adds nothing to the
 	// topic of the section.
-	bodyCharLimit = 5000
+	defaultBodyChars = 5000
 	// neighbourChars of the pages on either side ride along. Two thirds of the
 	// book pages here end mid-sentence, so a page on its own is routinely half
 	// a thought; the text index still answers per page, only the vector sees
 	// the wider window (Manning, IIR, printed p. 22: an IR system should offer
 	// choices of granularity).
-	neighbourChars = 500
+	defaultNeighbourChars = 500
 	// maxEmbedAttempts quarantines a chunk the embedder keeps refusing. Without
 	// it one permanently failing batch blocks every chunk behind it forever,
 	// which is the failure an invalid message channel exists to prevent.
@@ -49,7 +49,7 @@ ORDER BY ord
 LIMIT $3`
 
 func (s *Store) PendingEmbeddings(ctx context.Context, limit int) ([]corpus.Pending, error) {
-	rows, err := s.pool.Query(ctx, pendingSQL, neighbourChars, bodyCharLimit, limit, maxEmbedAttempts)
+	rows, err := s.pool.Query(ctx, pendingSQL, s.neighbourChars, s.bodyChars, limit, maxEmbedAttempts)
 	if err != nil {
 		return nil, err
 	}

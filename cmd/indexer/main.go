@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/smirnoffmg/corpus/internal/embed"
+	"github.com/smirnoffmg/corpus/internal/extract"
 	"github.com/smirnoffmg/corpus/internal/index"
 	"github.com/smirnoffmg/corpus/internal/store"
 )
@@ -30,6 +31,8 @@ func run() error {
 		model    = flag.String("model", "bge-m3", "embedding model")
 		batch    = flag.Int("batch", 16, "chunks per embedding request")
 		parallel = flag.Int("parallel", 0, "extraction workers; 0 picks a cap from the core count")
+		above    = flag.Int("split-above", 0, "split a page or section longer than this; 0 keeps the default")
+		target   = flag.Int("split-target", 0, "size a part aims for when splitting")
 		requeue  = flag.Bool("requeue", false, "put quarantined chunks back in the embedding queue and continue")
 	)
 	flag.Parse()
@@ -60,6 +63,7 @@ func run() error {
 		Vault:    *vaultDir,
 		Batch:    *batch,
 		Parallel: *parallel,
+		Splitter: extract.Splitter{Above: *above, Target: *target},
 	})
 
 	for {

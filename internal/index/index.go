@@ -48,9 +48,9 @@ type Embedder interface {
 type Options struct {
 	Books    string
 	Vault    string
-	Batch    int               // chunks per embedding request
-	Parallel int               // extraction workers; defaults to the core count, capped
-	Titles   map[string]string // manual title overrides, keyed by relative path
+	Batch    int              // chunks per embedding request
+	Parallel int              // extraction workers; defaults to the core count, capped
+	Splitter extract.Splitter // how long a chunk may be
 }
 
 type Indexer struct {
@@ -71,6 +71,9 @@ func New(store Store, embedder Embedder, opts Options) *Indexer {
 	if opts.Batch <= 0 {
 		opts.Batch = 16
 	}
+	if opts.Splitter.Above <= 0 || opts.Splitter.Target <= 0 {
+		opts.Splitter = extract.DefaultSplitter
+	}
 	return &Indexer{store: store, embedder: embedder, opts: opts}
 }
 
@@ -87,13 +90,13 @@ func (ix *Indexer) Index(ctx context.Context) error {
 	start := time.Now()
 
 	books, err := ix.indexKind(ctx, "book", ix.opts.Books, ".pdf", func(path string) ([]corpus.Chunk, error) {
-		return extract.PDF(ctx, path)
+		return ix.opts.Splitter.PDF(ctx, path)
 	})
 	if err != nil {
 		return err
 	}
 
-	notes, err := ix.indexKind(ctx, "vault", ix.opts.Vault, ".md", extract.Markdown)
+	notes, err := ix.indexKind(ctx, "vault", ix.opts.Vault, ".md", ix.opts.Splitter.Markdown)
 	if err != nil {
 		return err
 	}

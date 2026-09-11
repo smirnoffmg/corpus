@@ -11,7 +11,7 @@ import (
 
 // Markdown splits a note into one corpus.Chunk per heading section. Frontmatter is not
 // indexed as text, but its tags ride along on every chunk of the note.
-func Markdown(path string) ([]corpus.Chunk, error) {
+func (sp Splitter) Markdown(path string) ([]corpus.Chunk, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -35,7 +35,7 @@ func Markdown(path string) ([]corpus.Chunk, error) {
 			return
 		}
 		locator := joinTrail(trail)
-		for _, part := range splitSection(body.String()) {
+		for _, part := range sp.splitSection(body.String()) {
 			chunks = append(chunks, corpus.Chunk{
 				Ord:     len(chunks) + 1,
 				Heading: locator,
@@ -103,22 +103,25 @@ func joinTrail(trail []string) string {
 	return strings.Join(kept, " > ")
 }
 
-const (
-	// splitAbove is the length past which a section is cut into parts. A brain
-	// note often keeps its whole argument under one heading, and a single vector
-	// for six thousand characters describes the average of everything in them:
-	// measured on one such section, a query matched the relevant paragraph at
-	// 0.53 and the whole section at 0.47.
-	splitAbove = 2500
-	// partTarget is the size a part aims for before the next blank line ends it.
-	partTarget = 1500
-)
+// Splitter decides how long a chunk may be. A brain note often keeps its whole
+// argument under one heading, and a single vector for six thousand characters
+// describes the average of everything in it: measured on one such section, a
+// query matched the relevant paragraph at 0.53 and the whole section at 0.47.
+// The sizes are settings because the right ones depend on the embedding model's
+// window, and the judged set is what decides between them.
+type Splitter struct {
+	Above  int // length past which a section is cut into parts
+	Target int // size a part aims for before the next blank line ends it
+}
+
+// DefaultSplitter is what the corpus runs with today.
+var DefaultSplitter = Splitter{Above: 2500, Target: 1500}
 
 // splitSection cuts a long section at paragraph boundaries, never inside a
 // fenced block — half a code listing is worse than none.
-func splitSection(section string) []string {
+func (sp Splitter) splitSection(section string) []string {
 	section = strings.TrimSpace(section)
-	if len(section) <= splitAbove {
+	if len(section) <= sp.Above {
 		return []string{section}
 	}
 
@@ -131,7 +134,7 @@ func splitSection(section string) []string {
 		if strings.HasPrefix(strings.TrimSpace(line), "```") {
 			inFence = !inFence
 		}
-		if !inFence && strings.TrimSpace(line) == "" && current.Len() >= partTarget {
+		if !inFence && strings.TrimSpace(line) == "" && current.Len() >= sp.Target {
 			if part := strings.TrimSpace(current.String()); part != "" {
 				parts = append(parts, part)
 			}

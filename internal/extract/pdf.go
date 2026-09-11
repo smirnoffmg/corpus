@@ -9,8 +9,10 @@ import (
 	"github.com/smirnoffmg/corpus/internal/corpus"
 )
 
-// PDF extracts one corpus.Chunk per page via poppler's pdftotext.
-func PDF(ctx context.Context, path string) ([]corpus.Chunk, error) {
+// PDF extracts the text of each page via poppler's pdftotext. A page longer than
+// the splitter allows is cut further: the citation stays the page either way, but
+// the vector should describe something the model can read in one go.
+func (sp Splitter) PDF(ctx context.Context, path string) ([]corpus.Chunk, error) {
 	cmd := exec.CommandContext(ctx, "pdftotext", "-layout", "-enc", "UTF-8", path, "-")
 	out, err := cmd.Output()
 	if err != nil {
@@ -29,12 +31,14 @@ func PDF(ctx context.Context, path string) ([]corpus.Chunk, error) {
 			continue
 		}
 		page := i + 1
-		chunks = append(chunks, corpus.Chunk{
-			Ord:     page,
-			Page:    page,
-			Printed: folios[i],
-			Body:    body,
-		})
+		for _, part := range sp.splitSection(body) {
+			chunks = append(chunks, corpus.Chunk{
+				Ord:     len(chunks) + 1,
+				Page:    page,
+				Printed: folios[i],
+				Body:    part,
+			})
+		}
 	}
 	return chunks, nil
 }

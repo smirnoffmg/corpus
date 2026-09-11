@@ -23,9 +23,25 @@ var migrations embed.FS
 type Store struct {
 	pool *pgxpool.Pool
 	dsn  string
+	// How much text an embedding sees: the chunk itself, plus this many
+	// characters of the chunks on either side.
+	bodyChars      int
+	neighbourChars int
 }
 
-func Open(ctx context.Context, dsn string) (*Store, error) {
+// Option configures a Store.
+type Option func(*Store)
+
+// WithWindow sets how much text is handed to the embedder. The right size
+// depends on the model: one that stops reading at 2400 characters gains nothing
+// from a wider window, and loses whatever falls outside it.
+func WithWindow(body, neighbours int) Option {
+	return func(s *Store) {
+		s.bodyChars, s.neighbourChars = body, neighbours
+	}
+}
+
+func Open(ctx context.Context, dsn string, opts ...Option) (*Store, error) {
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return nil, err
@@ -47,7 +63,15 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 		pool.Close()
 		return nil, err
 	}
-	return &Store{pool: pool, dsn: dsn}, nil
+	st := &Store{
+		pool: pool, dsn: dsn,
+		bodyChars:      defaultBodyChars,
+		neighbourChars: defaultNeighbourChars,
+	}
+	for _, opt := range opts {
+		opt(st)
+	}
+	return st, nil
 }
 
 func (s *Store) Close() { s.pool.Close() }
