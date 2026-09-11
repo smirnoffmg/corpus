@@ -28,20 +28,20 @@ repos:
         name: golangci-lint
         entry: golangci-lint run
         language: system
-        types: [go]
+        always_run: true       # миграция, compose или набор запросов тоже ломают сборку
         pass_filenames: false
 
       - id: go-test
         name: go test -race
         entry: scripts/test.sh
         language: system
-        types: [go]
+        always_run: true       # миграция, compose или набор запросов тоже ломают сборку
         pass_filenames: false
 
       - id: corpus-eval
         name: оценка поиска (справочно)
         entry: scripts/eval.sh
         language: system
-        types: [go]
+        always_run: true       # миграция, compose или набор запросов тоже ломают сборку
         pass_filenames: false
         verbose: true          # печатать вывод, даже когда хук прошёл
