@@ -50,8 +50,19 @@ func main() {
 	limit := flag.Int("limit", 10, "hits to request per query")
 	verbose := flag.Bool("v", false, "list the queries each mode misses")
 	norm := flag.Int("norm", 0, "ts_rank_cd length normalisation bit mask to measure")
-	boost := flag.Float64("title-boost", 0, "rank added when the source title matches the query")
+	boost := flag.Float64("title-boost", 0, "rank added when the source title matches the query; unset leaves the service default")
+	only := flag.String("kind", "", "measure only queries of this kind: book or vault")
 	flag.Parse()
+
+	// Sending title_boost unconditionally would measure a search the service
+	// never performs: unset means "whatever the service does", which is the
+	// thing worth measuring.
+	boostSet := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "title-boost" {
+			boostSet = true
+		}
+	})
 
 	raw, err := os.ReadFile(*path)
 	if err != nil {
@@ -77,8 +88,11 @@ func main() {
 	}
 
 	for _, q := range queries {
+		if *only != "" && q.Kind != *only {
+			continue
+		}
 		for _, mode := range modes {
-			hits, err := search(*addr, &q, mode, *limit, *norm, *boost)
+			hits, err := search(*addr, &q, mode, *limit, *norm, *boost, boostSet)
 			if err != nil {
 				log.Fatalf("%s/%s: %v", q.ID, mode, err)
 			}
@@ -91,8 +105,8 @@ func main() {
 		}
 	}
 
-	fmt.Printf("%d queries (%d exact, %d paraphrase)\n\n", len(queries),
-		count(queries, "exact"), count(queries, "paraphrase"))
+	measured := overall["fts"].queries
+	fmt.Printf("%d queries measured\n\n", measured)
 	fmt.Printf("%-8s %-12s %7s %7s %8s\n", "mode", "queries", "MRR", "P@5", "found@10")
 	for _, mode := range modes {
 		report(mode, "all", overall[mode])
@@ -158,14 +172,16 @@ func isRelevant(q *query, h *corpus.Hit) bool {
 	return false
 }
 
-func search(addr string, q *query, mode string, limit, norm int, boost float64) ([]corpus.Hit, error) {
+func search(addr string, q *query, mode string, limit, norm int, boost float64, boostSet bool) ([]corpus.Hit, error) {
 	params := url.Values{}
 	params.Set("q", q.Query)
 	params.Set("kind", q.Kind)
 	params.Set("mode", mode)
 	params.Set("limit", strconv.Itoa(limit))
 	params.Set("norm", strconv.Itoa(norm))
-	params.Set("title_boost", strconv.FormatFloat(boost, 'f', -1, 64))
+	if boostSet {
+		params.Set("title_boost", strconv.FormatFloat(boost, 'f', -1, 64))
+	}
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		addr+"/search?"+params.Encode(), nil)
@@ -188,14 +204,4 @@ func search(addr string, q *query, mode string, limit, norm int, boost float64) 
 		return nil, err
 	}
 	return body.Hits, nil
-}
-
-func count(queries []query, style string) int {
-	n := 0
-	for _, q := range queries {
-		if q.Style == style {
-			n++
-		}
-	}
-	return n
 }

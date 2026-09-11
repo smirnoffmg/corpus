@@ -71,6 +71,21 @@ side.
 
 ## Embeddings
 
+**bge-m3 was compared against a smaller model and kept.** granite-embedding:278m
+embeds about twice as fast, and on the same vault chunks it finds 73% of the
+judged answers against bge-m3's 87%, with MRR 0.572 against 0.683. Embedding
+speed matters during a full re-embed, which is rare; retrieval quality matters on
+every query. The comparison cost eight minutes because it ran in its own database
+with 768-dimension vectors and the vault only — the same chunks for both, so the
+model was the only thing that differed.
+
+Two other candidates were rejected before that, by a cheaper test: embed a page,
+then embed its first 400, 1200 and 2400 characters and compare. If the vector
+stops changing, the model has stopped reading. paraphrase-multilingual stops at
+~1200 characters and granite at ~2400; bge-m3 is still moving at 2400. Their
+speed is largely bought by not reading the text.
+
+
 Vectors come from **bge-m3** (1024 dims, multilingual) served by ollama **on the
 host**, not in the stack: on macOS a containerised ollama is CPU-only, while the
 host process uses the GPU. Nothing is sent anywhere — the corpus includes a
