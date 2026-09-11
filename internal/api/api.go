@@ -40,10 +40,11 @@ func New(store Store, embedder Embedder) *Service {
 const defaultLimit = 10
 
 type searchInput struct {
-	Query string `json:"query" jsonschema:"words to look for; supports quoted phrases and -exclusions"`
-	Kind  string `json:"kind,omitempty" jsonschema:"restrict to 'book' or 'vault'; empty searches both"`
-	Mode  string `json:"mode,omitempty" jsonschema:"'hybrid' (default), 'fts' for exact wording, 'vector' for meaning"`
-	Limit int    `json:"limit,omitempty" jsonschema:"maximum hits to return, default 10"`
+	Query     string `json:"query" jsonschema:"words to look for; supports quoted phrases and -exclusions"`
+	Kind      string `json:"kind,omitempty" jsonschema:"restrict to 'book' or 'vault'; empty searches both"`
+	Mode      string `json:"mode,omitempty" jsonschema:"'hybrid' (default), 'fts' for exact wording, 'vector' for meaning"`
+	PerSource int    `json:"per_source,omitempty" jsonschema:"at most this many hits from one book or note; 0 means no limit. Use 1 to see which sources match at all"`
+	Limit     int    `json:"limit,omitempty" jsonschema:"maximum hits to return, default 10"`
 }
 
 type searchOutput struct {
@@ -55,16 +56,47 @@ type readInput struct {
 	Neighbours bool  `json:"neighbours,omitempty" jsonschema:"also return the pages before and after, for a passage cut by a page break"`
 }
 
-func (s *Service) Search(ctx context.Context, query, kind, mode string, limit int) ([]corpus.Hit, error) {
+func (s *Service) Search(ctx context.Context, query, kind, mode string, limit, perSource int) ([]corpus.Hit, error) {
 	limit = clampLimit(limit)
+	// Capping per source needs a deeper list to cap: the hits being dropped have
+	// to be replaced by something.
+	fetch := limit
+	if perSource > 0 {
+		fetch = min(limit*5, 50)
+	}
+
+	var hits []corpus.Hit
+	var err error
 	switch mode {
 	case "fts":
-		return s.store.Search(ctx, query, kind, limit)
+		hits, err = s.store.Search(ctx, query, kind, fetch)
 	case "vector":
-		return s.vector(ctx, query, kind, limit)
+		hits, err = s.vector(ctx, query, kind, fetch)
 	default:
-		return s.hybrid(ctx, query, kind, limit)
+		hits, err = s.hybrid(ctx, query, kind, fetch)
 	}
+	if err != nil {
+		return nil, err
+	}
+	return truncate(capPerSource(hits, perSource), limit), nil
+}
+
+// capPerSource keeps a single book or note from filling the whole page. Ten
+// paragraphs of one chapter answer "where is this discussed" ten times over.
+func capPerSource(hits []corpus.Hit, perSource int) []corpus.Hit {
+	if perSource <= 0 {
+		return hits
+	}
+	seen := make(map[string]int, len(hits))
+	kept := hits[:0:0]
+	for _, h := range hits {
+		if seen[h.Path] >= perSource {
+			continue
+		}
+		seen[h.Path]++
+		kept = append(kept, h)
+	}
+	return kept
 }
 
 func (s *Service) vector(ctx context.Context, query, kind string, limit int) ([]corpus.Hit, error) {
@@ -116,7 +148,7 @@ func (s *Service) MCP() *mcp.Server {
 		Name:        "corpus_search",
 		Description: "Search the PDF library and the Obsidian vault. Returns ranked snippets with the book page or note heading to cite.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in searchInput) (*mcp.CallToolResult, searchOutput, error) {
-		hits, err := s.Search(ctx, in.Query, in.Kind, in.Mode, in.Limit)
+		hits, err := s.Search(ctx, in.Query, in.Kind, in.Mode, in.Limit, in.PerSource)
 		if err != nil {
 			return nil, searchOutput{}, err
 		}
@@ -148,7 +180,8 @@ func (s *Service) Handler() http.Handler {
 	// far less ceremony than an MCP handshake.
 	mux.HandleFunc("/search", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		hits, err := s.Search(r.Context(), q.Get("q"), q.Get("kind"), q.Get("mode"), atoiOrZero(q.Get("limit")))
+		hits, err := s.Search(r.Context(), q.Get("q"), q.Get("kind"), q.Get("mode"),
+			atoiOrZero(q.Get("limit")), atoiOrZero(q.Get("per_source")))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

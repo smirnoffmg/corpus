@@ -55,7 +55,7 @@ func TestHybridFallsBackToTextWhenEmbedderIsDown(t *testing.T) {
 	store := &fakeStore{text: []corpus.Hit{{ID: 1}, {ID: 2}}}
 	embedder := &fakeEmbedder{err: errors.New("connection refused")}
 
-	hits, err := api.New(store, embedder).Search(context.Background(), "агрегат", "", "hybrid", 10)
+	hits, err := api.New(store, embedder).Search(context.Background(), "агрегат", "", "hybrid", 10, 0)
 	if err != nil {
 		t.Fatalf("hybrid returned an error instead of degrading: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestHybridFallsBackToTextWhenEmbedderIsDown(t *testing.T) {
 
 func TestFtsModeNeverEmbeds(t *testing.T) {
 	embedder := &fakeEmbedder{}
-	if _, err := api.New(&fakeStore{}, embedder).Search(context.Background(), "q", "", "fts", 10); err != nil {
+	if _, err := api.New(&fakeStore{}, embedder).Search(context.Background(), "q", "", "fts", 10, 0); err != nil {
 		t.Fatal(err)
 	}
 	if embedder.calls != 0 {
@@ -76,7 +76,7 @@ func TestFtsModeNeverEmbeds(t *testing.T) {
 
 func TestVectorModeReportsEmbedderFailure(t *testing.T) {
 	embedder := &fakeEmbedder{err: errors.New("model not found")}
-	_, err := api.New(&fakeStore{}, embedder).Search(context.Background(), "q", "", "vector", 10)
+	_, err := api.New(&fakeStore{}, embedder).Search(context.Background(), "q", "", "vector", 10, 0)
 	if err == nil {
 		t.Fatal("vector mode swallowed the embedder error")
 	}
@@ -102,7 +102,7 @@ func TestHybridAsksBothLegsForMoreThanItReturns(t *testing.T) {
 	// Fusing two top-10 lists into a top-10 needs deeper inputs, or a result
 	// ranked 11th by text and 1st by vector can never surface.
 	store := &fakeStore{}
-	if _, err := api.New(store, &fakeEmbedder{}).Search(context.Background(), "q", "", "hybrid", 10); err != nil {
+	if _, err := api.New(store, &fakeEmbedder{}).Search(context.Background(), "q", "", "hybrid", 10, 0); err != nil {
 		t.Fatal(err)
 	}
 	if store.lastText <= 10 {
@@ -140,5 +140,36 @@ func TestReadHandlerRejectsANonNumericID(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
+	}
+}
+
+func TestPerSourceCapsOneSourceFillingThePage(t *testing.T) {
+	// Three sections of one note and one of another: asking "does a note about
+	// this already exist" wants two answers, not four.
+	store := &fakeStore{text: []corpus.Hit{
+		{ID: 1, Path: "Нормализация.md"}, {ID: 2, Path: "Нормализация.md"},
+		{ID: 3, Path: "Нормализация.md"}, {ID: 4, Path: "Транзакция.md"},
+	}}
+
+	hits, err := api.New(store, &fakeEmbedder{}).Search(context.Background(), "облачение", "vault", "fts", 10, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 2 {
+		t.Fatalf("got %d hits, want one per note: %+v", len(hits), hits)
+	}
+	if hits[0].Path == hits[1].Path {
+		t.Errorf("both hits came from %s", hits[0].Path)
+	}
+}
+
+func TestPerSourceUnsetChangesNothing(t *testing.T) {
+	store := &fakeStore{text: []corpus.Hit{{ID: 1, Path: "a"}, {ID: 2, Path: "a"}}}
+	hits, err := api.New(store, &fakeEmbedder{}).Search(context.Background(), "q", "", "fts", 10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 2 {
+		t.Errorf("got %d hits, want both — the cap must be opt-in", len(hits))
 	}
 }

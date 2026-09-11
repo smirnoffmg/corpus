@@ -56,7 +56,10 @@ claude mcp add --transport http corpus http://localhost:8080/mcp
 | `hybrid` (default) | both lists fused by rank      | most questions                  |
 
 The `fts` query goes through `websearch_to_tsquery`, so `"точная фраза"` and
-`-исключение` work. `GET /compare?q=…` runs all three and returns them side by
+`-исключение` work. `per_source=N` keeps one book or note from filling the page
+with N+1 paragraphs of the same chapter; it is off by default, because the
+question "where is this discussed" and the question "does a note about this
+already exist" want different answers. `GET /compare?q=…` runs all three and returns them side by
 side.
 
 ## Embeddings
