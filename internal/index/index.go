@@ -29,6 +29,7 @@ type Store interface {
 	Unchanged(ctx context.Context, path, hash string) (bool, error)
 	Replace(ctx context.Context, src corpus.Source, chunks []corpus.Chunk) error
 	SetTitle(ctx context.Context, path, title string) error
+	Forget(ctx context.Context, path string) (bool, error)
 	PathByHash(ctx context.Context, kind, hash string) (string, bool, error)
 	Rename(ctx context.Context, oldPath, newPath, title string) error
 	Prune(ctx context.Context, kind string, seen []string) (int64, error)
@@ -202,6 +203,16 @@ func (ix *Indexer) indexFile(
 
 	chunks, err := parse(path)
 	if err != nil {
+		return false, err
+	}
+	// A scan without an OCR layer yields nothing. Re-parsing it next pass costs
+	// milliseconds — there is no text to pull — so it is cheaper to forget it
+	// than to keep an empty source around.
+	if len(chunks) == 0 {
+		dropped, err := ix.store.Forget(ctx, rel)
+		if dropped {
+			log.Printf("no text in %s: dropped (a scan without OCR?)", rel)
+		}
 		return false, err
 	}
 	for i := range chunks {

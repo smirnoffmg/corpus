@@ -30,6 +30,11 @@ docker compose logs -f indexer
 The indexer re-scans every 15 minutes and skips files whose SHA-256 is unchanged,
 so the vault stays current while obsidian-git commits into it.
 
+A file that yields no text is not a source: scans without an OCR layer and empty
+notes are dropped rather than kept as rows nothing can ever return. Re-parsing
+them each pass costs nothing — there is no text to pull, so poppler returns in
+milliseconds — and the drop is reported only when it actually removes something.
+
 ## Search
 
 ```sh

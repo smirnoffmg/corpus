@@ -23,6 +23,7 @@ type recordingStore struct {
 	indexed   map[string]string // path -> hash, as a real store would remember
 	byHash    map[string]string // hash -> path
 	renamed   []string
+	forgotten []string
 	unchanged bool
 }
 
@@ -74,6 +75,15 @@ func (s *recordingStore) SetTitle(_ context.Context, path, title string) error {
 	defer s.mu.Unlock()
 	s.titles[path] = title
 	return nil
+}
+
+func (s *recordingStore) Forget(_ context.Context, path string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.forgotten = append(s.forgotten, path)
+	_, existed := s.indexed[path]
+	delete(s.indexed, path)
+	return existed, nil
 }
 
 func (s *recordingStore) Prune(_ context.Context, kind string, seen []string) (int64, error) {
@@ -234,5 +244,28 @@ func TestRenamingAFileIsNotReindexing(t *testing.T) {
 	}
 	if _, reindexed := store.replaced["Настоящее название.md"]; reindexed {
 		t.Error("the renamed file was extracted again, discarding its embeddings")
+	}
+}
+
+func TestAFileWithNoTextIsNotIndexed(t *testing.T) {
+	notes, books := vault(t, 3)
+	// A note that parses to nothing stands in for a scan without an OCR layer.
+	if err := os.WriteFile(filepath.Join(notes, "empty.md"), []byte("\n\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	store := newStore()
+	ix := index.New(store, nopEmbedder{}, index.Options{Books: books, Vault: notes, Parallel: 4})
+	if err := ix.Index(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if _, indexed := store.replaced["empty.md"]; indexed {
+		t.Error("a file with no text was stored as a source")
+	}
+	if len(store.forgotten) != 1 || store.forgotten[0] != "empty.md" {
+		t.Errorf("forgotten = %v, want [empty.md]", store.forgotten)
 	}
 }

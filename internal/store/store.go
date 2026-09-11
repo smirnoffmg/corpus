@@ -87,6 +87,19 @@ func (s *Store) Replace(ctx context.Context, src corpus.Source, chunks []corpus.
 	return tx.Commit(ctx)
 }
 
+// Forget removes a source entirely. A file with no text layer is not a source
+// of anything: keeping the row would only inflate the corpus with something no
+// search can ever return.
+// The bool says whether anything was actually removed, so a caller can report
+// the change once instead of every pass.
+func (s *Store) Forget(ctx context.Context, path string) (bool, error) {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM sources WHERE path = $1`, path)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
 // PathByHash finds a source by what is inside it rather than where it sits, so
 // that a renamed file can be recognised as the book it already was.
 func PathByHashQuery() string { return `SELECT path FROM sources WHERE kind = $1 AND hash = $2` }
