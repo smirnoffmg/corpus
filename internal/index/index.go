@@ -28,6 +28,9 @@ import (
 type Store interface {
 	Unchanged(ctx context.Context, path, hash string) (bool, error)
 	Replace(ctx context.Context, src corpus.Source, chunks []corpus.Chunk) error
+	SetTitle(ctx context.Context, path, title string) error
+	PathByHash(ctx context.Context, kind, hash string) (string, bool, error)
+	Rename(ctx context.Context, oldPath, newPath, title string) error
 	Prune(ctx context.Context, kind string, seen []string) (int64, error)
 	Stats(ctx context.Context) (sources, chunks int64, err error)
 	MissingEmbeddings(ctx context.Context) (int64, error)
@@ -44,8 +47,9 @@ type Embedder interface {
 type Options struct {
 	Books    string
 	Vault    string
-	Batch    int // chunks per embedding request
-	Parallel int // extraction workers; defaults to the core count, capped
+	Batch    int               // chunks per embedding request
+	Parallel int               // extraction workers; defaults to the core count, capped
+	Titles   map[string]string // manual title overrides, keyed by relative path
 }
 
 type Indexer struct {
@@ -114,6 +118,11 @@ func (ix *Indexer) indexKind(
 
 	// A counting semaphore, as in TGPL 8.6: a vacant slot is a token entitling
 	// one worker to proceed.
+	present := make(map[string]bool, len(files))
+	for _, rel := range files {
+		present[rel] = true
+	}
+
 	tokens := make(chan struct{}, ix.opts.Parallel)
 	var (
 		wg      sync.WaitGroup
@@ -131,7 +140,7 @@ func (ix *Indexer) indexKind(
 			}
 			// One unreadable file must not end the pass: a fault in a single
 			// document is not a failure of the index.
-			if changed, err := ix.indexFile(ctx, kind, root, rel, parse); err != nil {
+			if changed, err := ix.indexFile(ctx, kind, root, rel, present, parse); err != nil {
 				log.Printf("skip %s: %v", rel, err)
 			} else if changed {
 				updated.Add(1)
@@ -158,6 +167,7 @@ func (ix *Indexer) indexKind(
 func (ix *Indexer) indexFile(
 	ctx context.Context,
 	kind, root, rel string,
+	present map[string]bool,
 	parse func(string) ([]corpus.Chunk, error),
 ) (bool, error) {
 	path := filepath.Join(root, rel)
@@ -166,9 +176,28 @@ func (ix *Indexer) indexFile(
 	if err != nil {
 		return false, err
 	}
+	title := ix.title(ctx, kind, path, rel)
+
 	unchanged, err := ix.store.Unchanged(ctx, rel, hash)
-	if err != nil || unchanged {
+	if err != nil {
 		return false, err
+	}
+	if unchanged {
+		// The file is the same, but the title may have been recognised better
+		// since; that is a column update, not a reason to re-extract.
+		return false, ix.store.SetTitle(ctx, rel, title)
+	}
+
+	// Nothing is indexed under this path, but the same bytes may already be
+	// indexed under another one that has since disappeared from the walk: that
+	// is a rename, and re-extracting would throw away the embeddings.
+	old, found, err := ix.store.PathByHash(ctx, kind, hash)
+	if err != nil {
+		return false, err
+	}
+	if found && !present[old] {
+		log.Printf("renamed: %s -> %s", old, rel)
+		return false, ix.store.Rename(ctx, old, rel, title)
 	}
 
 	chunks, err := parse(path)
@@ -179,12 +208,7 @@ func (ix *Indexer) indexFile(
 		chunks[i].Lang = lang.Detect(chunks[i].Body)
 	}
 
-	src := corpus.Source{
-		Kind:  kind,
-		Path:  rel,
-		Title: strings.TrimSuffix(filepath.Base(rel), filepath.Ext(rel)),
-		Hash:  hash,
-	}
+	src := corpus.Source{Kind: kind, Path: rel, Title: title, Hash: hash}
 	return true, ix.store.Replace(ctx, src, chunks)
 }
 
@@ -239,6 +263,16 @@ func (ix *Indexer) Embed(ctx context.Context) error {
 		log.Printf("%d chunks quarantined after repeated embedding failures", n)
 	}
 	return ctx.Err()
+}
+
+// title asks the document what it is called; a note is named by its filename,
+// which in a vault is the note's real name.
+func (ix *Indexer) title(ctx context.Context, kind, path, rel string) string {
+	name := strings.TrimSuffix(filepath.Base(rel), filepath.Ext(rel))
+	if kind != "book" {
+		return name
+	}
+	return extract.PDFTitle(ctx, path, name)
 }
 
 func collect(root, ext string) ([]string, error) {

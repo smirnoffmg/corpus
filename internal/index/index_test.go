@@ -18,24 +18,61 @@ import (
 type recordingStore struct {
 	mu        sync.Mutex
 	replaced  map[string]int
+	titles    map[string]string
 	pruned    map[string][]string
+	indexed   map[string]string // path -> hash, as a real store would remember
+	byHash    map[string]string // hash -> path
+	renamed   []string
 	unchanged bool
 }
 
 func newStore() *recordingStore {
-	return &recordingStore{replaced: map[string]int{}, pruned: map[string][]string{}}
+	return &recordingStore{
+		replaced: map[string]int{},
+		titles:   map[string]string{},
+		pruned:   map[string][]string{},
+		indexed:  map[string]string{},
+		byHash:   map[string]string{},
+	}
 }
 
-func (s *recordingStore) Unchanged(context.Context, string, string) (bool, error) {
+func (s *recordingStore) Unchanged(_ context.Context, path, hash string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.unchanged, nil
+	return s.unchanged || s.indexed[path] == hash, nil
+}
+
+func (s *recordingStore) PathByHash(_ context.Context, _, hash string) (string, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	path, ok := s.byHash[hash]
+	return path, ok, nil
+}
+
+func (s *recordingStore) Rename(_ context.Context, oldPath, newPath, _ string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.renamed = append(s.renamed, oldPath+" -> "+newPath)
+	hash := s.indexed[oldPath]
+	delete(s.indexed, oldPath)
+	s.indexed[newPath] = hash
+	s.byHash[hash] = newPath
+	return nil
 }
 
 func (s *recordingStore) Replace(_ context.Context, src corpus.Source, chunks []corpus.Chunk) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.replaced[src.Path] = len(chunks)
+	s.indexed[src.Path] = src.Hash
+	s.byHash[src.Hash] = src.Path
+	return nil
+}
+
+func (s *recordingStore) SetTitle(_ context.Context, path, title string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.titles[path] = title
 	return nil
 }
 
@@ -101,6 +138,23 @@ func TestIndexWalksEveryFileInParallel(t *testing.T) {
 	}
 }
 
+func TestUnchangedFilesStillGetTheirTitleRefreshed(t *testing.T) {
+	notes, books := vault(t, 4)
+	store := newStore()
+	store.unchanged = true
+
+	ix := index.New(store, nopEmbedder{}, index.Options{Books: books, Vault: notes, Parallel: 2})
+	if err := ix.Index(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if len(store.titles) != 4 {
+		t.Errorf("refreshed %d titles, want 4 — recognising a title must not need a re-extract", len(store.titles))
+	}
+}
+
 func TestIndexSkipsFilesWhoseHashIsUnchanged(t *testing.T) {
 	notes, books := vault(t, 8)
 	store := newStore()
@@ -149,5 +203,36 @@ func TestEmptyDirectoryDoesNotPrune(t *testing.T) {
 	if len(store.pruned) != 0 {
 		// A missing mount looks exactly like "every file was deleted".
 		t.Errorf("pruned %v on an empty directory", store.pruned)
+	}
+}
+
+func TestRenamingAFileIsNotReindexing(t *testing.T) {
+	notes, books := vault(t, 4)
+	store := newStore()
+	opts := index.Options{Books: books, Vault: notes, Parallel: 4}
+
+	ix := index.New(store, nopEmbedder{}, opts)
+	if err := ix.Index(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if replaced, _ := store.counts(); replaced != 4 {
+		t.Fatalf("first pass indexed %d notes, want 4", replaced)
+	}
+
+	if err := os.Rename(filepath.Join(notes, "note-000.md"), filepath.Join(notes, "Настоящее название.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := index.New(store, nopEmbedder{}, opts).Index(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if len(store.renamed) != 1 {
+		t.Errorf("recorded %v renames, want 1 — a rename must not re-extract", store.renamed)
+	}
+	if _, reindexed := store.replaced["Настоящее название.md"]; reindexed {
+		t.Error("the renamed file was extracted again, discarding its embeddings")
 	}
 }

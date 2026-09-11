@@ -87,6 +87,39 @@ func (s *Store) Replace(ctx context.Context, src corpus.Source, chunks []corpus.
 	return tx.Commit(ctx)
 }
 
+// PathByHash finds a source by what is inside it rather than where it sits, so
+// that a renamed file can be recognised as the book it already was.
+func PathByHashQuery() string { return `SELECT path FROM sources WHERE kind = $1 AND hash = $2` }
+
+func (s *Store) PathByHash(ctx context.Context, kind, hash string) (string, bool, error) {
+	var path string
+	err := s.pool.QueryRow(ctx, PathByHashQuery(), kind, hash).Scan(&path)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return path, true, nil
+}
+
+// Rename moves a source to its new path, keeping its chunks and their
+// embeddings: the file was renamed, not replaced.
+func (s *Store) Rename(ctx context.Context, oldPath, newPath, title string) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE sources SET path = $2, title = $3, indexed_at = now() WHERE path = $1`,
+		oldPath, newPath, title)
+	return err
+}
+
+// SetTitle refreshes a source's display name without touching its chunks, so
+// recognising a better title never costs the embeddings.
+func (s *Store) SetTitle(ctx context.Context, path, title string) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE sources SET title = $2 WHERE path = $1 AND title <> $2`, path, title)
+	return err
+}
+
 // Prune drops sources of a kind whose files have disappeared from disk.
 func (s *Store) Prune(ctx context.Context, kind string, seen []string) (int64, error) {
 	tag, err := s.pool.Exec(ctx,

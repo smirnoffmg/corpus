@@ -124,6 +124,20 @@ over one is just its public interface repeated (Khononov, printed p. 151). What
 the layering *does* enforce is direction: `internal/corpus` holds the types and
 imports nothing, and extraction, storage, ranking and the API all point at it.
 
+## Naming books
+
+A citation shows the source's title, and a title comes from the filename, so the
+filenames in the library are the names. Rename freely: a source is matched by the
+hash of its contents, so a renamed file is recognised as the book it already was
+and keeps its chunks and their embeddings — renaming costs nothing.
+
+Where a filename is opaque — `1476.pdf`, `ТЧА.pdf` — the title is recognised from
+the document instead: PDF metadata first, then the cover page, with the obvious
+traps rejected (authoring-tool artifacts, the author line, letter-spaced series
+headings, mojibake from a mis-decoded font). That is right about three times in
+four, which is why it never overrules a filename that already reads as a title.
+The remaining quarter is fixed by renaming the file.
+
 ## Lint
 
 ```sh
