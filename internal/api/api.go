@@ -223,6 +223,25 @@ func (s *Service) Handler() http.Handler {
 		writeJSON(w, passage)
 	})
 
+	// /healthz answers "is this process alive", and stays 200 while the embedder
+	// is away: search still works on full text, and a liveness probe that fails
+	// on a degraded-but-working service invites a restart that fixes nothing.
+	// /status is where the degradation is visible.
+	mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
+		sources, chunks, err := s.store.Stats(r.Context())
+		status := map[string]any{"sources": sources, "chunks": chunks, "db": "ok"}
+		if err != nil {
+			status["db"] = err.Error()
+		}
+
+		status["embedder"] = "ok"
+		if _, err := s.embedder.Embed(r.Context(), []string{"проверка"}); err != nil {
+			status["embedder"] = "unreachable"
+			status["degraded"] = "search is running on full text alone; vectors are not being written"
+		}
+		writeJSON(w, status)
+	})
+
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		if _, _, err := s.store.Stats(r.Context()); err != nil {
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)

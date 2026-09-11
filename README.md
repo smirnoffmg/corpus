@@ -117,6 +117,17 @@ worked only while every statement happened to be idempotent — and the migratio
 that renamed a column was not. That one carries a guard, because it was first
 applied by hand before goose existed here; new migrations need no such thing.
 
+**The indexer reports when the embedder is gone.** ollama runs on the host, so
+compose cannot restart it — but it can make the loss visible instead of leaving
+the stack green while search quietly falls back to full text alone. The indexer's
+healthcheck probes ollama, and `docker compose ps` shows it unhealthy after two
+failed cycles. `GET /status` says the same in words, alongside the corpus counts;
+`/healthz` deliberately stays 200, because a liveness probe that fails on a
+degraded-but-serving process invites a restart that fixes nothing.
+
+ollama itself is not managed here. If it should survive a reboot,
+`brew services start ollama`.
+
 **Integration is a shared database.** The indexer and `mcpd` never talk to each
 other; Postgres is the only channel between them (EIP p. 83, the pattern Fowler
 wrote up). The usual objection — semantic dissonance between applications that
