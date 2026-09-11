@@ -30,8 +30,28 @@ As an MCP server:
 claude mcp add --transport http corpus http://localhost:8080/mcp
 ```
 
-`kind` is `book`, `vault`, or empty for both. The query goes through
-`websearch_to_tsquery`, so `"точная фраза"` and `-исключение` work.
+`kind` is `book`, `vault`, or empty for both. `mode` picks the retrieval method:
+
+| mode | finds | good for |
+| --- | --- | --- |
+| `fts` | the words you typed, stemmed | exact terms, names, quotes |
+| `vector` | passages about the same thing | a topic you cannot name exactly |
+| `hybrid` (default) | both lists fused by rank | most questions |
+
+The `fts` query goes through `websearch_to_tsquery`, so `"точная фраза"` and
+`-исключение` work. `GET /compare?q=…` runs all three and returns them side by
+side.
+
+## Embeddings
+
+Vectors come from **bge-m3** (1024 dims, multilingual) served by ollama **on the
+host**, not in the stack: on macOS a containerised ollama is CPU-only, while the
+host process uses the GPU. Nothing is sent anywhere — the corpus includes a
+personal diary, and that rules out a hosted embedding API.
+
+Embedding is a pass of its own, separate from extraction, and only touches rows
+where `embedding IS NULL`. It is therefore resumable, and a missing or slow
+ollama degrades hybrid search to plain full-text rather than stalling the index.
 
 ## Why Postgres
 

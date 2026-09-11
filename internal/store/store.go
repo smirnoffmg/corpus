@@ -20,6 +20,7 @@ type Source struct {
 }
 
 type Hit struct {
+	ID      int64   `json:"-"`
 	Kind    string  `json:"kind"`
 	Title   string  `json:"title"`
 	Path    string  `json:"path"`
@@ -117,7 +118,8 @@ WITH q AS (
     SELECT websearch_to_tsquery('russian', $1) AS ru,
            websearch_to_tsquery('english', $1) AS en
 )
-SELECT s.kind,
+SELECT c.id,
+       s.kind,
        s.title,
        s.path,
        c.locator,
@@ -143,7 +145,7 @@ func (s *Store) Search(ctx context.Context, query, kind string, limit int) ([]Hi
 	var hits []Hit
 	for rows.Next() {
 		var h Hit
-		if err := rows.Scan(&h.Kind, &h.Title, &h.Path, &h.Locator, &h.Rank, &h.Snippet); err != nil {
+		if err := rows.Scan(&h.ID, &h.Kind, &h.Title, &h.Path, &h.Locator, &h.Rank, &h.Snippet); err != nil {
 			return nil, err
 		}
 		hits = append(hits, h)

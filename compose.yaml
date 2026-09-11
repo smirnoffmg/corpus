@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:18-alpine
+    image: pgvector/pgvector:pg18
     environment:
       POSTGRES_DB: corpus
       POSTGRES_USER: corpus
@@ -26,6 +26,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
   mcpd:
@@ -35,6 +37,8 @@ services:
       DATABASE_URL: postgres://corpus:${POSTGRES_PASSWORD:-corpus}@db:5432/corpus
     ports:
       - "127.0.0.1:8080:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       db:
         condition: service_healthy
