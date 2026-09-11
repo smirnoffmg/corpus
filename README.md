@@ -63,7 +63,16 @@ claude mcp add --transport http corpus http://localhost:8080/mcp
 | `hybrid` (default) | both lists fused by rank      | most questions                  |
 
 The `fts` query goes through `websearch_to_tsquery`, so `"точная фраза"` and
-`-исключение` work. `per_source=N` keeps one book or note from filling the page
+`-исключение` work — and it joins your words with AND, so a question phrased as a
+sentence usually returns nothing while its one real term returns plenty.
+
+**Full-text search does not cross languages.** Each chunk is stemmed with the
+Postgres configuration for its own language, and a Russian query is stemmed as
+Russian: it can never match an English page, because stemming is not translation.
+Half this corpus is English, so that is half the library invisible to `fts` for a
+Russian question. The vector leg is what bridges it — "как ограничить число
+одновременно работающих горутин" returns nothing in `fts` and Go in Practice
+p. 63 in `vector`. This is why `hybrid` is the default. `per_source=N` keeps one book or note from filling the page
 with N+1 paragraphs of the same chapter; it is off by default, because the
 question "where is this discussed" and the question "does a note about this
 already exist" want different answers. `GET /compare?q=…` runs all three and returns them side by

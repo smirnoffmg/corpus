@@ -160,8 +160,10 @@ func (s *Service) MCP() *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "corpus", Version: "v0.3.0"}, nil)
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "corpus_search",
-		Description: "Search the PDF library and the Obsidian vault. Returns ranked snippets with the book page or note heading to cite.",
+		Name: "corpus_search",
+		Description: "Search the PDF library and the Obsidian vault. Returns ranked snippets with the book page or note heading to cite. " +
+			"The corpus is half Russian and half English. Full-text search works inside one language only — ask a Russian question about an English book and 'fts' returns nothing, every time — so cross the language barrier with the default 'hybrid' or with 'vector'. " +
+			"'fts' also joins your words with AND: a question phrased as a sentence usually returns nothing, while the one term you actually want returns plenty.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in searchInput) (*mcp.CallToolResult, searchOutput, error) {
 		hits, err := s.Search(ctx, corpus.Query{
 			Text: in.Query, Kind: in.Kind, Mode: in.Mode,
