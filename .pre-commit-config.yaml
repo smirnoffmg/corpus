@@ -18,14 +18,18 @@ repos:
   # staticcheck ещё и чувствителен к версии Go.
   - repo: local
     hooks:
-      - id: gofmt
-        name: gofmt
-        entry: gofmt -w
+      # fmt правит (gofmt + goimports с локальным префиксом), run — проверяет,
+      # в том числе форматирование. Отдельный хук gofmt был бы и лишним, и слабее:
+      # он не знает про группировку импортов.
+      - id: golangci-lint-fmt
+        name: golangci-lint fmt
+        entry: golangci-lint fmt
         language: system
-        types: [go]
+        always_run: true
+        pass_filenames: false
 
       - id: golangci-lint
-        name: golangci-lint
+        name: golangci-lint run
         entry: golangci-lint run
         language: system
         always_run: true       # миграция, compose или набор запросов тоже ломают сборку

@@ -164,6 +164,12 @@ prints but never blocks: the corpus keeps growing, so a fixed threshold would cr
 wolf; the numbers are there to be looked at when a change touches ranking.
 `--no-verify` skips the lot, deliberately.
 
+Formatting is `golangci-lint fmt`, not a separate `gofmt` hook: it applies the
+`formatters` section of `.golangci.yml` — gofmt *and* goimports with this
+module's local prefix — and `golangci-lint run` reports the same violations
+without rewriting, so a commit forced through with `--no-verify` still trips the
+linter.
+
 The Go tools run as `repo: local` with `language: system` — the same
 `golangci-lint` binary used by hand, not a copy the hook installs for itself.
 That matters here: its bundled staticcheck is sensitive to the Go version, and
