@@ -99,3 +99,22 @@ passing all three. That is the trade for a zero-argument `docker compose up`.
 over one is just its public interface repeated (Khononov, printed p. 151). What
 the layering *does* enforce is direction: `internal/corpus` holds the types and
 imports nothing, and extraction, storage, ranking and the API all point at it.
+
+## Evaluation
+
+`eval/queries.json` holds judged queries: a question, and the pages that answer
+it. Ground truth was located by exact phrase in the text, never by this system's
+own ranking — a set built from the tool's own output would only measure its
+agreement with itself.
+
+```sh
+go run ./cmd/eval -v
+```
+
+Half the queries are exact terminology and half are paraphrases or questions in
+the other language from the book, because that is the split that separates the
+retrieval modes. The set is small and I wrote it alone, so treat it as a
+regression guard for changes to ranking, not as an absolute measure of quality.
+
+Nothing about ranking — length normalisation, `hnsw.ef`, the RRF constant —
+should be changed without running this before and after.

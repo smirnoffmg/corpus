@@ -29,6 +29,7 @@ type Hit struct {
 	Title   string  `json:"title"`
 	Path    string  `json:"path"`
 	Locator string  `json:"locator"`
+	Page    int     `json:"page,omitempty"`
 	Rank    float32 `json:"rank"`
 	Snippet string  `json:"snippet"`
 }

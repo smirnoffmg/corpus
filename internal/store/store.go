@@ -106,6 +106,7 @@ SELECT c.id,
        s.title,
        s.path,
        c.locator,
+       coalesce(c.page, 0),
        ts_rank_cd(c.tsv, CASE c.lang WHEN 'russian' THEN q.ru ELSE q.en END) AS rank,
        ts_headline(c.lang::regconfig, c.body,
                    CASE c.lang WHEN 'russian' THEN q.ru ELSE q.en END,
@@ -128,7 +129,7 @@ func (s *Store) Search(ctx context.Context, query, kind string, limit int) ([]co
 	hits := make([]corpus.Hit, 0, limit)
 	for rows.Next() {
 		var h corpus.Hit
-		if err := rows.Scan(&h.ID, &h.Kind, &h.Title, &h.Path, &h.Locator, &h.Rank, &h.Snippet); err != nil {
+		if err := rows.Scan(&h.ID, &h.Kind, &h.Title, &h.Path, &h.Locator, &h.Page, &h.Rank, &h.Snippet); err != nil {
 			return nil, err
 		}
 		hits = append(hits, h)

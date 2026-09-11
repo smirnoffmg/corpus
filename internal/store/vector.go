@@ -133,6 +133,7 @@ SELECT c.id,
        s.title,
        s.path,
        c.locator,
+       coalesce(c.page, 0),
        1 - (c.embedding <=> $1::vector) AS score,
        left(c.body, 240)
 FROM chunks c
@@ -152,7 +153,7 @@ func (s *Store) SearchVector(ctx context.Context, vector []float32, kind string,
 	hits := make([]corpus.Hit, 0, limit)
 	for rows.Next() {
 		var h corpus.Hit
-		if err := rows.Scan(&h.ID, &h.Kind, &h.Title, &h.Path, &h.Locator, &h.Rank, &h.Snippet); err != nil {
+		if err := rows.Scan(&h.ID, &h.Kind, &h.Title, &h.Path, &h.Locator, &h.Page, &h.Rank, &h.Snippet); err != nil {
 			return nil, err
 		}
 		hits = append(hits, h)
