@@ -99,3 +99,22 @@ func TestCancellationStopsTheRetryLoop(t *testing.T) {
 		t.Errorf("kept calling after cancellation: %d calls", got)
 	}
 }
+
+func TestErrorNamesTheTriesActuallyMade(t *testing.T) {
+	// A permanent failure is not retried, so the message must not claim it was.
+	srv, _ := server(t, http.StatusNotFound, 99)
+	_, err := embed.New(srv.URL, "no-such-model", fast()).Embed(context.Background(), []string{"текст"})
+	if err == nil {
+		t.Fatal("no error")
+	}
+	if strings.Contains(err.Error(), "attempts") {
+		t.Errorf("a single try was reported as several: %v", err)
+	}
+
+	// A transient one is retried, and then the count is worth reporting.
+	busy, _ := server(t, http.StatusServiceUnavailable, 99)
+	_, err = embed.New(busy.URL, "bge-m3", fast()).Embed(context.Background(), []string{"текст"})
+	if err == nil || !strings.Contains(err.Error(), "after 4 attempts") {
+		t.Errorf("error does not name the four tries: %v", err)
+	}
+}

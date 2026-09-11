@@ -3,6 +3,7 @@ package extract
 import (
 	"regexp"
 	"strings"
+	"unicode"
 )
 
 const (
@@ -16,12 +17,36 @@ const (
 	// indexEntryShare of lines shaped "term, 12, 34" makes a subject index.
 	indexEntryShare = 0.5
 	indexMinLines   = 10
+	// foreignLetterShare above which a page is a mis-decoded font rather than
+	// text. This library is Russian and English; a page of "ɤɢɧɭɬɵɣ ɝɨɪɲɨɤ" or
+	// "Î÷åâèäíî, ÷òî" is Cyrillic read through the wrong encoding, and no query
+	// will ever match it. Measured against the corpus: real pages with formulas
+	// and Greek sit below 0.3, whole broken books sit above it.
+	foreignLetterShare = 0.3
+	// minLettersToJudge keeps the rule off pages too short to measure.
+	minLettersToJudge = 50
 )
 
 var (
 	dotLeader  = regexp.MustCompile(`\.\s?\.\s?\.\s?\.`)
 	indexEntry = regexp.MustCompile(`^\s*\S.*,\s*\d+(\s*[,–-]\s*\d+)*\s*$`)
 )
+
+// unreadable reports whether a page is mojibake: letters that belong to neither
+// alphabet this library is written in.
+func unreadable(page string) bool {
+	var letters, foreign int
+	for _, r := range page {
+		if !unicode.IsLetter(r) {
+			continue
+		}
+		letters++
+		if r >= unicode.MaxASCII && !unicode.Is(unicode.Cyrillic, r) {
+			foreign++
+		}
+	}
+	return letters >= minLettersToJudge && float64(foreign)/float64(letters) > foreignLetterShare
+}
 
 // frontOrBackMatter reports whether a page is contents, index or a near-empty
 // divider. Such pages match any query that names a term the book covers, which

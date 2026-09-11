@@ -40,7 +40,7 @@ func PDF(ctx context.Context, path string) ([]corpus.Chunk, error) {
 	chunks := make([]corpus.Chunk, 0, len(pages))
 	for i, body := range pages {
 		body = strings.TrimSpace(body)
-		if body == "" || frontOrBackMatter(body) {
+		if body == "" || frontOrBackMatter(body) || unreadable(body) {
 			continue
 		}
 		page := i + 1

@@ -71,9 +71,11 @@ func (t transient) Unwrap() error { return t.err }
 func (c *Client) Embed(ctx context.Context, inputs []string) ([][]float32, error) {
 	delay := c.backoff
 	var err error
+	made := 0
 
 	for attempt := 1; attempt <= c.attempts; attempt++ {
 		var vectors [][]float32
+		made = attempt
 		vectors, err = c.embedOnce(ctx, inputs)
 		if err == nil {
 			return vectors, nil
@@ -90,7 +92,13 @@ func (c *Client) Embed(ctx context.Context, inputs []string) ([][]float32, error
 		}
 		delay *= 2
 	}
-	return nil, fmt.Errorf("after %d attempts: %w", c.attempts, err)
+	// Reporting the budget rather than the tries actually made reads as if a
+	// permanent failure had been retried; it sent one diagnosis down the wrong
+	// path already.
+	if made == 1 {
+		return nil, err
+	}
+	return nil, fmt.Errorf("after %d attempts: %w", made, err)
 }
 
 func (c *Client) embedOnce(ctx context.Context, inputs []string) ([][]float32, error) {

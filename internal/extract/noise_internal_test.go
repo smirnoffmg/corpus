@@ -55,3 +55,38 @@ func TestFrontOrBackMatterDropsADivider(t *testing.T) {
 		t.Error("a part divider was kept")
 	}
 }
+
+func TestUnreadableSpotsMisdecodedText(t *testing.T) {
+	// Both are real pages from this library: Cyrillic read through the wrong
+	// font encoding, in two different flavours.
+	pages := []string{
+		"ɤɢɧɭɬɵɣ ɝɨɪɲɨɤ, ɚ ɡɚɬɟɦ ɜ ɩɟɪɟɜɟɪɧɭɬɨɦ ɜɢɞɟ ɜɵɤɥɚɞɵɜɚɥɚ ɧɚ ɫɬɨɥ ɢ ɫɧɨɜɚ",
+		"Î÷åâèäíî, ÷òî íà îñíîâå ñêàëîãðàììû ìîæíî ââåñòè åùå îäíó õàðàêòåðèñòèêó",
+	}
+	for _, page := range pages {
+		if !unreadable(page) {
+			t.Errorf("mojibake was kept: %.40s…", page)
+		}
+	}
+}
+
+func TestUnreadableKeepsRealPagesWithSymbols(t *testing.T) {
+	// Measured against the corpus: pages like these sit below the threshold.
+	pages := []string{
+		"935 Multivariable Calculus. What is the derivative of log(x) with respect to x, " +
+			"and how does ∂f/∂x relate to the gradient ∇f when f: ℝⁿ → ℝ is differentiable?",
+		"Шаг 2. Разбиение классов, полученных на шаге 1 (см. рис. 2.4), продолжается " +
+			"до тех пор, пока каждый класс не окажется неразделимым по любому входу.",
+	}
+	for _, page := range pages {
+		if unreadable(page) {
+			t.Errorf("a real page was dropped: %.40s…", page)
+		}
+	}
+}
+
+func TestUnreadableIgnoresPagesTooShortToJudge(t *testing.T) {
+	if unreadable("Î÷åâ") {
+		t.Error("judged a page with almost no letters")
+	}
+}
