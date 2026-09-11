@@ -142,7 +142,7 @@ func (s *Store) Search(ctx context.Context, query, kind string, limit int) ([]Hi
 	}
 	defer rows.Close()
 
-	hits := []Hit{}
+	hits := make([]Hit, 0, limit)
 	for rows.Next() {
 		var h Hit
 		if err := rows.Scan(&h.ID, &h.Kind, &h.Title, &h.Path, &h.Locator, &h.Rank, &h.Snippet); err != nil {

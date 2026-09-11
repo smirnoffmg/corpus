@@ -48,8 +48,48 @@ func TestDetectFoliosRejectsBooksWithoutNumbering(t *testing.T) {
 	}
 }
 
-func TestFolioCandidateIgnoresOversizedNumbers(t *testing.T) {
-	if got := folioCandidate("Copyright 20250\n\ntext\n"); got != 0 {
-		t.Errorf("candidate = %d, want 0", got)
+func TestFolioCandidatesIgnoreOversizedNumbers(t *testing.T) {
+	if got := folioCandidates("Copyright 20250\n\ntext\n"); len(got) != 0 {
+		t.Errorf("candidates = %v, want none", got)
+	}
+}
+
+// stamped reproduces a library copy: every page carries two stamped lines above
+// the running head that holds the real page number.
+func stamped(pages, frontMatter int) []string {
+	out := make([]string, 0, pages)
+	for i := range frontMatter {
+		out = append(out, fmt.Sprintf(
+			"The Go Programming Language\n© 2016 Donovan & Kernighan\nrevision 3b600c, date 29 Sep 2015\n\nfront %d\n", i))
+	}
+	for i := 1; i <= pages; i++ {
+		// The stamp takes three lines before the running head, and the number
+		// sits at the outer edge: left on even pages, right on odd ones.
+		head := fmt.Sprintf("SECTION 8.5. LOOPING IN PARALLEL   %d", i)
+		if i%2 == 0 {
+			head = fmt.Sprintf("%d   CHAPTER 8. GOROUTINES", i)
+		}
+		out = append(out, fmt.Sprintf(
+			"The Go Programming Language\n© 2016 Donovan & Kernighan\nrevision 3b600c, date 29 Sep 2015\n%s\n\nbody\n", head))
+	}
+	return out
+}
+
+func TestDetectFoliosSeesPastStampedHeaders(t *testing.T) {
+	folios := detectFolios(stamped(40, 19))
+	if got := folios[19]; got != 1 {
+		t.Errorf("first body page printed number = %d, want 1", got)
+	}
+	if got := folios[55]; got != 37 {
+		t.Errorf("page 56 of the PDF printed number = %d, want 37", got)
+	}
+}
+
+func TestLocatorNamesThePdfPageWhenPrintedIsUnknown(t *testing.T) {
+	if got, want := locator(256, 0), "PDF 256"; got != want {
+		t.Errorf("locator = %q, want %q", got, want)
+	}
+	if got, want := locator(58, 21), "с. 21 (PDF 58)"; got != want {
+		t.Errorf("locator = %q, want %q", got, want)
 	}
 }

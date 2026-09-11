@@ -2,7 +2,8 @@
 package rank
 
 import (
-	"sort"
+	"cmp"
+	"slices"
 
 	"github.com/smirnoffmg/corpus/internal/store"
 )
@@ -32,11 +33,11 @@ func Fuse(lists ...[]store.Hit) []store.Hit {
 		hit.Rank = scores[id]
 		fused = append(fused, hit)
 	}
-	sort.Slice(fused, func(i, j int) bool {
-		if fused[i].Rank != fused[j].Rank {
-			return fused[i].Rank > fused[j].Rank
+	slices.SortFunc(fused, func(a, b store.Hit) int {
+		if c := cmp.Compare(b.Rank, a.Rank); c != 0 {
+			return c
 		}
-		return fused[i].ID < fused[j].ID
+		return cmp.Compare(a.ID, b.ID)
 	})
 	return fused
 }

@@ -106,7 +106,7 @@ func (s *Store) SearchVector(ctx context.Context, vector []float32, kind string,
 	}
 	defer rows.Close()
 
-	hits := []Hit{}
+	hits := make([]Hit, 0, limit)
 	for rows.Next() {
 		var h Hit
 		if err := rows.Scan(&h.ID, &h.Kind, &h.Title, &h.Path, &h.Locator, &h.Rank, &h.Snippet); err != nil {
@@ -121,6 +121,9 @@ func (s *Store) SearchVector(ctx context.Context, vector []float32, kind string,
 // as their text form.
 func vectorLiteral(v []float32) string {
 	var b strings.Builder
+	// A 1024-dimension vector is ~10 KB of text; growing once avoids a dozen
+	// reallocations per call.
+	b.Grow(len(v)*12 + 2)
 	b.WriteByte('[')
 	for i, f := range v {
 		if i > 0 {

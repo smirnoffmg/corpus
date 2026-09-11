@@ -3,11 +3,15 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -79,7 +83,9 @@ func main() {
 	model := flag.String("model", "bge-m3", "embedding model")
 	flag.Parse()
 
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	st, err := store.Open(ctx, os.Getenv("DATABASE_URL"))
 	if err != nil {
 		log.Fatalf("connect: %v", err)
@@ -110,8 +116,7 @@ func main() {
 	// is far less ceremony than an MCP handshake.
 	mux.HandleFunc("/search", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		limit, _ := strconv.Atoi(q.Get("limit"))
-		hits, err := s.run(r.Context(), q.Get("q"), q.Get("kind"), q.Get("mode"), clampLimit(limit))
+		hits, err := s.run(r.Context(), q.Get("q"), q.Get("kind"), q.Get("mode"), clampLimit(atoiOrZero(q.Get("limit"))))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -120,19 +125,27 @@ func main() {
 	})
 
 	// Side by side, for judging what each retrieval method is actually good at.
+	// Both legs run once and the hybrid is fused from them: running the three
+	// modes independently would embed the same query twice.
 	mux.HandleFunc("/compare", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		limit := clampLimit(mustAtoi(q.Get("limit")))
-		out := map[string][]store.Hit{}
-		for _, mode := range []string{"fts", "vector", "hybrid"} {
-			hits, err := s.run(r.Context(), q.Get("q"), q.Get("kind"), mode, limit)
-			if err != nil {
-				http.Error(w, mode+": "+err.Error(), http.StatusInternalServerError)
-				return
-			}
-			out[mode] = hits
+		limit := clampLimit(atoiOrZero(q.Get("limit")))
+
+		text, err := s.store.Search(r.Context(), q.Get("q"), q.Get("kind"), limit*2)
+		if err != nil {
+			http.Error(w, "fts: "+err.Error(), http.StatusInternalServerError)
+			return
 		}
-		writeJSON(w, out)
+		semantic, err := s.vector(r.Context(), q.Get("q"), q.Get("kind"), limit*2)
+		if err != nil {
+			http.Error(w, "vector: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string][]store.Hit{
+			"fts":    truncate(text, limit),
+			"vector": truncate(semantic, limit),
+			"hybrid": truncate(rank.Fuse(text, semantic), limit),
+		})
 	})
 
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -143,8 +156,25 @@ func main() {
 		_, _ = w.Write([]byte("ok"))
 	})
 
+	srv := &http.Server{
+		Addr:              *addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Printf("serve: %v", err)
+			stop()
+		}
+	}()
 	log.Printf("corpus mcp listening on %s/mcp", *addr)
-	log.Fatal(http.ListenAndServe(*addr, mux))
+
+	<-ctx.Done()
+	shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutdown); err != nil {
+		log.Printf("shutdown: %v", err)
+	}
 }
 
 func clampLimit(n int) int {
@@ -154,7 +184,9 @@ func clampLimit(n int) int {
 	return n
 }
 
-func mustAtoi(s string) int {
+// atoiOrZero reads an optional numeric query parameter; absent and malformed
+// both mean "unset", which the caller turns into the default.
+func atoiOrZero(s string) int {
 	n, _ := strconv.Atoi(s)
 	return n
 }

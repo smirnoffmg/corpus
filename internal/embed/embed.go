@@ -7,7 +7,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -54,6 +56,13 @@ func (c *Client) Embed(ctx context.Context, inputs []string) ([][]float32, error
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	// Without this, a 404 for a missing model or an HTML error page from a
+	// proxy surfaces as a JSON syntax error.
+	if resp.StatusCode != http.StatusOK {
+		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return nil, fmt.Errorf("ollama %s: %s", resp.Status, strings.TrimSpace(string(snippet)))
+	}
 
 	var out response
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {

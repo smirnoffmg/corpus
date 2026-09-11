@@ -8,12 +8,18 @@ import (
 )
 
 // locator names the page to cite. The printed number is the one a reader can
-// follow in any copy of the book; the PDF page is what opens this file.
+// follow in any copy of the book; the PDF page is what opens this file. When the
+// printed number is unknown the locator says so rather than passing a PDF page
+// off as a page of the book.
 func locator(page, printed int) string {
-	if printed > 0 && printed != page {
+	switch {
+	case printed == 0:
+		return fmt.Sprintf("PDF %d", page)
+	case printed != page:
 		return fmt.Sprintf("с. %d (PDF %d)", printed, page)
+	default:
+		return fmt.Sprintf("с. %d", page)
 	}
-	return fmt.Sprintf("с. %d", page)
 }
 
 // PDF extracts one Chunk per page via poppler's pdftotext.

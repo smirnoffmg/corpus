@@ -3,6 +3,7 @@ package extract
 import (
 	"bufio"
 	"os"
+	"slices"
 	"strings"
 )
 
@@ -80,7 +81,7 @@ func Markdown(path string) ([]Chunk, error) {
 	flush()
 
 	for i := range chunks {
-		chunks[i].Tags = tags
+		chunks[i].Tags = slices.Clone(tags)
 	}
 	return chunks, nil
 }
