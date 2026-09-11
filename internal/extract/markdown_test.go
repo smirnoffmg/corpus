@@ -102,3 +102,13 @@ func TestMarkdownInlineTagList(t *testing.T) {
 		t.Fatalf("tags = %v, want 2 items", chunks[0].Tags)
 	}
 }
+
+func TestMarkdownLocatorSkipsMissingLevels(t *testing.T) {
+	chunks, err := Markdown(write(t, "## Что это\n\nОпределение.\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := chunks[0].Locator, "Что это"; got != want {
+		t.Errorf("locator = %q, want %q", got, want)
+	}
+}

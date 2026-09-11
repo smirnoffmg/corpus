@@ -92,8 +92,9 @@ func (s *Store) Replace(ctx context.Context, src Source, chunks []extract.Chunk)
 	for _, c := range chunks {
 		batch.Queue(`
 			INSERT INTO chunks (source_id, ord, page, locator, lang, tags, body, tsv)
-			VALUES ($1, $2, NULLIF($3, 0), $4, $5, $6, $7, to_tsvector($5::regconfig, $7))`,
-			id, c.Ord, c.Page, c.Locator, c.Lang, c.Tags, c.Body)
+			VALUES ($1, $2, NULLIF($3, 0), $4, $5, COALESCE($6::text[], '{}'), $7,
+			        to_tsvector($8::regconfig, $7))`,
+			id, c.Ord, c.Page, c.Locator, c.Lang, c.Tags, c.Body, c.Lang)
 	}
 	if err := tx.SendBatch(ctx, batch).Close(); err != nil {
 		return fmt.Errorf("insert chunks for %s: %w", src.Path, err)

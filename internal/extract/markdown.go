@@ -33,7 +33,7 @@ func Markdown(path string) ([]Chunk, error) {
 		}
 		chunks = append(chunks, Chunk{
 			Ord:     len(chunks) + 1,
-			Locator: strings.Join(trail, " > "),
+			Locator: joinTrail(trail),
 			Tags:    tags,
 			Body:    strings.TrimSpace(body.String()),
 		})
@@ -83,6 +83,18 @@ func Markdown(path string) ([]Chunk, error) {
 		chunks[i].Tags = tags
 	}
 	return chunks, nil
+}
+
+// joinTrail skips empty levels: a note that opens at H2 with no H1 above it
+// would otherwise be cited as " > Section".
+func joinTrail(trail []string) string {
+	kept := make([]string, 0, len(trail))
+	for _, t := range trail {
+		if t != "" {
+			kept = append(kept, t)
+		}
+	}
+	return strings.Join(kept, " > ")
 }
 
 func headingLevel(line string) int {
