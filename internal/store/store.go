@@ -14,7 +14,20 @@ import (
 type Store struct{ pool *pgxpool.Pool }
 
 func Open(ctx context.Context, dsn string) (*Store, error) {
-	pool, err := pgxpool.New(ctx, dsn)
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return nil, err
+	}
+	// An HNSW scan gathers its candidates before the WHERE clause is applied, so
+	// a filtered search ("only the vault") could return a handful of rows — or
+	// none at all — while the index held plenty of matches. Iterative scans keep
+	// walking the index until the filter has yielded enough.
+	cfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		_, setErr := conn.Exec(ctx, "SET hnsw.iterative_scan = strict_order")
+		return setErr
+	}
+
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}

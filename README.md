@@ -215,6 +215,18 @@ The dead ollama address is deliberate: the run then also shows the embedding pas
 failing without taking the text index down with it. Last run: 8 books, 226 notes,
 8182 chunks, no races.
 
+## A note on filtered vector search
+
+An HNSW scan collects its candidates *before* the `WHERE` clause runs, so
+`kind=vault` could filter away every one of them and return nothing while the
+index held plenty of matches — silently, as an empty result rather than an error.
+Connections therefore set `hnsw.iterative_scan = strict_order`, which keeps
+walking the index until the filter has yielded enough rows.
+
+This is not covered by a test: the starvation only appears once the index holds
+far more rows than a test would insert. It shows up in the evaluation instead —
+that is what caught it.
+
 ## Evaluation
 
 `eval/queries.json` holds judged queries: a question, and the pages that answer
