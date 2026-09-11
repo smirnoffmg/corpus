@@ -238,10 +238,21 @@ agreement with itself.
 go run ./cmd/eval -v
 ```
 
-Half the queries are exact terminology and half are paraphrases or questions in
-the other language from the book, because that is the split that separates the
-retrieval modes. The set is small and I wrote it alone, so treat it as a
-regression guard for changes to ranking, not as an absolute measure of quality.
+The queries are split between exact terminology and paraphrases — questions in
+the reader's own words, sometimes in the other language from the book — because
+that is the split that separates the retrieval modes. Books and the vault get
+roughly half each: a set weighted to one of them cannot see a change to the
+other, which is how a chunking change once measured as no change at all.
+
+The set is small and I wrote it alone, so treat it as a regression guard for
+changes to ranking, not as an absolute measure of quality. Numbers are comparable
+only across runs on the same set and the same corpus — adding queries or books
+moves them without anything in the code changing.
+
+A query may be repaired when it is *ambiguous* — "split the data into groups and
+take from each in proportion" describes SQL grouping as well as stratified
+sampling, and the corpus has both. A query that is merely *hard* stays as it is;
+rewriting those until they pass turns the set blind.
 
 Nothing about ranking — length normalisation, `hnsw.ef`, the RRF constant —
 should be changed without running this before and after.
