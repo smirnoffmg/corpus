@@ -153,15 +153,22 @@ The remaining quarter is fixed by renaming the file.
 ## Checks before a commit
 
 ```sh
-git config core.hooksPath githooks   # once per clone
+pre-commit install          # once per clone
+pre-commit run --all-files  # the whole repository, not just what is staged
 ```
 
-`githooks/pre-commit` refuses a commit that is unformatted, fails the linters or
-fails the tests (with `-race`, and with the store tests pointed at the compose
-database when it is listening, so they run instead of skipping). It then prints
-the retrieval evaluation without enforcing it — the corpus keeps growing, so a
-fixed threshold would cry wolf; the numbers are there to be looked at when a
-change touches ranking. `--no-verify` skips the lot, deliberately.
+A commit is refused if it is unformatted, fails the linters, or fails the tests
+— run with `-race`, and with the store tests pointed at the compose database
+when it is listening, so they run instead of skipping. The retrieval evaluation
+prints but never blocks: the corpus keeps growing, so a fixed threshold would cry
+wolf; the numbers are there to be looked at when a change touches ranking.
+`--no-verify` skips the lot, deliberately.
+
+The Go tools run as `repo: local` with `language: system` — the same
+`golangci-lint` binary used by hand, not a copy the hook installs for itself.
+That matters here: its bundled staticcheck is sensitive to the Go version, and
+two versions disagreeing about the same code is a worse problem than the one the
+hook solves.
 
 ## Lint
 

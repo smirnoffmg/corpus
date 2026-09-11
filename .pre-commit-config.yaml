@@ -1,0 +1,47 @@
+# Установка: pre-commit install
+# Прогон по всему репозиторию: pre-commit run --all-files
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-added-large-files
+        args: [--maxkb=1024]   # книги живут в ~/Desktop/books, в репозитории им не место
+      - id: detect-private-key
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: check-json
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+
+  # Go-инструменты берутся установленные в системе, а не своей копией из хука:
+  # golangci-lint должен совпадать с тем, которым проверяют вручную, а его
+  # staticcheck ещё и чувствителен к версии Go.
+  - repo: local
+    hooks:
+      - id: gofmt
+        name: gofmt
+        entry: gofmt -w
+        language: system
+        types: [go]
+
+      - id: golangci-lint
+        name: golangci-lint
+        entry: golangci-lint run
+        language: system
+        types: [go]
+        pass_filenames: false
+
+      - id: go-test
+        name: go test -race
+        entry: scripts/test.sh
+        language: system
+        types: [go]
+        pass_filenames: false
+
+      - id: corpus-eval
+        name: оценка поиска (справочно)
+        entry: scripts/eval.sh
+        language: system
+        types: [go]
+        pass_filenames: false
+        verbose: true          # печатать вывод, даже когда хук прошёл
