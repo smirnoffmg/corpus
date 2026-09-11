@@ -84,3 +84,16 @@ func TestChooseTitleRejectsFilenameMetadataAndSpacedHeadings(t *testing.T) {
 		t.Errorf("title = %q, want the filename — the metadata is cut off", got)
 	}
 }
+
+func TestChooseTitleSkipsFrontMatterHeadings(t *testing.T) {
+	// "Praise for X" opens many O'Reilly books and was taken as the title.
+	first := []string{"Praise for Communication Patterns", "Communication Patterns"}
+	if got := chooseTitle("", first, "Communication-Patterns-a-Guide"); got != "Communication Patterns" {
+		t.Errorf("title = %q, want the real one after the praise page", got)
+	}
+	for _, heading := range []string{"Table of Contents", "About the Authors", "Foreword by Someone"} {
+		if got := chooseTitle("", []string{heading, "Настоящее название книги"}, "файл"); got == heading {
+			t.Errorf("front matter heading %q was taken as the title", heading)
+		}
+	}
+}

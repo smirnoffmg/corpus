@@ -54,6 +54,10 @@ var toolArtifact = regexp.MustCompile(`(?i)^(microsoft word|corel ventura|adobe|
 // many covers: "В. А. Зорич", "М.А. Скопина", "Matt Butcher".
 var personName = regexp.MustCompile(`^(\p{Lu}\.\s*){1,3}\p{Lu}\p{Ll}+\.?$|^\p{Lu}\p{Ll}+\s+\p{Lu}\p{Ll}+$`)
 
+// frontMatter matches the headings that open a book before its title page:
+// the praise pages, the contents, the dedication.
+var frontMatter = regexp.MustCompile(`(?i)^(advance )?praise for |^(table of )?contents$|^dedication$|^about the authors?$|^foreword`)
+
 // danglingWord catches a title cut off mid-phrase, like "Cloud Native DevOps with".
 var danglingWord = regexp.MustCompile(`(?i)\s(with|and|for|of|the|in|по|для|и|в|на)$`)
 
@@ -67,10 +71,25 @@ func chooseTitle(meta string, first []string, fallback string) string {
 	if t := strings.TrimSpace(meta); plausibleTitle(t) {
 		return t
 	}
+	// Two capitalised words are either an author ("Matt Butcher") or a short
+	// title ("Communication Patterns"), and nothing in the line itself tells
+	// which. So such a candidate is held back and used only if the page offers
+	// nothing better.
+	var weak string
 	for _, line := range first {
-		if plausibleTitle(line) && words(line) >= 2 && !blurb(line) {
-			return line
+		if !plausibleTitle(line) || words(line) < 2 || blurb(line) {
+			continue
 		}
+		if personName.MatchString(line) {
+			if weak == "" {
+				weak = line
+			}
+			continue
+		}
+		return line
+	}
+	if weak != "" {
+		return weak
 	}
 	return fallback
 }
@@ -99,7 +118,7 @@ func plausibleTitle(s string) bool {
 	if len(s) < 8 || len(s) > 200 || toolArtifact.MatchString(s) {
 		return false
 	}
-	if personName.MatchString(s) || danglingWord.MatchString(s) || spacedOut(s) {
+	if danglingWord.MatchString(s) || spacedOut(s) || frontMatter.MatchString(s) {
 		return false
 	}
 	var letters, expected, total int
