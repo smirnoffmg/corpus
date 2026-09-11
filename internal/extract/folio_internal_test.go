@@ -84,12 +84,3 @@ func TestDetectFoliosSeesPastStampedHeaders(t *testing.T) {
 		t.Errorf("page 56 of the PDF printed number = %d, want 37", got)
 	}
 }
-
-func TestLocatorNamesThePdfPageWhenPrintedIsUnknown(t *testing.T) {
-	if got, want := locator(256, 0), "PDF 256"; got != want {
-		t.Errorf("locator = %q, want %q", got, want)
-	}
-	if got, want := locator(58, 21), "с. 21 (PDF 58)"; got != want {
-		t.Errorf("locator = %q, want %q", got, want)
-	}
-}

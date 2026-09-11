@@ -38,7 +38,7 @@ func Markdown(path string) ([]corpus.Chunk, error) {
 		for _, part := range splitSection(body.String()) {
 			chunks = append(chunks, corpus.Chunk{
 				Ord:     len(chunks) + 1,
-				Locator: locator,
+				Heading: locator,
 				Tags:    tags,
 				Body:    part,
 			})

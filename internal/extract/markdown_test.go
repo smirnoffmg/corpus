@@ -40,11 +40,11 @@ tags: daily
 	if len(chunks) != 2 {
 		t.Fatalf("got %d chunks, want 2: %+v", len(chunks), chunks)
 	}
-	if got, want := chunks[0].Locator, "День"; got != want {
-		t.Errorf("first locator = %q, want %q", got, want)
+	if got, want := chunks[0].Heading, "День"; got != want {
+		t.Errorf("first heading = %q, want %q", got, want)
 	}
-	if got, want := chunks[1].Locator, "День > Встречи > 10:00 Планёрка"; got != want {
-		t.Errorf("second locator = %q, want %q", got, want)
+	if got, want := chunks[1].Heading, "День > Встречи > 10:00 Планёрка"; got != want {
+		t.Errorf("second heading = %q, want %q", got, want)
 	}
 	if got, want := chunks[1].Body, "Обсудили релиз."; got != want {
 		t.Errorf("second body = %q, want %q", got, want)
@@ -59,7 +59,7 @@ func TestMarkdownIgnoresHeadingsInsideFences(t *testing.T) {
 	if len(chunks) != 1 {
 		t.Fatalf("got %d chunks, want 1: %+v", len(chunks), chunks)
 	}
-	if got, want := chunks[0].Locator, "Заметка"; got != want {
+	if got, want := chunks[0].Heading, "Заметка"; got != want {
 		t.Errorf("locator = %q, want %q", got, want)
 	}
 }
@@ -111,7 +111,7 @@ func TestMarkdownLocatorSkipsMissingLevels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := chunks[0].Locator, "Что это"; got != want {
+	if got, want := chunks[0].Heading, "Что это"; got != want {
 		t.Errorf("locator = %q, want %q", got, want)
 	}
 }
@@ -138,8 +138,8 @@ func TestLongSectionIsSplitAtParagraphs(t *testing.T) {
 		t.Fatalf("раздел на %d символов остался одним чанком", len(body))
 	}
 	for i, c := range chunks {
-		if c.Locator != "Заметка > Что это" {
-			t.Errorf("часть %d потеряла заголовок: %q", i, c.Locator)
+		if c.Heading != "Заметка > Что это" {
+			t.Errorf("часть %d потеряла заголовок: %q", i, c.Heading)
 		}
 		if c.Ord != i+1 {
 			t.Errorf("часть %d получила ord %d — окно соседей строится по порядку", i, c.Ord)

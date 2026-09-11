@@ -3,12 +3,14 @@
 // at it, rather than at each other.
 package corpus
 
+import "fmt"
+
 // Chunk is one indexable unit: a page of a PDF or a section of a note.
 type Chunk struct {
 	Ord     int
-	Page    int // 0 when the source has no pages
-	Printed int // page number printed on the page; 0 when unknown
-	Locator string
+	Page    int    // 0 when the source has no pages
+	Printed int    // page number printed on the page; 0 when unknown
+	Heading string // path of headings inside a note; empty for a book page
 	Tags    []string
 	Lang    string // Postgres text-search config, filled in by the indexer
 	Body    string
@@ -64,4 +66,26 @@ type Passage struct {
 	Body     string `json:"body"`
 	Previous string `json:"previous,omitempty"`
 	Next     string `json:"next,omitempty"`
+}
+
+// Locator names the place to cite. For a note it is the path of headings; for a
+// book page the number printed on the page, which is what a reader of any copy
+// can follow, with the PDF page alongside when the two differ. When the printed
+// number could not be read the locator says so rather than passing a PDF page
+// off as a page of the book.
+//
+// It is composed here rather than stored: it is a rendering of page and printed,
+// and storing a rendering means re-extracting every book to change how a
+// citation looks.
+func Locator(heading string, page, printed int) string {
+	switch {
+	case heading != "":
+		return heading
+	case printed == 0:
+		return fmt.Sprintf("PDF %d", page)
+	case printed != page:
+		return fmt.Sprintf("с. %d (PDF %d)", printed, page)
+	default:
+		return fmt.Sprintf("с. %d", page)
+	}
 }

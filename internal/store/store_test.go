@@ -48,7 +48,7 @@ func TestReplaceAndSearchRussianIsStemmed(t *testing.T) {
 	})
 
 	chunks := []corpus.Chunk{{
-		Ord: 42, Page: 42, Locator: "с. 42", Lang: "russian",
+		Ord: 42, Page: 42, Printed: 42, Lang: "russian",
 		Body: "Агрегат задаёт границу согласованности внутри предметной области корпускрипт.",
 	}}
 	if err := st.Replace(ctx, src, chunks); err != nil {
@@ -65,6 +65,7 @@ func TestReplaceAndSearchRussianIsStemmed(t *testing.T) {
 
 	for _, h := range hits {
 		if h.Path == src.Path {
+			// The locator is composed from the page, not stored with the chunk.
 			if h.Locator != "с. 42" {
 				t.Errorf("locator = %q, want %q", h.Locator, "с. 42")
 			}
@@ -85,7 +86,7 @@ func TestReplaceIsIdempotentPerSource(t *testing.T) {
 		_, _ = pool.Exec(ctx, `DELETE FROM sources WHERE path = $1`, src.Path)
 	})
 
-	chunk := []corpus.Chunk{{Ord: 1, Locator: "H", Lang: "english", Body: "consistency boundary"}}
+	chunk := []corpus.Chunk{{Ord: 1, Heading: "H", Lang: "english", Body: "consistency boundary"}}
 	for range 2 {
 		if err := st.Replace(ctx, src, chunk); err != nil {
 			t.Fatalf("replace: %v", err)

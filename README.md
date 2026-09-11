@@ -8,6 +8,9 @@ for a note — because the point is to quote a source in a note, not to learn th
 some book mentions the word. Book pages are cited by the number *printed on the
 page*, which is what a reader of any copy can follow; the PDF page follows in
 brackets when the two differ, since that is what opens this particular file.
+The locator is composed on the way out, from the heading, the page and the
+printed number — storing the rendered string once meant re-extracting every book
+to change how a citation looks, which happened twice before it was fixed.
 Where the printed number cannot be read the locator says `PDF 256` rather than
 passing a PDF page off as a page of the book — 40 of the 52 books here have
 readable numbering, and the rest are papers and slides that print none.

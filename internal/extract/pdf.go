@@ -9,21 +9,6 @@ import (
 	"github.com/smirnoffmg/corpus/internal/corpus"
 )
 
-// locator names the page to cite. The printed number is the one a reader can
-// follow in any copy of the book; the PDF page is what opens this file. When the
-// printed number is unknown the locator says so rather than passing a PDF page
-// off as a page of the book.
-func locator(page, printed int) string {
-	switch {
-	case printed == 0:
-		return fmt.Sprintf("PDF %d", page)
-	case printed != page:
-		return fmt.Sprintf("с. %d (PDF %d)", printed, page)
-	default:
-		return fmt.Sprintf("с. %d", page)
-	}
-}
-
 // PDF extracts one corpus.Chunk per page via poppler's pdftotext.
 func PDF(ctx context.Context, path string) ([]corpus.Chunk, error) {
 	cmd := exec.CommandContext(ctx, "pdftotext", "-layout", "-enc", "UTF-8", path, "-")
@@ -48,7 +33,6 @@ func PDF(ctx context.Context, path string) ([]corpus.Chunk, error) {
 			Ord:     page,
 			Page:    page,
 			Printed: folios[i],
-			Locator: locator(page, folios[i]),
 			Body:    body,
 		})
 	}

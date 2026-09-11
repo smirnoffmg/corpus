@@ -126,8 +126,9 @@ SELECT c.id,
        s.kind,
        s.title,
        s.path,
-       c.locator,
+       c.heading,
        coalesce(c.page, 0),
+       coalesce(c.printed_page, 0),
        1 - (c.embedding <=> $1::vector) AS score,
        left(c.body, 240)
 FROM chunks c
@@ -147,9 +148,12 @@ func (s *Store) SearchVector(ctx context.Context, vector []float32, kind string,
 	hits := make([]corpus.Hit, 0, limit)
 	for rows.Next() {
 		var h corpus.Hit
-		if err := rows.Scan(&h.ID, &h.Kind, &h.Title, &h.Path, &h.Locator, &h.Page, &h.Rank, &h.Snippet); err != nil {
+		var heading *string
+		var printed int
+		if err := rows.Scan(&h.ID, &h.Kind, &h.Title, &h.Path, &heading, &h.Page, &printed, &h.Rank, &h.Snippet); err != nil {
 			return nil, err
 		}
+		h.Locator = corpus.Locator(deref(heading), h.Page, printed)
 		hits = append(hits, h)
 	}
 	return hits, rows.Err()
@@ -174,7 +178,7 @@ func vectorLiteral(v []float32) string {
 }
 
 const passageSQL = `
-SELECT s.kind, s.title, s.path, c.locator, c.body,
+SELECT s.kind, s.title, s.path, c.heading, coalesce(c.page,0), coalesce(c.printed_page,0), c.body,
        (SELECT body FROM chunks p
          WHERE p.source_id = c.source_id AND p.ord < c.ord
          ORDER BY p.ord DESC LIMIT 1),
@@ -191,11 +195,14 @@ WHERE c.id = $1`
 func (s *Store) Read(ctx context.Context, id int64, neighbours bool) (corpus.Passage, error) {
 	var p corpus.Passage
 	var prev, next *string
+	var heading *string
+	var page, printed int
 	err := s.pool.QueryRow(ctx, passageSQL, id).
-		Scan(&p.Kind, &p.Title, &p.Path, &p.Locator, &p.Body, &prev, &next)
+		Scan(&p.Kind, &p.Title, &p.Path, &heading, &page, &printed, &p.Body, &prev, &next)
 	if err != nil {
 		return corpus.Passage{}, fmt.Errorf("read chunk %d: %w", id, err)
 	}
+	p.Locator = corpus.Locator(deref(heading), page, printed)
 	if neighbours {
 		if prev != nil {
 			p.Previous = *prev

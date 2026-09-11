@@ -89,10 +89,10 @@ func (s *Store) Replace(ctx context.Context, src corpus.Source, chunks []corpus.
 	batch := &pgx.Batch{}
 	for _, c := range chunks {
 		batch.Queue(`
-			INSERT INTO chunks (source_id, ord, page, printed_page, locator, lang, tags, body, tsv)
-			VALUES ($1, $2, NULLIF($3, 0), NULLIF($4, 0), $5, $6, COALESCE($7::text[], '{}'), $8,
+			INSERT INTO chunks (source_id, ord, page, printed_page, heading, lang, tags, body, tsv)
+			VALUES ($1, $2, NULLIF($3, 0), NULLIF($4, 0), NULLIF($5, ''), $6, COALESCE($7::text[], '{}'), $8,
 			        to_tsvector($9::regconfig, $8))`,
-			id, c.Ord, c.Page, c.Printed, c.Locator, c.Lang, c.Tags, c.Body, c.Lang)
+			id, c.Ord, c.Page, c.Printed, c.Heading, c.Lang, c.Tags, c.Body, c.Lang)
 	}
 	if err := tx.SendBatch(ctx, batch).Close(); err != nil {
 		return fmt.Errorf("insert chunks for %s: %w", src.Path, err)
@@ -165,8 +165,9 @@ SELECT c.id,
        s.kind,
        s.title,
        s.path,
-       c.locator,
+       c.heading,
        coalesce(c.page, 0),
+       coalesce(c.printed_page, 0),
        ts_rank_cd(c.tsv, CASE c.lang WHEN 'russian' THEN q.ru ELSE q.en END, $4) AS rank,
        ts_headline(c.lang::regconfig, c.body,
                    CASE c.lang WHEN 'russian' THEN q.ru ELSE q.en END,
@@ -189,12 +190,22 @@ func (s *Store) Search(ctx context.Context, q corpus.Query) ([]corpus.Hit, error
 	hits := make([]corpus.Hit, 0, q.Limit)
 	for rows.Next() {
 		var h corpus.Hit
-		if err := rows.Scan(&h.ID, &h.Kind, &h.Title, &h.Path, &h.Locator, &h.Page, &h.Rank, &h.Snippet); err != nil {
+		var heading *string
+		var printed int
+		if err := rows.Scan(&h.ID, &h.Kind, &h.Title, &h.Path, &heading, &h.Page, &printed, &h.Rank, &h.Snippet); err != nil {
 			return nil, err
 		}
+		h.Locator = corpus.Locator(deref(heading), h.Page, printed)
 		hits = append(hits, h)
 	}
 	return hits, rows.Err()
+}
+
+func deref(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }
 
 func (s *Store) Stats(ctx context.Context) (sources, chunks int64, err error) {
