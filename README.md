@@ -104,8 +104,16 @@ first. That ordering is load-bearing and easy to miss.
 permanently would otherwise block every chunk behind it forever, since the queue
 always hands out the same rows — the failure an *invalid message channel* (EIP
 p. 143) exists to prevent. Attempts are counted before the call, so a crash
-counts too, and a chunk is set aside after three. Transient failures count as
-well, so `indexer --requeue` puts the quarantined chunks back.
+counts too, and a chunk is set aside after three. `indexer --requeue` puts
+quarantined chunks back when the cause has been dealt with.
+
+An attempt now covers up to four calls: the embed client retries a busy or
+restarting ollama with a doubling delay, and does not retry a missing model —
+"we only retry if there is a true busy signal … if we've dialed the wrong number
+or a number that is no longer in service, we do not retry" (Wilder, *Cloud
+Architecture Patterns*, printed p. 85). So an ollama restart no longer eats a
+chunk's quarantine budget, while a genuinely bad request fails at once instead
+of four times.
 
 **Flag defaults describe the container**, not the machine: `/data/books`,
 `/data/vault`, `host.docker.internal`. Running a binary outside compose means

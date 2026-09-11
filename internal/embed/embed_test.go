@@ -1,0 +1,101 @@
+package embed_test
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/smirnoffmg/corpus/internal/embed"
+)
+
+// server answers with failures for the first failures calls, then succeeds.
+func server(t *testing.T, status int, failures int32) (*httptest.Server, *atomic.Int32) {
+	t.Helper()
+	var calls atomic.Int32
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) <= failures {
+			w.WriteHeader(status)
+			_, _ = w.Write([]byte("busy"))
+			return
+		}
+		var body struct {
+			Input []string `json:"input"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		out := make([][]float32, len(body.Input))
+		for i := range out {
+			out[i] = []float32{0.1, 0.2}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"embeddings": out})
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &calls
+}
+
+func fast() embed.Option { return embed.WithRetry(4, time.Millisecond) }
+
+func TestRetriesUntilTheServiceAnswers(t *testing.T) {
+	srv, calls := server(t, http.StatusServiceUnavailable, 2)
+
+	vectors, err := embed.New(srv.URL, "bge-m3", fast()).Embed(context.Background(), []string{"текст"})
+	if err != nil {
+		t.Fatalf("gave up on a transient failure: %v", err)
+	}
+	if len(vectors) != 1 {
+		t.Errorf("got %d vectors, want 1", len(vectors))
+	}
+	if got := calls.Load(); got != 3 {
+		t.Errorf("called the service %d times, want 3 (two busy, one through)", got)
+	}
+}
+
+func TestDoesNotRetryAMissingModel(t *testing.T) {
+	// Dialling a number that is out of service: asking again cannot help.
+	srv, calls := server(t, http.StatusNotFound, 99)
+
+	_, err := embed.New(srv.URL, "no-such-model", fast()).Embed(context.Background(), []string{"текст"})
+	if err == nil {
+		t.Fatal("a missing model was reported as success")
+	}
+	if got := calls.Load(); got != 1 {
+		t.Errorf("retried a permanent failure %d times", got-1)
+	}
+	if !strings.Contains(err.Error(), "404") {
+		t.Errorf("error hides the status: %v", err)
+	}
+}
+
+func TestGivesUpAfterTheAttemptBudget(t *testing.T) {
+	srv, calls := server(t, http.StatusServiceUnavailable, 99)
+
+	_, err := embed.New(srv.URL, "bge-m3", fast()).Embed(context.Background(), []string{"текст"})
+	if err == nil {
+		t.Fatal("a service that is always busy was reported as success")
+	}
+	if got := calls.Load(); got != 4 {
+		t.Errorf("made %d attempts, want 4", got)
+	}
+	if !strings.Contains(err.Error(), "4 attempts") {
+		t.Errorf("error does not say how many attempts were made: %v", err)
+	}
+}
+
+func TestCancellationStopsTheRetryLoop(t *testing.T) {
+	srv, calls := server(t, http.StatusServiceUnavailable, 99)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if _, err := embed.New(srv.URL, "bge-m3", embed.WithRetry(4, time.Hour)).Embed(ctx, []string{"текст"}); err == nil {
+		t.Fatal("a cancelled call reported success")
+	}
+	if got := calls.Load(); got > 1 {
+		t.Errorf("kept calling after cancellation: %d calls", got)
+	}
+}
