@@ -1,4 +1,4 @@
-package api
+package api_test
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/smirnoffmg/corpus/internal/api"
 	"github.com/smirnoffmg/corpus/internal/corpus"
 )
 
@@ -54,7 +55,7 @@ func TestHybridFallsBackToTextWhenEmbedderIsDown(t *testing.T) {
 	store := &fakeStore{text: []corpus.Hit{{ID: 1}, {ID: 2}}}
 	embedder := &fakeEmbedder{err: errors.New("connection refused")}
 
-	hits, err := New(store, embedder).Search(context.Background(), "агрегат", "", "hybrid", 10)
+	hits, err := api.New(store, embedder).Search(context.Background(), "агрегат", "", "hybrid", 10)
 	if err != nil {
 		t.Fatalf("hybrid returned an error instead of degrading: %v", err)
 	}
@@ -65,7 +66,7 @@ func TestHybridFallsBackToTextWhenEmbedderIsDown(t *testing.T) {
 
 func TestFtsModeNeverEmbeds(t *testing.T) {
 	embedder := &fakeEmbedder{}
-	if _, err := New(&fakeStore{}, embedder).Search(context.Background(), "q", "", "fts", 10); err != nil {
+	if _, err := api.New(&fakeStore{}, embedder).Search(context.Background(), "q", "", "fts", 10); err != nil {
 		t.Fatal(err)
 	}
 	if embedder.calls != 0 {
@@ -75,7 +76,7 @@ func TestFtsModeNeverEmbeds(t *testing.T) {
 
 func TestVectorModeReportsEmbedderFailure(t *testing.T) {
 	embedder := &fakeEmbedder{err: errors.New("model not found")}
-	_, err := New(&fakeStore{}, embedder).Search(context.Background(), "q", "", "vector", 10)
+	_, err := api.New(&fakeStore{}, embedder).Search(context.Background(), "q", "", "vector", 10)
 	if err == nil {
 		t.Fatal("vector mode swallowed the embedder error")
 	}
@@ -83,7 +84,7 @@ func TestVectorModeReportsEmbedderFailure(t *testing.T) {
 
 func TestCompareEmbedsTheQueryOnce(t *testing.T) {
 	embedder := &fakeEmbedder{}
-	out, err := New(&fakeStore{}, embedder).Compare(context.Background(), "q", "", 5)
+	out, err := api.New(&fakeStore{}, embedder).Compare(context.Background(), "q", "", 5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +102,7 @@ func TestHybridAsksBothLegsForMoreThanItReturns(t *testing.T) {
 	// Fusing two top-10 lists into a top-10 needs deeper inputs, or a result
 	// ranked 11th by text and 1st by vector can never surface.
 	store := &fakeStore{}
-	if _, err := New(store, &fakeEmbedder{}).Search(context.Background(), "q", "", "hybrid", 10); err != nil {
+	if _, err := api.New(store, &fakeEmbedder{}).Search(context.Background(), "q", "", "hybrid", 10); err != nil {
 		t.Fatal(err)
 	}
 	if store.lastText <= 10 {
@@ -110,7 +111,7 @@ func TestHybridAsksBothLegsForMoreThanItReturns(t *testing.T) {
 }
 
 func TestSearchHandlerReturnsAnEmptyListNotNull(t *testing.T) {
-	srv := httptest.NewServer(New(&fakeStore{text: []corpus.Hit{}}, &fakeEmbedder{}).Handler())
+	srv := httptest.NewServer(api.New(&fakeStore{text: []corpus.Hit{}}, &fakeEmbedder{}).Handler())
 	defer srv.Close()
 
 	resp, err := http.Get(srv.URL + "/search?q=nothing&mode=fts")
@@ -129,7 +130,7 @@ func TestSearchHandlerReturnsAnEmptyListNotNull(t *testing.T) {
 }
 
 func TestReadHandlerRejectsANonNumericID(t *testing.T) {
-	srv := httptest.NewServer(New(&fakeStore{}, &fakeEmbedder{}).Handler())
+	srv := httptest.NewServer(api.New(&fakeStore{}, &fakeEmbedder{}).Handler())
 	defer srv.Close()
 
 	resp, err := http.Get(srv.URL + "/read?id=abc")

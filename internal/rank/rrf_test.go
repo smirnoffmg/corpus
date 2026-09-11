@@ -1,9 +1,10 @@
-package rank
+package rank_test
 
 import (
 	"testing"
 
 	"github.com/smirnoffmg/corpus/internal/corpus"
+	"github.com/smirnoffmg/corpus/internal/rank"
 )
 
 func ids(hits []corpus.Hit) []int64 {
@@ -18,7 +19,7 @@ func TestFusePrefersAgreementOverEitherTopHit(t *testing.T) {
 	fts := []corpus.Hit{{ID: 1, Rank: 9}, {ID: 2, Rank: 8}, {ID: 3, Rank: 7}}
 	vec := []corpus.Hit{{ID: 4, Rank: 0.9}, {ID: 2, Rank: 0.8}, {ID: 5, Rank: 0.7}}
 
-	got := ids(Fuse(fts, vec))
+	got := ids(rank.Fuse(fts, vec))
 	if got[0] != 2 {
 		t.Errorf("first = %d, want 2 (the only hit both lists agree on); order: %v", got[0], got)
 	}
@@ -29,7 +30,7 @@ func TestFusePrefersAgreementOverEitherTopHit(t *testing.T) {
 
 func TestFuseKeepsOrderOfASingleList(t *testing.T) {
 	list := []corpus.Hit{{ID: 7}, {ID: 8}, {ID: 9}}
-	got := ids(Fuse(list))
+	got := ids(rank.Fuse(list))
 	for i, want := range []int64{7, 8, 9} {
 		if got[i] != want {
 			t.Fatalf("order = %v, want [7 8 9]", got)
@@ -42,7 +43,7 @@ func TestFuseIgnoresRawScoreScale(t *testing.T) {
 	// the raw numbers leaked into the fusion the text list would always win.
 	fts := []corpus.Hit{{ID: 1, Rank: 100}}
 	vec := []corpus.Hit{{ID: 2, Rank: 0.42}}
-	if got := ids(Fuse(fts, vec)); got[0] != 1 || got[1] != 2 {
+	if got := ids(rank.Fuse(fts, vec)); got[0] != 1 || got[1] != 2 {
 		t.Errorf("order = %v, want [1 2] by position, not by score", got)
 	}
 }

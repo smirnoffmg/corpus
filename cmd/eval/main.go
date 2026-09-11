@@ -5,6 +5,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/smirnoffmg/corpus/internal/corpus"
@@ -74,11 +76,11 @@ func main() {
 
 	for _, q := range queries {
 		for _, mode := range modes {
-			hits, err := search(*addr, q, mode, *limit)
+			hits, err := search(*addr, &q, mode, *limit)
 			if err != nil {
 				log.Fatalf("%s/%s: %v", q.ID, mode, err)
 			}
-			s := measure(q, hits)
+			s := measure(&q, hits)
 			add(overall[mode], s)
 			add(byStyle[mode][q.Style], s)
 			if s.found == 0 {
@@ -123,11 +125,11 @@ func add(into *score, from score) {
 
 // measure scores one result list: the rank of the first relevant hit, how much
 // of the top five is relevant, and whether anything relevant showed up at all.
-func measure(q query, hits []corpus.Hit) score {
+func measure(q *query, hits []corpus.Hit) score {
 	s := score{queries: 1}
 	relevantInTop5 := 0
-	for i, h := range hits {
-		if !isRelevant(q, h) {
+	for i := range hits {
+		if !isRelevant(q, &hits[i]) {
 			continue
 		}
 		if s.reciprocal == 0 {
@@ -142,7 +144,7 @@ func measure(q query, hits []corpus.Hit) score {
 	return s
 }
 
-func isRelevant(q query, h corpus.Hit) bool {
+func isRelevant(q *query, h *corpus.Hit) bool {
 	for _, r := range q.Relevant {
 		if !strings.Contains(strings.ToLower(h.Path), strings.ToLower(r.Path)) {
 			continue
@@ -154,14 +156,19 @@ func isRelevant(q query, h corpus.Hit) bool {
 	return false
 }
 
-func search(addr string, q query, mode string, limit int) ([]corpus.Hit, error) {
+func search(addr string, q *query, mode string, limit int) ([]corpus.Hit, error) {
 	params := url.Values{}
 	params.Set("q", q.Query)
 	params.Set("kind", q.Kind)
 	params.Set("mode", mode)
-	params.Set("limit", fmt.Sprint(limit))
+	params.Set("limit", strconv.Itoa(limit))
 
-	resp, err := http.Get(addr + "/search?" + params.Encode())
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		addr+"/search?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

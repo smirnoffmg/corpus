@@ -33,6 +33,12 @@ import (
 var maxParallel = min(runtime.NumCPU(), 8)
 
 func main() {
+	if err := run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run() error {
 	var (
 		booksDir = flag.String("books", "/data/books", "directory with PDF books")
 		vaultDir = flag.String("vault", "/data/vault", "Obsidian vault root")
@@ -50,18 +56,18 @@ func main() {
 
 	st, err := store.Open(ctx, os.Getenv("DATABASE_URL"))
 	if err != nil {
-		log.Fatalf("connect: %v", err)
+		return fmt.Errorf("connect: %w", err)
 	}
 	defer st.Close()
 
 	if err := migrate(ctx, st, *ddlDir); err != nil {
-		log.Fatalf("migrate: %v", err)
+		return fmt.Errorf("migrate: %w", err)
 	}
 
 	if *requeue {
 		n, err := st.RequeueQuarantined(ctx)
 		if err != nil {
-			log.Fatalf("requeue: %v", err)
+			return fmt.Errorf("requeue: %w", err)
 		}
 		log.Printf("requeued %d quarantined chunks", n)
 	}
@@ -76,12 +82,12 @@ func main() {
 			log.Printf("embed: %v", err)
 		}
 		if *interval == 0 {
-			return
+			return nil
 		}
 		select {
 		case <-ctx.Done():
 			log.Print("stopping")
-			return
+			return nil
 		case <-time.After(*interval):
 		}
 	}
@@ -138,8 +144,8 @@ func embedAll(ctx context.Context, st *store.Store, embedder *embed.Client, batc
 			bodies[i], ids[i] = c.Body, c.ID
 		}
 
-		if err := st.CountAttempt(ctx, ids); err != nil {
-			return err
+		if attemptErr := st.CountAttempt(ctx, ids); attemptErr != nil {
+			return attemptErr
 		}
 		vectors, err := embedder.Embed(ctx, bodies)
 		if err != nil {

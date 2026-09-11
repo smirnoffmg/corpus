@@ -1,4 +1,4 @@
-package store
+package store_test
 
 import (
 	"context"
@@ -6,32 +6,45 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/smirnoffmg/corpus/internal/corpus"
+	"github.com/smirnoffmg/corpus/internal/store"
 )
 
 // open connects to the compose database; without TEST_DATABASE_URL the test is
-// skipped so that `go test ./...` stays runnable with no infrastructure.
-func open(t *testing.T) (*Store, context.Context) {
+// skipped so that `go test ./...` stays runnable with no infrastructure. The
+// second pool is the test's own way to inspect and clean up rows, so that the
+// test does not have to reach inside the store.
+func open(t *testing.T) (*store.Store, *pgxpool.Pool, context.Context) {
 	t.Helper()
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
 		t.Skip("TEST_DATABASE_URL not set")
 	}
+
 	ctx := context.Background()
-	st, err := Open(ctx, dsn)
+	st, err := store.Open(ctx, dsn)
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
 	t.Cleanup(st.Close)
-	return st, ctx
+
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	return st, pool, ctx
 }
 
 func TestReplaceAndSearchRussianIsStemmed(t *testing.T) {
-	st, ctx := open(t)
+	st, pool, ctx := open(t)
 
 	src := corpus.Source{Kind: "book", Path: "__test__/стеммер.pdf", Title: "Тестовая книга", Hash: "h1"}
 	t.Cleanup(func() {
-		_, _ = st.pool.Exec(ctx, `DELETE FROM sources WHERE path = $1`, src.Path)
+		_, _ = pool.Exec(ctx, `DELETE FROM sources WHERE path = $1`, src.Path)
 	})
 
 	chunks := []corpus.Chunk{{
@@ -65,11 +78,11 @@ func TestReplaceAndSearchRussianIsStemmed(t *testing.T) {
 }
 
 func TestReplaceIsIdempotentPerSource(t *testing.T) {
-	st, ctx := open(t)
+	st, pool, ctx := open(t)
 
 	src := corpus.Source{Kind: "vault", Path: "__test__/note.md", Title: "note", Hash: "h1"}
 	t.Cleanup(func() {
-		_, _ = st.pool.Exec(ctx, `DELETE FROM sources WHERE path = $1`, src.Path)
+		_, _ = pool.Exec(ctx, `DELETE FROM sources WHERE path = $1`, src.Path)
 	})
 
 	chunk := []corpus.Chunk{{Ord: 1, Locator: "H", Lang: "english", Body: "consistency boundary"}}
@@ -80,7 +93,7 @@ func TestReplaceIsIdempotentPerSource(t *testing.T) {
 	}
 
 	var n int
-	err := st.pool.QueryRow(ctx, `
+	err := pool.QueryRow(ctx, `
 		SELECT count(*) FROM chunks c JOIN sources s ON s.id = c.source_id
 		WHERE s.path = $1`, src.Path).Scan(&n)
 	if err != nil {

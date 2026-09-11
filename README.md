@@ -100,6 +100,18 @@ over one is just its public interface repeated (Khononov, printed p. 151). What
 the layering *does* enforce is direction: `internal/corpus` holds the types and
 imports nothing, and extraction, storage, ranking and the API all point at it.
 
+## Lint
+
+```sh
+golangci-lint run
+```
+
+`.golangci.yml` pins the rule set. Tests live in `foo_test` packages and speak
+only the public API, which `testpackage` enforces; the one exception is
+`folio_internal_test.go`, where the logic under test — reading a page number out
+of a running head — has no public surface worth exposing for it, and the
+`_internal_test.go` name is what marks that deliberate choice.
+
 ## Evaluation
 
 `eval/queries.json` holds judged queries: a question, and the pages that answer

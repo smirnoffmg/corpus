@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -37,7 +38,7 @@ func (s *Store) Unchanged(ctx context.Context, path, hash string) (bool, error) 
 	var stored string
 	err := s.pool.QueryRow(ctx, `SELECT hash FROM sources WHERE path = $1`, path).Scan(&stored)
 	switch {
-	case err == pgx.ErrNoRows:
+	case errors.Is(err, pgx.ErrNoRows):
 		return false, nil
 	case err != nil:
 		return false, err
@@ -53,7 +54,7 @@ func (s *Store) Replace(ctx context.Context, src corpus.Source, chunks []corpus.
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	var id int64
 	err = tx.QueryRow(ctx, `

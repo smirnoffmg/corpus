@@ -1,9 +1,11 @@
-package extract
+package extract_test
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/smirnoffmg/corpus/internal/extract"
 )
 
 func write(t *testing.T, body string) string {
@@ -16,7 +18,7 @@ func write(t *testing.T, body string) string {
 }
 
 func TestMarkdownSplitsBySectionAndKeepsHeadingPath(t *testing.T) {
-	chunks, err := Markdown(write(t, `---
+	chunks, err := extract.Markdown(write(t, `---
 date: 2026-09-11
 tags: daily
 ---
@@ -49,7 +51,7 @@ tags: daily
 }
 
 func TestMarkdownIgnoresHeadingsInsideFences(t *testing.T) {
-	chunks, err := Markdown(write(t, "# Заметка\n\n```bash\n# это комментарий\nls -la\n```\n"))
+	chunks, err := extract.Markdown(write(t, "# Заметка\n\n```bash\n# это комментарий\nls -la\n```\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +64,7 @@ func TestMarkdownIgnoresHeadingsInsideFences(t *testing.T) {
 }
 
 func TestMarkdownTagsComeOnlyFromTagsKey(t *testing.T) {
-	chunks, err := Markdown(write(t, `---
+	chunks, err := extract.Markdown(write(t, `---
 aliases:
   - Второе имя
 tags:
@@ -94,7 +96,7 @@ author: Кто-то
 }
 
 func TestMarkdownInlineTagList(t *testing.T) {
-	chunks, err := Markdown(write(t, "---\ntags: [daily, diary]\n---\n\n# H\n\nx\n"))
+	chunks, err := extract.Markdown(write(t, "---\ntags: [daily, diary]\n---\n\n# H\n\nx\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +106,7 @@ func TestMarkdownInlineTagList(t *testing.T) {
 }
 
 func TestMarkdownLocatorSkipsMissingLevels(t *testing.T) {
-	chunks, err := Markdown(write(t, "## Что это\n\nОпределение.\n"))
+	chunks, err := extract.Markdown(write(t, "## Что это\n\nОпределение.\n"))
 	if err != nil {
 		t.Fatal(err)
 	}

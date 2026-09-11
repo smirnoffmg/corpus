@@ -1,0 +1,65 @@
+version: "2"
+
+run:
+  timeout: 3m
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    # Correctness
+    - bodyclose # an unclosed response body leaks a connection
+    - errorlint # errors compared with == instead of errors.Is
+    - nilerr # returning nil after checking err != nil
+    - noctx # HTTP requests built without a context cannot be cancelled
+    - durationcheck # time.Duration multiplied by a Duration
+    - makezero # make([]T, n) then append, which silently prepends zeros
+    - rowserrcheck
+    - sqlclosecheck
+    # Clarity
+    - gocritic
+    - revive
+    - testpackage # tests belong in foo_test and speak only the public API
+    - misspell
+    - unconvert
+    - usestdlibvars
+    - wastedassign
+    # Performance, where it is free
+    - perfsprint
+    - prealloc
+    - copyloopvar
+
+  settings:
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment # struct layout is not worth reordering fields for here
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - performance
+    errcheck:
+      check-type-assertions: true
+    revive:
+      rules:
+        - name: exported
+          disabled: true # internal packages document what is not obvious, not everything
+
+  exclusions:
+    presets:
+      - std-error-handling # deferred Close, fmt.Fprintf to a buffer, and friends
+      - common-false-positives
+    rules:
+      - path: _test\.go
+        linters:
+          - bodyclose
+          - noctx
+          - prealloc
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/smirnoffmg/corpus
