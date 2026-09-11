@@ -1,3 +1,4 @@
+-- +goose Up
 -- tags are stored but never queried: the index cost every insert and served no
 -- read. Recreate it the day a tag filter appears, not before.
 DROP INDEX IF EXISTS chunks_tags_idx;

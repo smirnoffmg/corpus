@@ -10,7 +10,6 @@ FROM alpine:3.22
 # comparable quality, so the container carries the system one.
 RUN apk add --no-cache poppler-utils ca-certificates
 COPY --from=build /out/indexer /out/mcpd /usr/local/bin/
-COPY migrations /app/migrations
 # Neither binary writes to disk, reads the library and the vault read-only, and
 # needs no privileged port. Nothing here wants root.
 USER nobody

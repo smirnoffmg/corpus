@@ -1,3 +1,4 @@
+-- +goose Up
 CREATE TABLE IF NOT EXISTS sources (
     id         bigserial PRIMARY KEY,
     kind       text        NOT NULL CHECK (kind IN ('book', 'vault')),

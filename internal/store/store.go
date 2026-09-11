@@ -2,16 +2,28 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"embed"
 	"errors"
 	"fmt"
+	"io/fs"
+	"log"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	_ "github.com/jackc/pgx/v5/stdlib" // database/sql driver, for goose
+	"github.com/pressly/goose/v3"
 
 	"github.com/smirnoffmg/corpus/internal/corpus"
 )
 
-type Store struct{ pool *pgxpool.Pool }
+//go:embed migrations/*.sql
+var migrations embed.FS
+
+type Store struct {
+	pool *pgxpool.Pool
+	dsn  string
+}
 
 func Open(ctx context.Context, dsn string) (*Store, error) {
 	cfg, err := pgxpool.ParseConfig(dsn)
@@ -35,14 +47,41 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 		pool.Close()
 		return nil, err
 	}
-	return &Store{pool: pool}, nil
+	return &Store{pool: pool, dsn: dsn}, nil
 }
 
 func (s *Store) Close() { s.pool.Close() }
 
-func (s *Store) Migrate(ctx context.Context, ddl string) error {
-	_, err := s.pool.Exec(ctx, ddl)
-	return err
+// Migrate brings the schema up to date. goose keeps the ledger of what has been
+// applied, which a plain "run every .sql on boot" could not: it only worked
+// while every statement happened to be idempotent, and the migration that
+// renamed a column already was not.
+func (s *Store) Migrate(ctx context.Context) error {
+	db, err := sql.Open("pgx", s.dsn)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	// The provider reads from the root of the filesystem it is given, and the
+	// embedded one is rooted at the module, not at the migrations directory.
+	root, err := fs.Sub(migrations, "migrations")
+	if err != nil {
+		return err
+	}
+
+	provider, err := goose.NewProvider(goose.DialectPostgres, db, root)
+	if err != nil {
+		return err
+	}
+	applied, err := provider.Up(ctx)
+	if err != nil {
+		return err
+	}
+	for _, m := range applied {
+		log.Printf("migration applied: %s", m.Source.Path)
+	}
+	return nil
 }
 
 // Unchanged reports whether the file is already indexed under the same content

@@ -107,6 +107,16 @@ binds a privileged port, so the image runs as `nobody`.
 
 ## Design notes
 
+**Migrations are goose, embedded in the binary.** They live in
+`internal/store/migrations`, next to the package that owns the schema, and travel
+inside the image rather than as a mounted directory. The indexer applies them on
+start; goose keeps the ledger of what ran.
+
+Before that the indexer simply executed every `.sql` file on every boot, which
+worked only while every statement happened to be idempotent — and the migration
+that renamed a column was not. That one carries a guard, because it was first
+applied by hand before goose existed here; new migrations need no such thing.
+
 **Integration is a shared database.** The indexer and `mcpd` never talk to each
 other; Postgres is the only channel between them (EIP p. 83, the pattern Fowler
 wrote up). The usual objection — semantic dissonance between applications that

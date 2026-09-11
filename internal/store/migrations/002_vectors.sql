@@ -1,3 +1,4 @@
+-- +goose Up
 CREATE EXTENSION IF NOT EXISTS vector;
 
 ALTER TABLE chunks ADD COLUMN IF NOT EXISTS embedding vector(1024);
