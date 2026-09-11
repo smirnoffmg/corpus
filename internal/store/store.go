@@ -20,7 +20,7 @@ type Source struct {
 }
 
 type Hit struct {
-	ID      int64   `json:"-"`
+	ID      int64   `json:"id"`
 	Kind    string  `json:"kind"`
 	Title   string  `json:"title"`
 	Path    string  `json:"path"`

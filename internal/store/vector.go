@@ -134,3 +134,49 @@ func vectorLiteral(v []float32) string {
 	b.WriteByte(']')
 	return b.String()
 }
+
+// Passage is the full text behind a hit, which is what a reader needs after the
+// search has pointed at a page.
+type Passage struct {
+	Kind     string `json:"kind"`
+	Title    string `json:"title"`
+	Path     string `json:"path"`
+	Locator  string `json:"locator"`
+	Body     string `json:"body"`
+	Previous string `json:"previous,omitempty"`
+	Next     string `json:"next,omitempty"`
+}
+
+const passageSQL = `
+SELECT s.kind, s.title, s.path, c.locator, c.body,
+       (SELECT body FROM chunks p
+         WHERE p.source_id = c.source_id AND p.ord < c.ord
+         ORDER BY p.ord DESC LIMIT 1),
+       (SELECT body FROM chunks n
+         WHERE n.source_id = c.source_id AND n.ord > c.ord
+         ORDER BY n.ord LIMIT 1)
+FROM chunks c
+JOIN sources s ON s.id = c.source_id
+WHERE c.id = $1`
+
+// Read returns the chunk's own text, and with neighbours the pages on either
+// side — a definition cut by a page break is the normal case here, not the
+// exception.
+func (s *Store) Read(ctx context.Context, id int64, neighbours bool) (Passage, error) {
+	var p Passage
+	var prev, next *string
+	err := s.pool.QueryRow(ctx, passageSQL, id).
+		Scan(&p.Kind, &p.Title, &p.Path, &p.Locator, &p.Body, &prev, &next)
+	if err != nil {
+		return Passage{}, fmt.Errorf("read chunk %d: %w", id, err)
+	}
+	if neighbours {
+		if prev != nil {
+			p.Previous = *prev
+		}
+		if next != nil {
+			p.Next = *next
+		}
+	}
+	return p, nil
+}

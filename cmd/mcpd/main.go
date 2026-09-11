@@ -31,6 +31,11 @@ type searchOutput struct {
 	Hits []store.Hit `json:"hits"`
 }
 
+type readInput struct {
+	ID         int64 `json:"id" jsonschema:"the id of a hit returned by corpus_search"`
+	Neighbours bool  `json:"neighbours,omitempty" jsonschema:"also return the pages before and after, for a passage cut by a page break"`
+}
+
 type searcher struct {
 	store    *store.Store
 	embedder *embed.Client
@@ -108,6 +113,18 @@ func main() {
 		Description: "Search the PDF library and the Obsidian vault. Returns ranked snippets with the book page or note heading to cite.",
 	}, tool)
 
+	read := func(ctx context.Context, _ *mcp.CallToolRequest, in readInput) (*mcp.CallToolResult, store.Passage, error) {
+		passage, err := st.Read(ctx, in.ID, in.Neighbours)
+		if err != nil {
+			return nil, store.Passage{}, err
+		}
+		return nil, passage, nil
+	}
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "corpus_read",
+		Description: "Return the full text behind a search hit: the whole book page or note section, optionally with the pages on either side. Use it to quote a source accurately instead of working from a snippet.",
+	}, read)
+
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", mcp.NewStreamableHTTPHandler(
 		func(*http.Request) *mcp.Server { return server }, nil))
@@ -146,6 +163,20 @@ func main() {
 			"vector": truncate(semantic, limit),
 			"hybrid": truncate(rank.Fuse(text, semantic), limit),
 		})
+	})
+
+	mux.HandleFunc("/read", func(w http.ResponseWriter, r *http.Request) {
+		id, err := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
+		if err != nil {
+			http.Error(w, "id must be a number", http.StatusBadRequest)
+			return
+		}
+		passage, err := st.Read(r.Context(), id, r.URL.Query().Has("neighbours"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		writeJSON(w, passage)
 	})
 
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
