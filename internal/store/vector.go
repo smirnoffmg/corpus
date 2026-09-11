@@ -135,7 +135,7 @@ FROM chunks c
 JOIN sources s ON s.id = c.source_id
 WHERE c.embedding IS NOT NULL
   AND ($2 = '' OR s.kind = $2)
-ORDER BY c.embedding <=> $1::vector
+ORDER BY c.embedding <=> $1::vector, c.id
 LIMIT $3`
 
 func (s *Store) SearchVector(ctx context.Context, vector []float32, kind string, limit int) ([]corpus.Hit, error) {

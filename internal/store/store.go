@@ -240,7 +240,11 @@ JOIN sources s ON s.id = c.source_id
 CROSS JOIN q
 WHERE ((c.lang = 'russian' AND c.tsv @@ q.ru) OR (c.lang = 'english' AND c.tsv @@ q.en))
   AND ($2 = '' OR s.kind = $2)
-ORDER BY rank DESC
+-- Ties are common: two chunks naming a term the same number of times score
+-- identically, and without a tiebreaker their order depends on the plan
+-- Postgres picks, which depends on the LIMIT. The same query then answers
+-- differently at limit 3 and limit 4.
+ORDER BY rank DESC, c.id
 LIMIT $3`
 
 func (s *Store) Search(ctx context.Context, q corpus.Query) ([]corpus.Hit, error) {

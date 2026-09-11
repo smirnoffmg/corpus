@@ -104,3 +104,44 @@ func TestReplaceIsIdempotentPerSource(t *testing.T) {
 		t.Errorf("chunk count after two passes = %d, want 1", n)
 	}
 }
+
+func TestSearchOrderDoesNotDependOnTheLimit(t *testing.T) {
+	st, pool, ctx := open(t)
+
+	// Two chunks that name the term equally often score identically. Without a
+	// tiebreaker their order came out differently at different limits, so the
+	// same query answered differently depending on how many hits were asked for.
+	src := corpus.Source{Kind: "vault", Path: "__test__/ties.md", Title: "ties", Hash: "h1"}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM sources WHERE path = $1`, src.Path)
+	})
+
+	chunks := make([]corpus.Chunk, 6)
+	for i := range chunks {
+		chunks[i] = corpus.Chunk{
+			Ord: i + 1, Heading: "H", Lang: "russian",
+			Body: "корпускрипт равнозначный кусок номер " + string(rune('а'+i)),
+		}
+	}
+	if err := st.Replace(ctx, src, chunks); err != nil {
+		t.Fatal(err)
+	}
+
+	var first string
+	for _, limit := range []int{1, 2, 3, 4, 10, 20} {
+		hits, err := st.Search(ctx, corpus.Query{Text: "корпускрипт", Kind: "vault", Limit: limit})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(hits) == 0 {
+			t.Fatalf("limit %d returned nothing", limit)
+		}
+		if first == "" {
+			first = hits[0].Locator + hits[0].Snippet
+			continue
+		}
+		if got := hits[0].Locator + hits[0].Snippet; got != first {
+			t.Errorf("limit %d put a different chunk first", limit)
+		}
+	}
+}
