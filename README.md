@@ -74,6 +74,22 @@ hand-built. Language is detected per chunk and stored, and the tsvector is built
 at insert time — `text::regconfig` is only STABLE, so it cannot live in a
 generated column.
 
+## Containers
+
+One image, `corpus:latest`, carries both binaries and is run twice with
+different commands — the services differ only in what they do, not in what they
+need. It is built multi-stage, so the ~800 MB Go toolchain stays out of the 67 MB
+runtime image: "big means more potential vulnerabilities and possibly a bigger
+attack surface" (Poulton, *Docker Deep Dive*, printed p. 144).
+
+`.dockerignore` is load-bearing, not tidiness. The build stage does `COPY . .`,
+so without it `.env` — with the database password — and the whole `.git` history
+are baked into that layer. They never reach the runtime image, but the layer is
+real, cached, and would travel with a push.
+
+Neither binary writes to disk, both read their mounts read-only, and neither
+binds a privileged port, so the image runs as `nobody`.
+
 ## Design notes
 
 **Integration is a shared database.** The indexer and `mcpd` never talk to each

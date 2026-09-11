@@ -1,0 +1,10 @@
+# The build stage does COPY . ., so anything left here lands in that layer.
+.git
+.env
+.env.example
+.gitignore
+.dockerignore
+.golangci.yml
+README.md
+eval
+compose.yaml
