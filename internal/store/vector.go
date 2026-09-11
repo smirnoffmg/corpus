@@ -9,12 +9,6 @@ import (
 	"github.com/smirnoffmg/corpus/internal/corpus"
 )
 
-// Pending is a chunk that has no embedding yet.
-type Pending struct {
-	ID   int64
-	Body string
-}
-
 const (
 	// bodyCharLimit bounds how much of a chunk is embedded: a long daily note
 	// would otherwise cost minutes of GPU for a tail that adds nothing to the
@@ -54,16 +48,16 @@ WHERE embedding IS NULL AND embed_attempts < $4
 ORDER BY ord
 LIMIT $3`
 
-func (s *Store) PendingEmbeddings(ctx context.Context, limit int) ([]Pending, error) {
+func (s *Store) PendingEmbeddings(ctx context.Context, limit int) ([]corpus.Pending, error) {
 	rows, err := s.pool.Query(ctx, pendingSQL, neighbourChars, bodyCharLimit, limit, maxEmbedAttempts)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var out []Pending
+	var out []corpus.Pending
 	for rows.Next() {
-		var p Pending
+		var p corpus.Pending
 		if err := rows.Scan(&p.ID, &p.Body); err != nil {
 			return nil, err
 		}

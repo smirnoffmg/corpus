@@ -118,12 +118,15 @@ of a running head — has no public surface worth exposing for it, and the
 go test -race ./...
 ```
 
-That is necessary and not sufficient. The detector "will only find races that are
-contained in code that is exercised" (Cox-Buday, *Concurrency in Go*, printed
-p. 214), and no test exercises the extraction worker pool — the one place in this
-program where goroutines touch shared state. So the pool is checked the way the
-Go team recommends instead: a `-race` build of the indexer, pointed at a scratch
-database and a real slice of the library.
+The detector "will only find races that are contained in code that is exercised"
+(Cox-Buday, *Concurrency in Go*, printed p. 214), so the extraction pool — the one
+place here where goroutines share state — is driven by a test of its own in
+`internal/index`, over a temporary directory of notes with the workers turned up.
+Swapping its atomic counter for a plain one makes that test report a race and
+lose updates, which is how one knows the test is worth having.
+
+For real-world load, the way the Go team recommends, a `-race` build of the
+indexer can be pointed at a scratch database and a real slice of the library.
 
 ```sh
 go build -race -o /tmp/indexer-race ./cmd/indexer

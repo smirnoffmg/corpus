@@ -34,6 +34,12 @@ type Hit struct {
 	Snippet string  `json:"snippet"`
 }
 
+// Pending is a chunk that has no embedding yet.
+type Pending struct {
+	ID   int64
+	Body string
+}
+
 // Passage is the full text behind a hit, which is what a reader needs once the
 // search has pointed at a page.
 type Passage struct {
