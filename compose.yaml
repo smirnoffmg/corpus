@@ -1,0 +1,44 @@
+services:
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: corpus
+      POSTGRES_USER: corpus
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-corpus}
+    volumes:
+      - pgdata:/var/lib/postgresql
+    ports:
+      - "127.0.0.1:5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U corpus -d corpus"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  indexer:
+    build: .
+    command: ["indexer", "--interval", "15m"]
+    environment:
+      DATABASE_URL: postgres://corpus:${POSTGRES_PASSWORD:-corpus}@db:5432/corpus
+    volumes:
+      - ${BOOKS_DIR:?set BOOKS_DIR in .env}:/data/books:ro
+      - ${VAULT_DIR:?set VAULT_DIR in .env}:/data/vault:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  mcpd:
+    build: .
+    command: ["mcpd"]
+    environment:
+      DATABASE_URL: postgres://corpus:${POSTGRES_PASSWORD:-corpus}@db:5432/corpus
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
