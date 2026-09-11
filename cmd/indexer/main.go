@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/smirnoffmg/corpus/internal/corpus"
 	"github.com/smirnoffmg/corpus/internal/embed"
 	"github.com/smirnoffmg/corpus/internal/extract"
 	"github.com/smirnoffmg/corpus/internal/lang"
@@ -40,6 +41,7 @@ func main() {
 		ollama   = flag.String("ollama", "http://host.docker.internal:11434", "ollama base URL")
 		model    = flag.String("model", "bge-m3", "embedding model")
 		batch    = flag.Int("batch", 16, "chunks per embedding request")
+		requeue  = flag.Bool("requeue", false, "put quarantined chunks back in the embedding queue and continue")
 	)
 	flag.Parse()
 
@@ -54,6 +56,14 @@ func main() {
 
 	if err := migrate(ctx, st, *ddlDir); err != nil {
 		log.Fatalf("migrate: %v", err)
+	}
+
+	if *requeue {
+		n, err := st.RequeueQuarantined(ctx)
+		if err != nil {
+			log.Fatalf("requeue: %v", err)
+		}
+		log.Printf("requeued %d quarantined chunks", n)
 	}
 
 	embedder := embed.New(*ollama, *model)
@@ -128,6 +138,9 @@ func embedAll(ctx context.Context, st *store.Store, embedder *embed.Client, batc
 			bodies[i], ids[i] = c.Body, c.ID
 		}
 
+		if err := st.CountAttempt(ctx, ids); err != nil {
+			return err
+		}
 		vectors, err := embedder.Embed(ctx, bodies)
 		if err != nil {
 			return err
@@ -145,13 +158,16 @@ func embedAll(ctx context.Context, st *store.Store, embedder *embed.Client, batc
 		}
 	}
 	log.Printf("embedded %d chunks in %s", done, time.Since(start).Round(time.Second))
+	if n, err := st.Quarantined(ctx); err == nil && n > 0 {
+		log.Printf("%d chunks quarantined after repeated embedding failures", n)
+	}
 	return ctx.Err()
 }
 
 func indexAll(ctx context.Context, st *store.Store, booksDir, vaultDir string) error {
 	start := time.Now()
 
-	books, err := indexKind(ctx, st, "book", booksDir, ".pdf", func(path string) ([]extract.Chunk, error) {
+	books, err := indexKind(ctx, st, "book", booksDir, ".pdf", func(path string) ([]corpus.Chunk, error) {
 		return extract.PDF(ctx, path)
 	})
 	if err != nil {
@@ -176,7 +192,7 @@ func indexKind(
 	ctx context.Context,
 	st *store.Store,
 	kind, root, ext string,
-	parse func(string) ([]extract.Chunk, error),
+	parse func(string) ([]corpus.Chunk, error),
 ) (int, error) {
 	files, err := collect(root, ext)
 	if err != nil {
@@ -230,7 +246,7 @@ func indexFile(
 	ctx context.Context,
 	st *store.Store,
 	kind, root, rel string,
-	parse func(string) ([]extract.Chunk, error),
+	parse func(string) ([]corpus.Chunk, error),
 ) (bool, error) {
 	path := filepath.Join(root, rel)
 
@@ -251,7 +267,7 @@ func indexFile(
 		chunks[i].Lang = lang.Detect(chunks[i].Body)
 	}
 
-	src := store.Source{
+	src := corpus.Source{
 		Kind:  kind,
 		Path:  rel,
 		Title: strings.TrimSuffix(filepath.Base(rel), filepath.Ext(rel)),

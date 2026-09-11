@@ -7,27 +7,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/smirnoffmg/corpus/internal/extract"
+	"github.com/smirnoffmg/corpus/internal/corpus"
 )
 
 type Store struct{ pool *pgxpool.Pool }
-
-type Source struct {
-	Kind  string
-	Path  string
-	Title string
-	Hash  string
-}
-
-type Hit struct {
-	ID      int64   `json:"id"`
-	Kind    string  `json:"kind"`
-	Title   string  `json:"title"`
-	Path    string  `json:"path"`
-	Locator string  `json:"locator"`
-	Rank    float32 `json:"rank"`
-	Snippet string  `json:"snippet"`
-}
 
 func Open(ctx context.Context, dsn string) (*Store, error) {
 	pool, err := pgxpool.New(ctx, dsn)
@@ -65,7 +48,7 @@ func (s *Store) Unchanged(ctx context.Context, path, hash string) (bool, error) 
 // Replace rewrites a source and all of its chunks in one transaction. tsvectors
 // are built here rather than in a generated column: the text -> regconfig cast
 // is only STABLE, which Postgres rejects in a generation expression.
-func (s *Store) Replace(ctx context.Context, src Source, chunks []extract.Chunk) error {
+func (s *Store) Replace(ctx context.Context, src corpus.Source, chunks []corpus.Chunk) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -135,16 +118,16 @@ WHERE ((c.lang = 'russian' AND c.tsv @@ q.ru) OR (c.lang = 'english' AND c.tsv @
 ORDER BY rank DESC
 LIMIT $3`
 
-func (s *Store) Search(ctx context.Context, query, kind string, limit int) ([]Hit, error) {
+func (s *Store) Search(ctx context.Context, query, kind string, limit int) ([]corpus.Hit, error) {
 	rows, err := s.pool.Query(ctx, searchSQL, query, kind, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	hits := make([]Hit, 0, limit)
+	hits := make([]corpus.Hit, 0, limit)
 	for rows.Next() {
-		var h Hit
+		var h corpus.Hit
 		if err := rows.Scan(&h.ID, &h.Kind, &h.Title, &h.Path, &h.Locator, &h.Rank, &h.Snippet); err != nil {
 			return nil, err
 		}

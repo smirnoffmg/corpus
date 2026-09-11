@@ -5,7 +5,7 @@ import (
 	"cmp"
 	"slices"
 
-	"github.com/smirnoffmg/corpus/internal/store"
+	"github.com/smirnoffmg/corpus/internal/corpus"
 )
 
 // k damps the influence of the top ranks; 60 is the value from the original
@@ -15,9 +15,9 @@ const k = 60.0
 // Fuse merges ranked lists by reciprocal rank. Text relevance (ts_rank_cd) and
 // cosine similarity live on different scales, so only the positions are
 // comparable, never the scores themselves.
-func Fuse(lists ...[]store.Hit) []store.Hit {
+func Fuse(lists ...[]corpus.Hit) []corpus.Hit {
 	scores := map[int64]float32{}
-	byID := map[int64]store.Hit{}
+	byID := map[int64]corpus.Hit{}
 
 	for _, list := range lists {
 		for i, hit := range list {
@@ -28,12 +28,12 @@ func Fuse(lists ...[]store.Hit) []store.Hit {
 		}
 	}
 
-	fused := make([]store.Hit, 0, len(byID))
+	fused := make([]corpus.Hit, 0, len(byID))
 	for id, hit := range byID {
 		hit.Rank = scores[id]
 		fused = append(fused, hit)
 	}
-	slices.SortFunc(fused, func(a, b store.Hit) int {
+	slices.SortFunc(fused, func(a, b corpus.Hit) int {
 		if c := cmp.Compare(b.Rank, a.Rank); c != 0 {
 			return c
 		}

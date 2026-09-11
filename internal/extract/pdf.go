@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+
+	"github.com/smirnoffmg/corpus/internal/corpus"
 )
 
 // locator names the page to cite. The printed number is the one a reader can
@@ -22,8 +24,8 @@ func locator(page, printed int) string {
 	}
 }
 
-// PDF extracts one Chunk per page via poppler's pdftotext.
-func PDF(ctx context.Context, path string) ([]Chunk, error) {
+// PDF extracts one corpus.Chunk per page via poppler's pdftotext.
+func PDF(ctx context.Context, path string) ([]corpus.Chunk, error) {
 	cmd := exec.CommandContext(ctx, "pdftotext", "-layout", "-enc", "UTF-8", path, "-")
 	out, err := cmd.Output()
 	if err != nil {
@@ -35,14 +37,14 @@ func PDF(ctx context.Context, path string) ([]Chunk, error) {
 	pages := strings.Split(string(out), "\f")
 	folios := detectFolios(pages)
 
-	chunks := make([]Chunk, 0, len(pages))
+	chunks := make([]corpus.Chunk, 0, len(pages))
 	for i, body := range pages {
 		body = strings.TrimSpace(body)
 		if body == "" {
 			continue
 		}
 		page := i + 1
-		chunks = append(chunks, Chunk{
+		chunks = append(chunks, corpus.Chunk{
 			Ord:     page,
 			Page:    page,
 			Printed: folios[i],

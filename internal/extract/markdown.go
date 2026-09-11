@@ -5,11 +5,13 @@ import (
 	"os"
 	"slices"
 	"strings"
+
+	"github.com/smirnoffmg/corpus/internal/corpus"
 )
 
-// Markdown splits a note into one Chunk per heading section. Frontmatter is not
+// Markdown splits a note into one corpus.Chunk per heading section. Frontmatter is not
 // indexed as text, but its tags ride along on every chunk of the note.
-func Markdown(path string) ([]Chunk, error) {
+func Markdown(path string) ([]corpus.Chunk, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -17,7 +19,7 @@ func Markdown(path string) ([]Chunk, error) {
 	defer f.Close()
 
 	var (
-		chunks   []Chunk
+		chunks   []corpus.Chunk
 		tags     []string
 		trail    []string // heading titles by level, index 0 == H1
 		body     strings.Builder
@@ -32,7 +34,7 @@ func Markdown(path string) ([]Chunk, error) {
 			body.Reset()
 			return
 		}
-		chunks = append(chunks, Chunk{
+		chunks = append(chunks, corpus.Chunk{
 			Ord:     len(chunks) + 1,
 			Locator: joinTrail(trail),
 			Tags:    tags,

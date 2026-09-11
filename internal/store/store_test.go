@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/smirnoffmg/corpus/internal/extract"
+	"github.com/smirnoffmg/corpus/internal/corpus"
 )
 
 // open connects to the compose database; without TEST_DATABASE_URL the test is
@@ -29,12 +29,12 @@ func open(t *testing.T) (*Store, context.Context) {
 func TestReplaceAndSearchRussianIsStemmed(t *testing.T) {
 	st, ctx := open(t)
 
-	src := Source{Kind: "book", Path: "__test__/стеммер.pdf", Title: "Тестовая книга", Hash: "h1"}
+	src := corpus.Source{Kind: "book", Path: "__test__/стеммер.pdf", Title: "Тестовая книга", Hash: "h1"}
 	t.Cleanup(func() {
 		_, _ = st.pool.Exec(ctx, `DELETE FROM sources WHERE path = $1`, src.Path)
 	})
 
-	chunks := []extract.Chunk{{
+	chunks := []corpus.Chunk{{
 		Ord: 42, Page: 42, Locator: "с. 42", Lang: "russian",
 		Body: "Агрегат задаёт границу согласованности внутри предметной области корпускрипт.",
 	}}
@@ -67,12 +67,12 @@ func TestReplaceAndSearchRussianIsStemmed(t *testing.T) {
 func TestReplaceIsIdempotentPerSource(t *testing.T) {
 	st, ctx := open(t)
 
-	src := Source{Kind: "vault", Path: "__test__/note.md", Title: "note", Hash: "h1"}
+	src := corpus.Source{Kind: "vault", Path: "__test__/note.md", Title: "note", Hash: "h1"}
 	t.Cleanup(func() {
 		_, _ = st.pool.Exec(ctx, `DELETE FROM sources WHERE path = $1`, src.Path)
 	})
 
-	chunk := []extract.Chunk{{Ord: 1, Locator: "H", Lang: "english", Body: "consistency boundary"}}
+	chunk := []corpus.Chunk{{Ord: 1, Locator: "H", Lang: "english", Body: "consistency boundary"}}
 	for range 2 {
 		if err := st.Replace(ctx, src, chunk); err != nil {
 			t.Fatalf("replace: %v", err)

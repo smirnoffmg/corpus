@@ -73,3 +73,29 @@ for snippets and `ts_rank_cd` for ranking; SQLite FTS5 would need all of that
 hand-built. Language is detected per chunk and stored, and the tsvector is built
 at insert time — `text::regconfig` is only STABLE, so it cannot live in a
 generated column.
+
+## Design notes
+
+**Integration is a shared database.** The indexer and `mcpd` never talk to each
+other; Postgres is the only channel between them (EIP p. 83, the pattern Fowler
+wrote up). The usual objection — semantic dissonance between applications that
+read the same tables differently — does not apply to two binaries built from one
+module, but the schema is still a contract: a migration has to be deployed to
+both, and the indexer is the one that applies migrations, so it must come up
+first. That ordering is load-bearing and easy to miss.
+
+**The embedding queue is a table, with a quarantine.** A batch that fails
+permanently would otherwise block every chunk behind it forever, since the queue
+always hands out the same rows — the failure an *invalid message channel* (EIP
+p. 143) exists to prevent. Attempts are counted before the call, so a crash
+counts too, and a chunk is set aside after three. Transient failures count as
+well, so `indexer --requeue` puts the quarantined chunks back.
+
+**Flag defaults describe the container**, not the machine: `/data/books`,
+`/data/vault`, `host.docker.internal`. Running a binary outside compose means
+passing all three. That is the trade for a zero-argument `docker compose up`.
+
+**No service layer.** The logic here is a transaction script, and a service layer
+over one is just its public interface repeated (Khononov, printed p. 151). What
+the layering *does* enforce is direction: `internal/corpus` holds the types and
+imports nothing, and extraction, storage, ranking and the API all point at it.
