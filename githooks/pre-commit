@@ -1,0 +1,35 @@
+#!/bin/sh
+# Checks that must pass before a commit. Skip deliberately with --no-verify.
+# Installed by: git config core.hooksPath githooks
+set -e
+
+cd "$(git rev-parse --show-toplevel)"
+
+unformatted=$(gofmt -l .)
+if [ -n "$unformatted" ]; then
+    echo "не отформатировано:"
+    echo "$unformatted"
+    echo "почини: gofmt -w ."
+    exit 1
+fi
+
+golangci-lint run
+
+# The store tests need a database and skip without one; give them the compose
+# instance when it is listening, so they actually run rather than silently pass.
+if nc -z localhost 5433 2>/dev/null; then
+    TEST_DATABASE_URL="postgres://corpus:corpus@localhost:5433/corpus" go test -race ./...
+else
+    echo "БД не слушает 5433 — тесты хранилища пропущены"
+    go test -race ./...
+fi
+
+# Ranking is not allowed to change unmeasured (see README). The numbers are
+# shown, not enforced: the corpus grows, so a fixed threshold would cry wolf.
+if curl -s --max-time 2 http://localhost:8080/healthz >/dev/null 2>&1; then
+    echo
+    echo "оценка поиска (справочно, не блокирует коммит):"
+    go run ./cmd/eval 2>/dev/null | sed -n '3,12p' | sed 's/^/  /'
+else
+    echo "корпус не поднят — оценка поиска пропущена"
+fi

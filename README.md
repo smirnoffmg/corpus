@@ -30,8 +30,12 @@ docker compose logs -f indexer
 The indexer re-scans every 15 minutes and skips files whose SHA-256 is unchanged,
 so the vault stays current while obsidian-git commits into it.
 
-A file that yields no text is not a source: scans without an OCR layer and empty
-notes are dropped rather than kept as rows nothing can ever return. Re-parsing
+Contents pages, subject indexes and near-empty dividers are dropped too: they
+match any query that names a term the book covers — which is every query — and
+answer none. A file that yields no text is not a source either: scans without an
+OCR layer and empty notes are dropped rather than kept as rows nothing can ever
+return. Templater sources under `99 - templates/` are code, not knowledge, and
+are not walked. Re-parsing
 them each pass costs nothing — there is no text to pull, so poppler returns in
 milliseconds — and the drop is reported only when it actually removes something.
 
@@ -145,6 +149,19 @@ traps rejected (authoring-tool artifacts, the author line, letter-spaced series
 headings, mojibake from a mis-decoded font). That is right about three times in
 four, which is why it never overrules a filename that already reads as a title.
 The remaining quarter is fixed by renaming the file.
+
+## Checks before a commit
+
+```sh
+git config core.hooksPath githooks   # once per clone
+```
+
+`githooks/pre-commit` refuses a commit that is unformatted, fails the linters or
+fails the tests (with `-race`, and with the store tests pointed at the compose
+database when it is listening, so they run instead of skipping). It then prints
+the retrieval evaluation without enforcing it — the corpus keeps growing, so a
+fixed threshold would cry wolf; the numbers are there to be looked at when a
+change touches ranking. `--no-verify` skips the lot, deliberately.
 
 ## Lint
 

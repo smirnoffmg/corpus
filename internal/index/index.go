@@ -312,7 +312,14 @@ func collect(root, ext string) ([]string, error) {
 }
 
 func skipDir(name string) bool {
-	return name == ".git" || name == ".obsidian" || name == ".trash" || name == "node_modules"
+	switch name {
+	case ".git", ".obsidian", ".trash", "node_modules":
+		return true
+	case "99 - templates":
+		// Templater sources are code, not knowledge.
+		return true
+	}
+	return false
 }
 
 func hashFile(path string) (string, error) {
