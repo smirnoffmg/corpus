@@ -36,6 +36,10 @@ type Query struct {
 	// Normalization is the bit mask ts_rank_cd applies for document length:
 	// 0 ignores it, 1 divides by 1+log(length), 2 by the length itself.
 	Normalization int
+	// TitleBoost is added to the rank of a chunk whose source title matches the
+	// query. A note called "Кросс-энтропия" should beat a note that merely
+	// mentions the term, and on text rank alone the two tie.
+	TitleBoost float64
 }
 
 // Hit is one search result: enough to judge it and to cite it.

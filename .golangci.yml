@@ -37,6 +37,12 @@ linters:
       enabled-tags:
         - diagnostic
         - performance
+      settings:
+        hugeParam:
+          # corpus.Query is passed by value on purpose: hybrid search derives a
+          # modified copy of it, and a pointer would invite mutating the
+          # caller's. Eighty bytes against a database round trip is nothing.
+          sizeThreshold: 128
     errcheck:
       check-type-assertions: true
     revive:

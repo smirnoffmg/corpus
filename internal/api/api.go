@@ -38,7 +38,14 @@ func New(store Store, embedder Embedder) *Service {
 	return &Service{store: store, embedder: embedder}
 }
 
-const defaultLimit = 10
+const (
+	defaultLimit = 10
+	// defaultTitleBoost is added to the rank when the source title matches the
+	// query. Measured on the judged set: exact-query MRR 0.938 -> 1.000 and P@5
+	// 0.300 -> 0.400, with nothing else moving. The effect saturates here, so
+	// this is the smallest value that buys all of it.
+	defaultTitleBoost = 0.3
+)
 
 type searchInput struct {
 	Query     string `json:"query" jsonschema:"words to look for; supports quoted phrases and -exclusions"`
@@ -159,6 +166,7 @@ func (s *Service) MCP() *mcp.Server {
 		hits, err := s.Search(ctx, corpus.Query{
 			Text: in.Query, Kind: in.Kind, Mode: in.Mode,
 			Limit: in.Limit, PerSource: in.PerSource,
+			TitleBoost: defaultTitleBoost,
 		})
 		if err != nil {
 			return nil, searchOutput{}, err
@@ -264,6 +272,9 @@ func queryFromURL(v url.Values) corpus.Query {
 		Limit:         atoiOrZero(v.Get("limit")),
 		PerSource:     atoiOrZero(v.Get("per_source")),
 		Normalization: atoiOrZero(v.Get("norm")),
+		// Absent means the default; an explicit 0 turns it off, which is how the
+		// sweep measures the alternative.
+		TitleBoost: floatOr(v, "title_boost", defaultTitleBoost),
 	}
 }
 
@@ -283,6 +294,14 @@ func clampLimit(n int) int {
 
 // atoiOrZero reads an optional numeric query parameter; absent and malformed
 // both mean "unset", which the caller turns into the default.
+func floatOr(v url.Values, key string, fallback float64) float64 {
+	if !v.Has(key) {
+		return fallback
+	}
+	f, _ := strconv.ParseFloat(v.Get(key), 64)
+	return f
+}
+
 func atoiOrZero(s string) int {
 	n, _ := strconv.Atoi(s)
 	return n

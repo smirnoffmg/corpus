@@ -281,6 +281,14 @@ rewriting those until they pass turns the set blind.
 Nothing about ranking — length normalisation, `hnsw.ef`, the RRF constant —
 should be changed without running this before and after.
 
+**A title that matches the query is worth 0.3 of rank.** A note called
+"Кросс-энтропия" and a note that merely mentions the term score identically on
+text rank alone, and which one came first was decided by the tiebreaker. Adding
+a constant when the source title matches takes exact-query MRR from 0.938 to
+1.000 and P@5 from 0.300 to 0.400, with the paraphrased half unmoved. The effect
+saturates at 0.3, so that is the value. `title_boost=0` on `/search` turns it off,
+which is how the alternative was measured.
+
 **Length normalisation was measured and left alone.** `ts_rank_cd` takes a bit
 mask for document length; `go run ./cmd/eval -norm N` sweeps it, and `norm=N` on
 `/search` tries one without a restart:

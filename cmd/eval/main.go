@@ -50,6 +50,7 @@ func main() {
 	limit := flag.Int("limit", 10, "hits to request per query")
 	verbose := flag.Bool("v", false, "list the queries each mode misses")
 	norm := flag.Int("norm", 0, "ts_rank_cd length normalisation bit mask to measure")
+	boost := flag.Float64("title-boost", 0, "rank added when the source title matches the query")
 	flag.Parse()
 
 	raw, err := os.ReadFile(*path)
@@ -77,7 +78,7 @@ func main() {
 
 	for _, q := range queries {
 		for _, mode := range modes {
-			hits, err := search(*addr, &q, mode, *limit, *norm)
+			hits, err := search(*addr, &q, mode, *limit, *norm, *boost)
 			if err != nil {
 				log.Fatalf("%s/%s: %v", q.ID, mode, err)
 			}
@@ -157,13 +158,14 @@ func isRelevant(q *query, h *corpus.Hit) bool {
 	return false
 }
 
-func search(addr string, q *query, mode string, limit, norm int) ([]corpus.Hit, error) {
+func search(addr string, q *query, mode string, limit, norm int, boost float64) ([]corpus.Hit, error) {
 	params := url.Values{}
 	params.Set("q", q.Query)
 	params.Set("kind", q.Kind)
 	params.Set("mode", mode)
 	params.Set("limit", strconv.Itoa(limit))
 	params.Set("norm", strconv.Itoa(norm))
+	params.Set("title_boost", strconv.FormatFloat(boost, 'f', -1, 64))
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		addr+"/search?"+params.Encode(), nil)

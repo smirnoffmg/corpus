@@ -231,7 +231,10 @@ SELECT c.id,
        c.heading,
        coalesce(c.page, 0),
        coalesce(c.printed_page, 0),
-       ts_rank_cd(c.tsv, CASE c.lang WHEN 'russian' THEN q.ru ELSE q.en END, $4) AS rank,
+       ts_rank_cd(c.tsv, CASE c.lang WHEN 'russian' THEN q.ru ELSE q.en END, $4)
+         + CASE WHEN to_tsvector(c.lang::regconfig, s.title)
+                     @@ CASE c.lang WHEN 'russian' THEN q.ru ELSE q.en END
+                THEN $5::float8 ELSE 0 END AS rank,
        ts_headline(c.lang::regconfig, c.body,
                    CASE c.lang WHEN 'russian' THEN q.ru ELSE q.en END,
                    'MaxFragments=2,MinWords=10,MaxWords=28,StartSel=<<,StopSel=>>')
@@ -248,7 +251,7 @@ ORDER BY rank DESC, c.id
 LIMIT $3`
 
 func (s *Store) Search(ctx context.Context, q corpus.Query) ([]corpus.Hit, error) {
-	rows, err := s.pool.Query(ctx, searchSQL, q.Text, q.Kind, q.Limit, q.Normalization)
+	rows, err := s.pool.Query(ctx, searchSQL, q.Text, q.Kind, q.Limit, q.Normalization, q.TitleBoost)
 	if err != nil {
 		return nil, err
 	}
