@@ -218,6 +218,12 @@ func indexKind(
 		return updated, err
 	}
 
+	// An empty walk means the mount is missing, not that every file was
+	// deleted; pruning on that would wipe the whole index.
+	if len(seen) == 0 {
+		log.Printf("no %s files under %s, skipping prune", kind, root)
+		return updated, nil
+	}
 	if _, err := st.Prune(ctx, kind, seen); err != nil {
 		return updated, err
 	}

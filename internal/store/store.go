@@ -92,10 +92,10 @@ func (s *Store) Replace(ctx context.Context, src Source, chunks []extract.Chunk)
 	batch := &pgx.Batch{}
 	for _, c := range chunks {
 		batch.Queue(`
-			INSERT INTO chunks (source_id, ord, page, locator, lang, tags, body, tsv)
-			VALUES ($1, $2, NULLIF($3, 0), $4, $5, COALESCE($6::text[], '{}'), $7,
-			        to_tsvector($8::regconfig, $7))`,
-			id, c.Ord, c.Page, c.Locator, c.Lang, c.Tags, c.Body, c.Lang)
+			INSERT INTO chunks (source_id, ord, page, printed_page, locator, lang, tags, body, tsv)
+			VALUES ($1, $2, NULLIF($3, 0), NULLIF($4, 0), $5, $6, COALESCE($7::text[], '{}'), $8,
+			        to_tsvector($9::regconfig, $8))`,
+			id, c.Ord, c.Page, c.Printed, c.Locator, c.Lang, c.Tags, c.Body, c.Lang)
 	}
 	if err := tx.SendBatch(ctx, batch).Close(); err != nil {
 		return fmt.Errorf("insert chunks for %s: %w", src.Path, err)
@@ -142,7 +142,7 @@ func (s *Store) Search(ctx context.Context, query, kind string, limit int) ([]Hi
 	}
 	defer rows.Close()
 
-	var hits []Hit
+	hits := []Hit{}
 	for rows.Next() {
 		var h Hit
 		if err := rows.Scan(&h.ID, &h.Kind, &h.Title, &h.Path, &h.Locator, &h.Rank, &h.Snippet); err != nil {

@@ -5,7 +5,16 @@ and the Obsidian vault. Exposed as an MCP server and as plain HTTP.
 
 The unit of a hit is a **citable location** — a page for a book, a heading path
 for a note — because the point is to quote a source in a note, not to learn that
-some book mentions the word.
+some book mentions the word. Book pages are cited by the number *printed on the
+page*, which is what a reader of any copy can follow; the PDF page follows in
+brackets when the two differ, since that is what opens this particular file.
+
+Granularity is split on purpose: the text index answers per page, while the
+vector sees a window that carries ~500 characters of the neighbouring pages.
+Two thirds of the pages in this corpus end mid-sentence, so a page on its own is
+routinely half a thought — Manning's *Introduction to Information Retrieval*
+(printed p. 22) puts it as a precision/recall tradeoff and argues that a system
+should offer choices of granularity rather than pick one.
 
 ## Run
 
@@ -32,11 +41,11 @@ claude mcp add --transport http corpus http://localhost:8080/mcp
 
 `kind` is `book`, `vault`, or empty for both. `mode` picks the retrieval method:
 
-| mode | finds | good for |
-| --- | --- | --- |
-| `fts` | the words you typed, stemmed | exact terms, names, quotes |
-| `vector` | passages about the same thing | a topic you cannot name exactly |
-| `hybrid` (default) | both lists fused by rank | most questions |
+| mode               | finds                         | good for                        |
+| ------------------ | ----------------------------- | ------------------------------- |
+| `fts`              | the words you typed, stemmed  | exact terms, names, quotes      |
+| `vector`           | passages about the same thing | a topic you cannot name exactly |
+| `hybrid` (default) | both lists fused by rank      | most questions                  |
 
 The `fts` query goes through `websearch_to_tsquery`, so `"точная фраза"` and
 `-исключение` work. `GET /compare?q=…` runs all three and returns them side by
