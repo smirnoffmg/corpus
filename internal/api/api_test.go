@@ -17,10 +17,12 @@ type fakeStore struct {
 	text     []corpus.Hit
 	semantic []corpus.Hit
 	lastText int
+	lastNorm int
 }
 
-func (f *fakeStore) Search(_ context.Context, _, _ string, limit int) ([]corpus.Hit, error) {
-	f.lastText = limit
+func (f *fakeStore) Search(_ context.Context, q corpus.Query) ([]corpus.Hit, error) {
+	f.lastText = q.Limit
+	f.lastNorm = q.Normalization
 	return f.text, nil
 }
 
@@ -55,7 +57,7 @@ func TestHybridFallsBackToTextWhenEmbedderIsDown(t *testing.T) {
 	store := &fakeStore{text: []corpus.Hit{{ID: 1}, {ID: 2}}}
 	embedder := &fakeEmbedder{err: errors.New("connection refused")}
 
-	hits, err := api.New(store, embedder).Search(context.Background(), "агрегат", "", "hybrid", 10, 0)
+	hits, err := api.New(store, embedder).Search(context.Background(), corpus.Query{Text: "агрегат", Kind: "", Mode: "hybrid", Limit: 10, PerSource: 0})
 	if err != nil {
 		t.Fatalf("hybrid returned an error instead of degrading: %v", err)
 	}
@@ -66,7 +68,7 @@ func TestHybridFallsBackToTextWhenEmbedderIsDown(t *testing.T) {
 
 func TestFtsModeNeverEmbeds(t *testing.T) {
 	embedder := &fakeEmbedder{}
-	if _, err := api.New(&fakeStore{}, embedder).Search(context.Background(), "q", "", "fts", 10, 0); err != nil {
+	if _, err := api.New(&fakeStore{}, embedder).Search(context.Background(), corpus.Query{Text: "q", Kind: "", Mode: "fts", Limit: 10, PerSource: 0}); err != nil {
 		t.Fatal(err)
 	}
 	if embedder.calls != 0 {
@@ -76,7 +78,7 @@ func TestFtsModeNeverEmbeds(t *testing.T) {
 
 func TestVectorModeReportsEmbedderFailure(t *testing.T) {
 	embedder := &fakeEmbedder{err: errors.New("model not found")}
-	_, err := api.New(&fakeStore{}, embedder).Search(context.Background(), "q", "", "vector", 10, 0)
+	_, err := api.New(&fakeStore{}, embedder).Search(context.Background(), corpus.Query{Text: "q", Kind: "", Mode: "vector", Limit: 10, PerSource: 0})
 	if err == nil {
 		t.Fatal("vector mode swallowed the embedder error")
 	}
@@ -84,7 +86,7 @@ func TestVectorModeReportsEmbedderFailure(t *testing.T) {
 
 func TestCompareEmbedsTheQueryOnce(t *testing.T) {
 	embedder := &fakeEmbedder{}
-	out, err := api.New(&fakeStore{}, embedder).Compare(context.Background(), "q", "", 5)
+	out, err := api.New(&fakeStore{}, embedder).Compare(context.Background(), corpus.Query{Text: "q", Limit: 5})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +104,7 @@ func TestHybridAsksBothLegsForMoreThanItReturns(t *testing.T) {
 	// Fusing two top-10 lists into a top-10 needs deeper inputs, or a result
 	// ranked 11th by text and 1st by vector can never surface.
 	store := &fakeStore{}
-	if _, err := api.New(store, &fakeEmbedder{}).Search(context.Background(), "q", "", "hybrid", 10, 0); err != nil {
+	if _, err := api.New(store, &fakeEmbedder{}).Search(context.Background(), corpus.Query{Text: "q", Kind: "", Mode: "hybrid", Limit: 10, PerSource: 0}); err != nil {
 		t.Fatal(err)
 	}
 	if store.lastText <= 10 {
@@ -151,7 +153,7 @@ func TestPerSourceCapsOneSourceFillingThePage(t *testing.T) {
 		{ID: 3, Path: "Нормализация.md"}, {ID: 4, Path: "Транзакция.md"},
 	}}
 
-	hits, err := api.New(store, &fakeEmbedder{}).Search(context.Background(), "облачение", "vault", "fts", 10, 1)
+	hits, err := api.New(store, &fakeEmbedder{}).Search(context.Background(), corpus.Query{Text: "база данных", Kind: "vault", Mode: "fts", Limit: 10, PerSource: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +167,7 @@ func TestPerSourceCapsOneSourceFillingThePage(t *testing.T) {
 
 func TestPerSourceUnsetChangesNothing(t *testing.T) {
 	store := &fakeStore{text: []corpus.Hit{{ID: 1, Path: "a"}, {ID: 2, Path: "a"}}}
-	hits, err := api.New(store, &fakeEmbedder{}).Search(context.Background(), "q", "", "fts", 10, 0)
+	hits, err := api.New(store, &fakeEmbedder{}).Search(context.Background(), corpus.Query{Text: "q", Kind: "", Mode: "fts", Limit: 10, PerSource: 0})
 	if err != nil {
 		t.Fatal(err)
 	}

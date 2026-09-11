@@ -22,6 +22,20 @@ type Source struct {
 	Hash  string
 }
 
+// Query is everything a search takes. As a struct rather than six positional
+// arguments, because half of them are ints and the compiler cannot tell them
+// apart.
+type Query struct {
+	Text      string
+	Kind      string // "book", "vault", or empty for both
+	Mode      string // "fts", "vector", or "hybrid" (default)
+	Limit     int
+	PerSource int // at most this many hits from one source; 0 for no limit
+	// Normalization is the bit mask ts_rank_cd applies for document length:
+	// 0 ignores it, 1 divides by 1+log(length), 2 by the length itself.
+	Normalization int
+}
+
 // Hit is one search result: enough to judge it and to cite it.
 type Hit struct {
 	ID      int64   `json:"id"`

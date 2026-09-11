@@ -58,7 +58,7 @@ func TestReplaceAndSearchRussianIsStemmed(t *testing.T) {
 	// "агрегатов" is inflected, so a match proves the russian snowball
 	// configuration is in play; the nonsense word pins the hit to this row,
 	// which real books would otherwise outrank.
-	hits, err := st.Search(ctx, "агрегатов корпускрипт", "book", 10)
+	hits, err := st.Search(ctx, corpus.Query{Text: "агрегатов корпускрипт", Kind: "book", Limit: 10})
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}

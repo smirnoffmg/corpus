@@ -167,7 +167,7 @@ SELECT c.id,
        s.path,
        c.locator,
        coalesce(c.page, 0),
-       ts_rank_cd(c.tsv, CASE c.lang WHEN 'russian' THEN q.ru ELSE q.en END) AS rank,
+       ts_rank_cd(c.tsv, CASE c.lang WHEN 'russian' THEN q.ru ELSE q.en END, $4) AS rank,
        ts_headline(c.lang::regconfig, c.body,
                    CASE c.lang WHEN 'russian' THEN q.ru ELSE q.en END,
                    'MaxFragments=2,MinWords=10,MaxWords=28,StartSel=<<,StopSel=>>')
@@ -179,14 +179,14 @@ WHERE ((c.lang = 'russian' AND c.tsv @@ q.ru) OR (c.lang = 'english' AND c.tsv @
 ORDER BY rank DESC
 LIMIT $3`
 
-func (s *Store) Search(ctx context.Context, query, kind string, limit int) ([]corpus.Hit, error) {
-	rows, err := s.pool.Query(ctx, searchSQL, query, kind, limit)
+func (s *Store) Search(ctx context.Context, q corpus.Query) ([]corpus.Hit, error) {
+	rows, err := s.pool.Query(ctx, searchSQL, q.Text, q.Kind, q.Limit, q.Normalization)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	hits := make([]corpus.Hit, 0, limit)
+	hits := make([]corpus.Hit, 0, q.Limit)
 	for rows.Next() {
 		var h corpus.Hit
 		if err := rows.Scan(&h.ID, &h.Kind, &h.Title, &h.Path, &h.Locator, &h.Page, &h.Rank, &h.Snippet); err != nil {

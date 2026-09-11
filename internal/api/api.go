@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"net/url"
 	"strconv"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -18,7 +19,7 @@ import (
 )
 
 type Store interface {
-	Search(ctx context.Context, query, kind string, limit int) ([]corpus.Hit, error)
+	Search(ctx context.Context, q corpus.Query) ([]corpus.Hit, error)
 	SearchVector(ctx context.Context, vector []float32, kind string, limit int) ([]corpus.Hit, error)
 	Read(ctx context.Context, id int64, neighbours bool) (corpus.Passage, error)
 	Stats(ctx context.Context) (int64, int64, error)
@@ -56,29 +57,29 @@ type readInput struct {
 	Neighbours bool  `json:"neighbours,omitempty" jsonschema:"also return the pages before and after, for a passage cut by a page break"`
 }
 
-func (s *Service) Search(ctx context.Context, query, kind, mode string, limit, perSource int) ([]corpus.Hit, error) {
-	limit = clampLimit(limit)
+func (s *Service) Search(ctx context.Context, q corpus.Query) ([]corpus.Hit, error) {
+	limit := clampLimit(q.Limit)
 	// Capping per source needs a deeper list to cap: the hits being dropped have
 	// to be replaced by something.
-	fetch := limit
-	if perSource > 0 {
-		fetch = min(limit*5, 50)
+	q.Limit = limit
+	if q.PerSource > 0 {
+		q.Limit = min(limit*5, 50)
 	}
 
 	var hits []corpus.Hit
 	var err error
-	switch mode {
+	switch q.Mode {
 	case "fts":
-		hits, err = s.store.Search(ctx, query, kind, fetch)
+		hits, err = s.store.Search(ctx, q)
 	case "vector":
-		hits, err = s.vector(ctx, query, kind, fetch)
+		hits, err = s.vector(ctx, q)
 	default:
-		hits, err = s.hybrid(ctx, query, kind, fetch)
+		hits, err = s.hybrid(ctx, q)
 	}
 	if err != nil {
 		return nil, err
 	}
-	return truncate(capPerSource(hits, perSource), limit), nil
+	return truncate(capPerSource(hits, q.PerSource), limit), nil
 }
 
 // capPerSource keeps a single book or note from filling the whole page. Ten
@@ -99,22 +100,26 @@ func capPerSource(hits []corpus.Hit, perSource int) []corpus.Hit {
 	return kept
 }
 
-func (s *Service) vector(ctx context.Context, query, kind string, limit int) ([]corpus.Hit, error) {
-	vectors, err := s.embedder.Embed(ctx, []string{query})
+func (s *Service) vector(ctx context.Context, q corpus.Query) ([]corpus.Hit, error) {
+	vectors, err := s.embedder.Embed(ctx, []string{q.Text})
 	if err != nil {
 		return nil, err
 	}
-	return s.store.SearchVector(ctx, vectors[0], kind, limit)
+	return s.store.SearchVector(ctx, vectors[0], q.Kind, q.Limit)
 }
 
 // hybrid fuses both lists by rank. If the embedder is unreachable the text index
 // still answers, which is the half that needs no GPU.
-func (s *Service) hybrid(ctx context.Context, query, kind string, limit int) ([]corpus.Hit, error) {
-	text, err := s.store.Search(ctx, query, kind, limit*2)
+func (s *Service) hybrid(ctx context.Context, q corpus.Query) ([]corpus.Hit, error) {
+	limit := q.Limit
+	deep := q
+	deep.Limit = limit * 2
+
+	text, err := s.store.Search(ctx, deep)
 	if err != nil {
 		return nil, err
 	}
-	semantic, err := s.vector(ctx, query, kind, limit*2)
+	semantic, err := s.vector(ctx, deep)
 	if err != nil {
 		log.Printf("vector leg unavailable, falling back to text: %v", err)
 		return truncate(text, limit), nil
@@ -124,13 +129,16 @@ func (s *Service) hybrid(ctx context.Context, query, kind string, limit int) ([]
 
 // Compare runs each leg once and fuses the hybrid from them; running the three
 // modes independently would embed the same query twice.
-func (s *Service) Compare(ctx context.Context, query, kind string, limit int) (map[string][]corpus.Hit, error) {
-	limit = clampLimit(limit)
-	text, err := s.store.Search(ctx, query, kind, limit*2)
+func (s *Service) Compare(ctx context.Context, q corpus.Query) (map[string][]corpus.Hit, error) {
+	limit := clampLimit(q.Limit)
+	deep := q
+	deep.Limit = limit * 2
+
+	text, err := s.store.Search(ctx, deep)
 	if err != nil {
 		return nil, err
 	}
-	semantic, err := s.vector(ctx, query, kind, limit*2)
+	semantic, err := s.vector(ctx, deep)
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +156,10 @@ func (s *Service) MCP() *mcp.Server {
 		Name:        "corpus_search",
 		Description: "Search the PDF library and the Obsidian vault. Returns ranked snippets with the book page or note heading to cite.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in searchInput) (*mcp.CallToolResult, searchOutput, error) {
-		hits, err := s.Search(ctx, in.Query, in.Kind, in.Mode, in.Limit, in.PerSource)
+		hits, err := s.Search(ctx, corpus.Query{
+			Text: in.Query, Kind: in.Kind, Mode: in.Mode,
+			Limit: in.Limit, PerSource: in.PerSource,
+		})
 		if err != nil {
 			return nil, searchOutput{}, err
 		}
@@ -180,8 +191,7 @@ func (s *Service) Handler() http.Handler {
 	// far less ceremony than an MCP handshake.
 	mux.HandleFunc("/search", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		hits, err := s.Search(r.Context(), q.Get("q"), q.Get("kind"), q.Get("mode"),
-			atoiOrZero(q.Get("limit")), atoiOrZero(q.Get("per_source")))
+		hits, err := s.Search(r.Context(), queryFromURL(q))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -191,7 +201,7 @@ func (s *Service) Handler() http.Handler {
 
 	mux.HandleFunc("/compare", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		out, err := s.Compare(r.Context(), q.Get("q"), q.Get("kind"), atoiOrZero(q.Get("limit")))
+		out, err := s.Compare(r.Context(), queryFromURL(q))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -222,6 +232,20 @@ func (s *Service) Handler() http.Handler {
 	})
 
 	return mux
+}
+
+// queryFromURL reads a search off the query string. `norm` is the ts_rank_cd
+// length normalisation: a knob that exists so it can be measured against the
+// judged set before anyone changes the default (see README).
+func queryFromURL(v url.Values) corpus.Query {
+	return corpus.Query{
+		Text:          v.Get("q"),
+		Kind:          v.Get("kind"),
+		Mode:          v.Get("mode"),
+		Limit:         atoiOrZero(v.Get("limit")),
+		PerSource:     atoiOrZero(v.Get("per_source")),
+		Normalization: atoiOrZero(v.Get("norm")),
+	}
 }
 
 func truncate(hits []corpus.Hit, limit int) []corpus.Hit {

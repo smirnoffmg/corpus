@@ -256,3 +256,22 @@ rewriting those until they pass turns the set blind.
 
 Nothing about ranking — length normalisation, `hnsw.ef`, the RRF constant —
 should be changed without running this before and after.
+
+**Length normalisation was measured and left alone.** `ts_rank_cd` takes a bit
+mask for document length; `go run ./cmd/eval -norm N` sweeps it, and `norm=N` on
+`/search` tries one without a restart:
+
+| norm | fts MRR | found@10 |
+| --- | --- | --- |
+| **0** (default) | **0.419** | **42%** |
+| 1 — divide by 1+log(length) | 0.403 | 42% |
+| 2 — divide by length | 0.398 | 42% |
+| 4 — divide by extent distance | 0.324 | 39% |
+| 8 / 16 — divide by unique words | 0.398 / 0.403 | 42% |
+| 32 — divide by itself+1 | 0.419 | 42% |
+
+Ignoring length wins. Book pages are near enough the same size for it not to
+matter, and notes are short enough that penalising length throws away the long
+ones that actually explain something. The 32 row is the harness checking itself:
+dividing every rank by itself+1 is monotonic, so the order — and every metric —
+must come out identical, and it does.
