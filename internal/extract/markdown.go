@@ -34,12 +34,15 @@ func Markdown(path string) ([]corpus.Chunk, error) {
 			body.Reset()
 			return
 		}
-		chunks = append(chunks, corpus.Chunk{
-			Ord:     len(chunks) + 1,
-			Locator: joinTrail(trail),
-			Tags:    tags,
-			Body:    strings.TrimSpace(body.String()),
-		})
+		locator := joinTrail(trail)
+		for _, part := range splitSection(body.String()) {
+			chunks = append(chunks, corpus.Chunk{
+				Ord:     len(chunks) + 1,
+				Locator: locator,
+				Tags:    tags,
+				Body:    part,
+			})
+		}
 		body.Reset()
 	}
 
@@ -98,6 +101,50 @@ func joinTrail(trail []string) string {
 		}
 	}
 	return strings.Join(kept, " > ")
+}
+
+const (
+	// splitAbove is the length past which a section is cut into parts. A brain
+	// note often keeps its whole argument under one heading, and a single vector
+	// for six thousand characters describes the average of everything in them:
+	// measured on one such section, a query matched the relevant paragraph at
+	// 0.53 and the whole section at 0.47.
+	splitAbove = 2500
+	// partTarget is the size a part aims for before the next blank line ends it.
+	partTarget = 1500
+)
+
+// splitSection cuts a long section at paragraph boundaries, never inside a
+// fenced block — half a code listing is worse than none.
+func splitSection(section string) []string {
+	section = strings.TrimSpace(section)
+	if len(section) <= splitAbove {
+		return []string{section}
+	}
+
+	var (
+		parts   []string
+		current strings.Builder
+		inFence bool
+	)
+	for _, line := range strings.Split(section, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			inFence = !inFence
+		}
+		if !inFence && strings.TrimSpace(line) == "" && current.Len() >= partTarget {
+			if part := strings.TrimSpace(current.String()); part != "" {
+				parts = append(parts, part)
+			}
+			current.Reset()
+			continue
+		}
+		current.WriteString(line)
+		current.WriteByte('\n')
+	}
+	if part := strings.TrimSpace(current.String()); part != "" {
+		parts = append(parts, part)
+	}
+	return parts
 }
 
 func headingLevel(line string) int {

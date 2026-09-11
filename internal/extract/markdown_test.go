@@ -3,6 +3,7 @@ package extract_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/smirnoffmg/corpus/internal/extract"
@@ -112,5 +113,53 @@ func TestMarkdownLocatorSkipsMissingLevels(t *testing.T) {
 	}
 	if got, want := chunks[0].Locator, "Что это"; got != want {
 		t.Errorf("locator = %q, want %q", got, want)
+	}
+}
+
+func TestShortSectionStaysWhole(t *testing.T) {
+	chunks, err := extract.Markdown(write(t, "# Заметка\n\n## Что это\n\nКороткое определение в один абзац.\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chunks) != 1 {
+		t.Errorf("короткий раздел разрезан на %d частей", len(chunks))
+	}
+}
+
+func TestLongSectionIsSplitAtParagraphs(t *testing.T) {
+	para := strings.Repeat("Определение и механизм, изложенные словами. ", 20) // ~860 символов
+	body := "# Заметка\n\n## Что это\n\n" + strings.Join([]string{para, para, para, para, para}, "\n\n") + "\n"
+
+	chunks, err := extract.Markdown(write(t, body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chunks) < 2 {
+		t.Fatalf("раздел на %d символов остался одним чанком", len(body))
+	}
+	for i, c := range chunks {
+		if c.Locator != "Заметка > Что это" {
+			t.Errorf("часть %d потеряла заголовок: %q", i, c.Locator)
+		}
+		if c.Ord != i+1 {
+			t.Errorf("часть %d получила ord %d — окно соседей строится по порядку", i, c.Ord)
+		}
+		if strings.TrimSpace(c.Body) == "" {
+			t.Errorf("часть %d пустая", i)
+		}
+	}
+}
+
+func TestCodeFenceIsNeverCutInHalf(t *testing.T) {
+	filler := strings.Repeat("Текст перед кодом, чтобы набрать длину. ", 45) // > partTarget
+	code := "```python\n" + strings.Repeat("x = 1\n\ny = 2\n\n", 40) + "```"
+	chunks, err := extract.Markdown(write(t, "# З\n\n## Код\n\n"+filler+"\n\n"+code+"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, c := range chunks {
+		if strings.Count(c.Body, "```")%2 != 0 {
+			t.Errorf("часть %d разрезала блок кода: %.60s…", i, c.Body)
+		}
 	}
 }
