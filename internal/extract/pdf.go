@@ -32,6 +32,9 @@ func (sp Splitter) PDF(ctx context.Context, path string) ([]corpus.Chunk, error)
 		}
 		page := i + 1
 		for _, part := range sp.splitSection(body) {
+			if tooShort(part) || unreadable(part) {
+				continue
+			}
 			chunks = append(chunks, corpus.Chunk{
 				Ord:     len(chunks) + 1,
 				Page:    page,

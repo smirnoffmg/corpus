@@ -51,8 +51,16 @@ func unreadable(page string) bool {
 // frontOrBackMatter reports whether a page is contents, index or a near-empty
 // divider. Such pages match any query that names a term the book covers, which
 // is every query, and they never answer one.
+// tooShort marks a fragment that cannot be worth citing on its own. It is
+// checked on every part a page or a section is cut into, not only on the whole:
+// splitting a page leaves its running head and footer as parts of their own, and
+// those carry nothing but the page number.
+func tooShort(text string) bool {
+	return len(strings.TrimSpace(text)) < minPageChars
+}
+
 func frontOrBackMatter(page string) bool {
-	if len(strings.TrimSpace(page)) < minPageChars {
+	if tooShort(page) {
 		return true
 	}
 

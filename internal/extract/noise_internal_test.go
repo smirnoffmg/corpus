@@ -90,3 +90,17 @@ func TestUnreadableIgnoresPagesTooShortToJudge(t *testing.T) {
 		t.Error("judged a page with almost no letters")
 	}
 }
+
+func TestEveryPartIsCheckedNotOnlyTheWholePage(t *testing.T) {
+	// A page that splits leaves its running head as a part of its own. Checking
+	// only the whole page let those through: 12% of the corpus was fragments
+	// like "page 508" before this.
+	for _, fragment := range []string{"page 508", "Patterns_book.indb 136 22.04.2008 21:59:55", "—"} {
+		if !tooShort(fragment) {
+			t.Errorf("fragment kept: %q", fragment)
+		}
+	}
+	if tooShort(strings.Repeat("Осмысленный текст. ", 12)) {
+		t.Error("a real paragraph was called too short")
+	}
+}

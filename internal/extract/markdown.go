@@ -36,6 +36,9 @@ func (sp Splitter) Markdown(path string) ([]corpus.Chunk, error) {
 		}
 		locator := joinTrail(trail)
 		for _, part := range sp.splitSection(body.String()) {
+			// No length floor for notes: a diary entry can be one sentence and
+			// still be the thing you are looking for. The floor exists for book
+			// pages, where a short part is the running head.
 			chunks = append(chunks, corpus.Chunk{
 				Ord:     len(chunks) + 1,
 				Heading: locator,
