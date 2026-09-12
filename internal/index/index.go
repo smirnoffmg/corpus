@@ -138,9 +138,6 @@ func (ix *Indexer) indexKind(
 
 	var updated atomic.Int64
 	g, gctx := errgroup.WithContext(ctx)
-	// SetLimit is the counting semaphore of TGPL 8.6 with the bookkeeping
-	// already written: Go blocks until a worker is free, so the pass holds
-	// Parallel goroutines rather than one per file waiting for a token.
 	g.SetLimit(ix.opts.Parallel)
 	for _, rel := range files {
 		if gctx.Err() != nil {
