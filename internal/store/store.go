@@ -27,10 +27,18 @@ type Store struct {
 	// characters of the chunks on either side.
 	bodyChars      int
 	neighbourChars int
+	// efSearch is how wide the HNSW walk is before it starts returning. Higher
+	// finds more of the true nearest neighbours and costs time.
+	efSearch int
 }
 
 // Option configures a Store.
 type Option func(*Store)
+
+// WithEfSearch sets hnsw.ef_search. 0 leaves the pgvector default of 40.
+func WithEfSearch(n int) Option {
+	return func(s *Store) { s.efSearch = n }
+}
 
 // WithWindow sets how much text is handed to the embedder. The right size
 // depends on the model: one that stops reading at 2400 characters gains nothing

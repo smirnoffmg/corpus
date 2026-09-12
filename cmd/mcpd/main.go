@@ -27,12 +27,13 @@ func run() error {
 	addr := flag.String("addr", ":8080", "listen address")
 	ollama := flag.String("ollama", "http://host.docker.internal:11434", "ollama base URL")
 	model := flag.String("model", "bge-m3", "embedding model")
+	efSearch := flag.Int("ef-search", 0, "hnsw.ef_search; 0 leaves the pgvector default of 40")
 	flag.Parse()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	st, err := store.Open(ctx, os.Getenv("DATABASE_URL"))
+	st, err := store.Open(ctx, os.Getenv("DATABASE_URL"), store.WithEfSearch(*efSearch))
 	if err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}
