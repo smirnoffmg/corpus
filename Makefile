@@ -1,4 +1,4 @@
-.PHONY: up down test lint
+.PHONY: up down test lint cover
 
 up:
 	docker compose up -d --build
@@ -12,3 +12,6 @@ test:
 lint:
 	golangci-lint fmt
 	golangci-lint run
+
+cover:
+	./scripts/coverage.sh
