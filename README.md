@@ -213,12 +213,30 @@ pre-commit install          # once per clone
 pre-commit run --all-files  # the whole repository, not just what is staged
 ```
 
-A commit is refused if it is unformatted, fails the linters, or fails the tests
-— run with `-race`, and with the store tests pointed at the compose database
-when it is listening, so they run instead of skipping. The retrieval evaluation
-prints but never blocks: the corpus keeps growing, so a fixed threshold would cry
-wolf; the numbers are there to be looked at when a change touches ranking.
-`--no-verify` skips the lot, deliberately.
+The four everyday commands have a `Makefile`: `make up`, `make down`, `make
+test`, `make lint` — and `make cover` for the gate below. `lint` formats before
+it checks, because `golangci-lint run` reports formatting too and would
+otherwise complain about what `golangci-lint fmt` was about to fix.
+
+A commit is refused if it is unformatted, fails the linters, fails the tests —
+run with `-race` — or leaves any package under 80% statement coverage. The
+retrieval evaluation prints but never blocks: the corpus keeps growing, so a
+fixed threshold would cry wolf; the numbers are there to be looked at when a
+change touches ranking. `--no-verify` skips the lot, deliberately.
+
+The coverage gate is per package rather than per repository, because an average
+hides a package at 30% behind two at 100%, and 30% is where the bugs are. `cmd/`
+is exempt: those are composition roots whose bodies are flag parsing and wiring,
+and a test that covers them tests the test. `COVERAGE_MIN` moves the line.
+
+Tests and coverage are one hook, so a single run gives both the race detector
+and the numbers. The store tests start their own Postgres — the same
+`pgvector/pgvector` image compose runs, since the schema needs the extension —
+so the only thing they ask of the machine is a Docker daemon. Without one the
+script says so and falls back to `-short` rather than reporting a figure that
+describes the laptop. They used to take a database through `TEST_DATABASE_URL`
+and skip when it was unset, which meant the everyday result of `go test ./...`
+was a green run in which the store was never touched.
 
 Formatting is `golangci-lint fmt`, not a separate `gofmt` hook: it applies the
 `formatters` section of `.golangci.yml` — gofmt *and* goimports with this
@@ -263,7 +281,7 @@ indexer can be pointed at a scratch database and a real slice of the library.
 ```sh
 go build -race -o /tmp/indexer-race ./cmd/indexer
 DATABASE_URL=postgres://corpus:corpus@localhost:5433/corpus_race \
-  /tmp/indexer-race --books <dir> --vault <dir> --migrations ./migrations \
+  /tmp/indexer-race --books <dir> --vault <dir> \
   --ollama http://127.0.0.1:1 --interval 0
 ```
 
