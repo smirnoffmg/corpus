@@ -112,19 +112,28 @@ func joinTrail(trail []string) string {
 // query matched the relevant paragraph at 0.53 and the whole section at 0.47.
 // The sizes are settings because the right ones depend on the embedding model's
 // window, and the judged set is what decides between them.
+// The zero value never splits, which is the right default for a book page.
 type Splitter struct {
-	Above  int // length past which a section is cut into parts
+	Above  int // length past which a section is cut into parts; 0 never splits
 	Target int // size a part aims for before the next blank line ends it
 }
 
-// DefaultSplitter is what the corpus runs with today.
-var DefaultSplitter = Splitter{Above: 2500, Target: 1500}
+// The defaults differ by kind, and the difference was measured rather than
+// guessed. A book page is already one thought — the author laid it out that way
+// — and cutting it in half cost hybrid found@10 74% -> 68% across the judged set.
+// A note's section often holds six thoughts under one heading, and cutting those
+// lifted vector MRR from 0.459 to 0.478. The rule is not "smaller is better" but
+// "one chunk, one thought".
+var (
+	DefaultSplitter     = Splitter{}                          // book pages stay whole
+	DefaultNoteSplitter = Splitter{Above: 1600, Target: 1000} // note sections
+)
 
 // splitSection cuts a long section at paragraph boundaries, never inside a
 // fenced block — half a code listing is worse than none.
 func (sp Splitter) splitSection(section string) []string {
 	section = strings.TrimSpace(section)
-	if len(section) <= sp.Above {
+	if sp.Above <= 0 || len(section) <= sp.Above {
 		return []string{section}
 	}
 

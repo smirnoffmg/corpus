@@ -46,11 +46,12 @@ type Embedder interface {
 }
 
 type Options struct {
-	Books    string
-	Vault    string
-	Batch    int              // chunks per embedding request
-	Parallel int              // extraction workers; defaults to the core count, capped
-	Splitter extract.Splitter // how long a chunk may be
+	Books        string
+	Vault        string
+	Batch        int              // chunks per embedding request
+	Parallel     int              // extraction workers; defaults to the core count, capped
+	BookSplitter extract.Splitter // how long a book page chunk may be
+	NoteSplitter extract.Splitter // how long a note chunk may be
 }
 
 type Indexer struct {
@@ -71,8 +72,10 @@ func New(store Store, embedder Embedder, opts Options) *Indexer {
 	if opts.Batch <= 0 {
 		opts.Batch = 16
 	}
-	if opts.Splitter.Above <= 0 || opts.Splitter.Target <= 0 {
-		opts.Splitter = extract.DefaultSplitter
+	// A zero splitter means "keep the unit whole", which is what a book page
+	// wants; only the note splitter gets a non-zero default.
+	if opts.NoteSplitter == (extract.Splitter{}) {
+		opts.NoteSplitter = extract.DefaultNoteSplitter
 	}
 	return &Indexer{store: store, embedder: embedder, opts: opts}
 }
@@ -90,13 +93,13 @@ func (ix *Indexer) Index(ctx context.Context) error {
 	start := time.Now()
 
 	books, err := ix.indexKind(ctx, "book", ix.opts.Books, ".pdf", func(path string) ([]corpus.Chunk, error) {
-		return ix.opts.Splitter.PDF(ctx, path)
+		return ix.opts.BookSplitter.PDF(ctx, path)
 	})
 	if err != nil {
 		return err
 	}
 
-	notes, err := ix.indexKind(ctx, "vault", ix.opts.Vault, ".md", ix.opts.Splitter.Markdown)
+	notes, err := ix.indexKind(ctx, "vault", ix.opts.Vault, ".md", ix.opts.NoteSplitter.Markdown)
 	if err != nil {
 		return err
 	}

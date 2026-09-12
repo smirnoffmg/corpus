@@ -19,7 +19,7 @@ func write(t *testing.T, body string) string {
 }
 
 func TestMarkdownSplitsBySectionAndKeepsHeadingPath(t *testing.T) {
-	chunks, err := extract.DefaultSplitter.Markdown(write(t, `---
+	chunks, err := extract.DefaultNoteSplitter.Markdown(write(t, `---
 date: 2026-09-11
 tags: daily
 ---
@@ -52,7 +52,7 @@ tags: daily
 }
 
 func TestMarkdownIgnoresHeadingsInsideFences(t *testing.T) {
-	chunks, err := extract.DefaultSplitter.Markdown(write(t, "# Заметка\n\n```bash\n# это комментарий\nls -la\n```\n"))
+	chunks, err := extract.DefaultNoteSplitter.Markdown(write(t, "# Заметка\n\n```bash\n# это комментарий\nls -la\n```\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestMarkdownIgnoresHeadingsInsideFences(t *testing.T) {
 }
 
 func TestMarkdownTagsComeOnlyFromTagsKey(t *testing.T) {
-	chunks, err := extract.DefaultSplitter.Markdown(write(t, `---
+	chunks, err := extract.DefaultNoteSplitter.Markdown(write(t, `---
 aliases:
   - Второе имя
 tags:
@@ -97,7 +97,7 @@ author: Кто-то
 }
 
 func TestMarkdownInlineTagList(t *testing.T) {
-	chunks, err := extract.DefaultSplitter.Markdown(write(t, "---\ntags: [daily, diary]\n---\n\n# H\n\nx\n"))
+	chunks, err := extract.DefaultNoteSplitter.Markdown(write(t, "---\ntags: [daily, diary]\n---\n\n# H\n\nx\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func TestMarkdownInlineTagList(t *testing.T) {
 }
 
 func TestMarkdownLocatorSkipsMissingLevels(t *testing.T) {
-	chunks, err := extract.DefaultSplitter.Markdown(write(t, "## Что это\n\nОпределение.\n"))
+	chunks, err := extract.DefaultNoteSplitter.Markdown(write(t, "## Что это\n\nОпределение.\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestMarkdownLocatorSkipsMissingLevels(t *testing.T) {
 }
 
 func TestShortSectionStaysWhole(t *testing.T) {
-	chunks, err := extract.DefaultSplitter.Markdown(write(t, "# Заметка\n\n## Что это\n\nКороткое определение в один абзац.\n"))
+	chunks, err := extract.DefaultNoteSplitter.Markdown(write(t, "# Заметка\n\n## Что это\n\nКороткое определение в один абзац.\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func TestLongSectionIsSplitAtParagraphs(t *testing.T) {
 	para := strings.Repeat("Определение и механизм, изложенные словами. ", 20) // ~860 символов
 	body := "# Заметка\n\n## Что это\n\n" + strings.Join([]string{para, para, para, para, para}, "\n\n") + "\n"
 
-	chunks, err := extract.DefaultSplitter.Markdown(write(t, body))
+	chunks, err := extract.DefaultNoteSplitter.Markdown(write(t, body))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +153,7 @@ func TestLongSectionIsSplitAtParagraphs(t *testing.T) {
 func TestCodeFenceIsNeverCutInHalf(t *testing.T) {
 	filler := strings.Repeat("Текст перед кодом, чтобы набрать длину. ", 45) // > partTarget
 	code := "```python\n" + strings.Repeat("x = 1\n\ny = 2\n\n", 40) + "```"
-	chunks, err := extract.DefaultSplitter.Markdown(write(t, "# З\n\n## Код\n\n"+filler+"\n\n"+code+"\n"))
+	chunks, err := extract.DefaultNoteSplitter.Markdown(write(t, "# З\n\n## Код\n\n"+filler+"\n\n"+code+"\n"))
 	if err != nil {
 		t.Fatal(err)
 	}

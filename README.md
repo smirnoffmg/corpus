@@ -22,6 +22,14 @@ routinely half a thought — Manning's *Introduction to Information Retrieval*
 (printed p. 22) puts it as a precision/recall tradeoff and argues that a system
 should offer choices of granularity rather than pick one.
 
+**One chunk, one thought — not "smaller is better".** Cutting long note sections
+into parts lifted vector MRR from 0.459 to 0.478, because a section often argued
+six things under one heading. Applying the same to book pages was measured too,
+and it lost: hybrid found@10 fell from 74% to 68% across the judged set. A page
+is already one thought — the author laid it out that way — and half a page is
+half an argument. So book pages stay whole and note sections are cut at 1600
+characters, and those are the defaults in code, with the numbers beside them.
+
 ## Run
 
 ```sh

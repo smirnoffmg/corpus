@@ -18,7 +18,7 @@ services:
   indexer:
     build: .
     image: corpus:latest
-    command: ["indexer", "--interval", "15m", "--split-above", "1600", "--split-target", "1000"]
+    command: ["indexer", "--interval", "15m"]
     environment:
       DATABASE_URL: postgres://corpus:${POSTGRES_PASSWORD:-corpus}@db:5432/corpus
     volumes:

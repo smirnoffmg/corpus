@@ -24,16 +24,18 @@ func main() {
 
 func run() error {
 	var (
-		booksDir = flag.String("books", "/data/books", "directory with PDF books")
-		vaultDir = flag.String("vault", "/data/vault", "Obsidian vault root")
-		interval = flag.Duration("interval", 0, "reindex period; 0 means index once and exit")
-		ollama   = flag.String("ollama", "http://host.docker.internal:11434", "ollama base URL")
-		model    = flag.String("model", "bge-m3", "embedding model")
-		batch    = flag.Int("batch", 16, "chunks per embedding request")
-		parallel = flag.Int("parallel", 0, "extraction workers; 0 picks a cap from the core count")
-		above    = flag.Int("split-above", 0, "split a page or section longer than this; 0 keeps the default")
-		target   = flag.Int("split-target", 0, "size a part aims for when splitting")
-		requeue  = flag.Bool("requeue", false, "put quarantined chunks back in the embedding queue and continue")
+		booksDir   = flag.String("books", "/data/books", "directory with PDF books")
+		vaultDir   = flag.String("vault", "/data/vault", "Obsidian vault root")
+		interval   = flag.Duration("interval", 0, "reindex period; 0 means index once and exit")
+		ollama     = flag.String("ollama", "http://host.docker.internal:11434", "ollama base URL")
+		model      = flag.String("model", "bge-m3", "embedding model")
+		batch      = flag.Int("batch", 16, "chunks per embedding request")
+		parallel   = flag.Int("parallel", 0, "extraction workers; 0 picks a cap from the core count")
+		bookAbove  = flag.Int("book-split-above", 0, "split a book page longer than this; 0 keeps the measured default")
+		bookTarget = flag.Int("book-split-target", 0, "size a book part aims for")
+		noteAbove  = flag.Int("note-split-above", 0, "split a note section longer than this; 0 keeps the measured default")
+		noteTarget = flag.Int("note-split-target", 0, "size a note part aims for")
+		requeue    = flag.Bool("requeue", false, "put quarantined chunks back in the embedding queue and continue")
 	)
 	flag.Parse()
 
@@ -59,11 +61,12 @@ func run() error {
 	}
 
 	indexer := index.New(st, embed.New(*ollama, *model), index.Options{
-		Books:    *booksDir,
-		Vault:    *vaultDir,
-		Batch:    *batch,
-		Parallel: *parallel,
-		Splitter: extract.Splitter{Above: *above, Target: *target},
+		Books:        *booksDir,
+		Vault:        *vaultDir,
+		Batch:        *batch,
+		Parallel:     *parallel,
+		BookSplitter: extract.Splitter{Above: *bookAbove, Target: *bookTarget},
+		NoteSplitter: extract.Splitter{Above: *noteAbove, Target: *noteTarget},
 	})
 
 	for {
