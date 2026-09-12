@@ -16,9 +16,10 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/smirnoffmg/corpus/internal/corpus"
 	"github.com/smirnoffmg/corpus/internal/extract"
@@ -123,38 +124,37 @@ func (ix *Indexer) indexKind(
 		return 0, err
 	}
 
-	// A counting semaphore, as in TGPL 8.6: a vacant slot is a token entitling
-	// one worker to proceed.
 	present := make(map[string]bool, len(files))
 	for _, rel := range files {
 		present[rel] = true
 	}
 
-	tokens := make(chan struct{}, ix.opts.Parallel)
-	var (
-		wg      sync.WaitGroup
-		updated atomic.Int64
-	)
+	var updated atomic.Int64
+	g, gctx := errgroup.WithContext(ctx)
+	// SetLimit is the counting semaphore of TGPL 8.6 with the bookkeeping
+	// already written: Go blocks until a worker is free, so the pass holds
+	// Parallel goroutines rather than one per file waiting for a token.
+	g.SetLimit(ix.opts.Parallel)
 	for _, rel := range files {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			select {
-			case tokens <- struct{}{}:
-				defer func() { <-tokens }()
-			case <-ctx.Done():
-				return
-			}
+		if gctx.Err() != nil {
+			break
+		}
+		g.Go(func() error {
 			// One unreadable file must not end the pass: a fault in a single
-			// document is not a failure of the index.
-			if changed, err := ix.indexFile(ctx, kind, root, rel, present, parse); err != nil {
+			// document is not a failure of the index. Returning the error here
+			// would cancel the group and abandon the rest of the library, so
+			// the file is logged and the walk goes on.
+			if changed, err := ix.indexFile(gctx, kind, root, rel, present, parse); err != nil {
 				log.Printf("skip %s: %v", rel, err)
 			} else if changed {
 				updated.Add(1)
 			}
-		}()
+			return nil
+		})
 	}
-	wg.Wait()
+	if err := g.Wait(); err != nil {
+		return int(updated.Load()), err
+	}
 
 	if err := ctx.Err(); err != nil {
 		return int(updated.Load()), err
