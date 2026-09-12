@@ -127,10 +127,10 @@ SELECT c.id,
        s.title,
        s.path,
        c.heading,
-       coalesce(c.page, 0),
-       coalesce(c.printed_page, 0),
-       1 - (c.embedding <=> $1::vector) AS score,
-       left(c.body, 240)
+       coalesce(c.page, 0) AS page,
+       coalesce(c.printed_page, 0) AS printed_page,
+       1 - (c.embedding <=> $1::vector) AS rank,
+       left(c.body, 240) AS snippet
 FROM chunks c
 JOIN sources s ON s.id = c.source_id
 WHERE c.embedding IS NOT NULL
@@ -143,20 +143,7 @@ func (s *Store) SearchVector(ctx context.Context, vector []float32, kind string,
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	hits := make([]corpus.Hit, 0, limit)
-	for rows.Next() {
-		var h corpus.Hit
-		var heading *string
-		var printed int
-		if err := rows.Scan(&h.ID, &h.Kind, &h.Title, &h.Path, &heading, &h.Page, &printed, &h.Rank, &h.Snippet); err != nil {
-			return nil, err
-		}
-		h.Locator = corpus.Locator(deref(heading), h.Page, printed)
-		hits = append(hits, h)
-	}
-	return hits, rows.Err()
+	return collectHits(rows)
 }
 
 // pgvector has no binary literal in the wire protocol we use, so vectors travel

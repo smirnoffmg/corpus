@@ -237,15 +237,15 @@ SELECT c.id,
        s.title,
        s.path,
        c.heading,
-       coalesce(c.page, 0),
-       coalesce(c.printed_page, 0),
+       coalesce(c.page, 0) AS page,
+       coalesce(c.printed_page, 0) AS printed_page,
        ts_rank_cd(c.tsv, CASE c.lang WHEN 'russian' THEN q.ru ELSE q.en END, $4)
          + CASE WHEN to_tsvector(c.lang::regconfig, s.title)
                      @@ CASE c.lang WHEN 'russian' THEN q.ru ELSE q.en END
                 THEN $5::float8 ELSE 0 END AS rank,
        ts_headline(c.lang::regconfig, c.body,
                    CASE c.lang WHEN 'russian' THEN q.ru ELSE q.en END,
-                   'MaxFragments=2,MinWords=10,MaxWords=28,StartSel=<<,StopSel=>>')
+                   'MaxFragments=2,MinWords=10,MaxWords=28,StartSel=<<,StopSel=>>') AS snippet
 FROM chunks c
 JOIN sources s ON s.id = c.source_id
 CROSS JOIN q
@@ -263,20 +263,44 @@ func (s *Store) Search(ctx context.Context, q corpus.Query) ([]corpus.Hit, error
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	return collectHits(rows)
+}
 
-	hits := make([]corpus.Hit, 0, q.Limit)
-	for rows.Next() {
-		var h corpus.Hit
-		var heading *string
-		var printed int
-		if err := rows.Scan(&h.ID, &h.Kind, &h.Title, &h.Path, &heading, &h.Page, &printed, &h.Rank, &h.Snippet); err != nil {
-			return nil, err
-		}
-		h.Locator = corpus.Locator(deref(heading), h.Page, printed)
-		hits = append(hits, h)
+// hitRow is the shape both search legs select. It exists so the columns are
+// bound by name: the legs return nine columns of which two pairs share a type,
+// and a positional scan that has them the wrong way round still compiles, still
+// runs, and cites a book by its path.
+type hitRow struct {
+	ID      int64   `db:"id"`
+	Kind    string  `db:"kind"`
+	Title   string  `db:"title"`
+	Path    string  `db:"path"`
+	Heading *string `db:"heading"`
+	Page    int     `db:"page"`
+	Printed int     `db:"printed_page"`
+	Rank    float32 `db:"rank"`
+	Snippet string  `db:"snippet"`
+}
+
+func collectHits(rows pgx.Rows) ([]corpus.Hit, error) {
+	found, err := pgx.CollectRows(rows, pgx.RowToStructByName[hitRow])
+	if err != nil {
+		return nil, err
 	}
-	return hits, rows.Err()
+	hits := make([]corpus.Hit, len(found))
+	for i, r := range found {
+		hits[i] = corpus.Hit{
+			ID:      r.ID,
+			Kind:    r.Kind,
+			Title:   r.Title,
+			Path:    r.Path,
+			Locator: corpus.Locator(deref(r.Heading), r.Page, r.Printed),
+			Page:    r.Page,
+			Rank:    r.Rank,
+			Snippet: r.Snippet,
+		}
+	}
+	return hits, nil
 }
 
 func deref(p *string) string {

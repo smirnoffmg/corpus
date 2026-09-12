@@ -145,3 +145,63 @@ func TestSearchOrderDoesNotDependOnTheLimit(t *testing.T) {
 		}
 	}
 }
+
+// TestSearchMapsColumnsToTheRightFields pins which column lands in which field.
+// Both search legs scan a nine-column row, and a scan that binds by position
+// keeps compiling when two columns of the same type trade places — it just
+// returns a book's path as its title, or cites the PDF page as the printed one.
+// The values below are deliberately distinct per field so that a swap shows up.
+func TestSearchMapsColumnsToTheRightFields(t *testing.T) {
+	st, pool, ctx := open(t)
+
+	src := corpus.Source{
+		Kind:  "book",
+		Path:  "__test__/раскладка.pdf",
+		Title: "Заголовок книги",
+		Hash:  "h1",
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM sources WHERE path = $1`, src.Path)
+	})
+
+	chunks := []corpus.Chunk{{
+		Ord: 1, Page: 203, Printed: 189, Lang: "russian",
+		Body: "Стюард перезапускает подчинённую горутину корпускрипт.",
+	}}
+	if err := st.Replace(ctx, src, chunks); err != nil {
+		t.Fatalf("replace: %v", err)
+	}
+
+	hits, err := st.Search(ctx, corpus.Query{Text: "корпускрипт", Kind: "book", Limit: 10})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+
+	var got corpus.Hit
+	for _, h := range hits {
+		if h.Path == src.Path {
+			got = h
+			break
+		}
+	}
+	if got.ID == 0 {
+		t.Fatalf("the indexed chunk is not among %d hits", len(hits))
+	}
+
+	if got.Title != src.Title {
+		t.Errorf("Title = %q, want %q", got.Title, src.Title)
+	}
+	if got.Kind != src.Kind {
+		t.Errorf("Kind = %q, want %q", got.Kind, src.Kind)
+	}
+	if got.Page != 203 {
+		t.Errorf("Page = %d, want the PDF page 203", got.Page)
+	}
+	// Printed 189 differs from PDF 203, so a page/printed swap changes this.
+	if want := "с. 189 (PDF 203)"; got.Locator != want {
+		t.Errorf("Locator = %q, want %q", got.Locator, want)
+	}
+	if !strings.Contains(got.Snippet, "<<") {
+		t.Errorf("Snippet is not the highlighted headline: %q", got.Snippet)
+	}
+}
