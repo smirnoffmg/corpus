@@ -199,7 +199,7 @@ func (s *Service) Handler() http.Handler {
 
 	// The same search over plain HTTP: reaching for it with curl from a shell is
 	// far less ceremony than an MCP handshake.
-	mux.HandleFunc("/search", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /search", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		hits, err := s.Search(r.Context(), queryFromURL(q))
 		if err != nil {
@@ -209,7 +209,7 @@ func (s *Service) Handler() http.Handler {
 		writeJSON(w, searchOutput{Hits: hits})
 	})
 
-	mux.HandleFunc("/compare", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /compare", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		out, err := s.Compare(r.Context(), queryFromURL(q))
 		if err != nil {
@@ -219,7 +219,7 @@ func (s *Service) Handler() http.Handler {
 		writeJSON(w, out)
 	})
 
-	mux.HandleFunc("/read", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /read", func(w http.ResponseWriter, r *http.Request) {
 		id, err := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
 		if err != nil {
 			http.Error(w, "id must be a number", http.StatusBadRequest)
@@ -237,7 +237,7 @@ func (s *Service) Handler() http.Handler {
 	// is away: search still works on full text, and a liveness probe that fails
 	// on a degraded-but-working service invites a restart that fixes nothing.
 	// /status is where the degradation is visible.
-	mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /status", func(w http.ResponseWriter, r *http.Request) {
 		sources, chunks, err := s.store.Stats(r.Context())
 		status := map[string]any{"sources": sources, "chunks": chunks, "db": "ok"}
 		if err != nil {
@@ -252,7 +252,7 @@ func (s *Service) Handler() http.Handler {
 		writeJSON(w, status)
 	})
 
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		if _, _, err := s.store.Stats(r.Context()); err != nil {
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
 			return

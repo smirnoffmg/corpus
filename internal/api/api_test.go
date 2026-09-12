@@ -175,3 +175,22 @@ func TestPerSourceUnsetChangesNothing(t *testing.T) {
 		t.Errorf("got %d hits, want both — the cap must be opt-in", len(hits))
 	}
 }
+
+// TestReadOnlyEndpointsRefuseOtherMethods pins the method on the query
+// endpoints. All of them only read, and a POST that silently ran a search was
+// indistinguishable from one that changed something.
+func TestReadOnlyEndpointsRefuseOtherMethods(t *testing.T) {
+	srv := httptest.NewServer(api.New(&fakeStore{text: []corpus.Hit{}}, &fakeEmbedder{}).Handler())
+	defer srv.Close()
+
+	for _, path := range []string{"/search?q=x", "/compare?q=x", "/read?id=1", "/status", "/healthz"} {
+		resp, err := http.Post(srv.URL+path, "text/plain", nil)
+		if err != nil {
+			t.Fatalf("POST %s: %v", path, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusMethodNotAllowed {
+			t.Errorf("POST %s = %d, want %d", path, resp.StatusCode, http.StatusMethodNotAllowed)
+		}
+	}
+}
