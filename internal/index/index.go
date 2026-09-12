@@ -11,7 +11,8 @@ import (
 	"encoding/hex"
 	"io"
 	"io/fs"
-	"log"
+	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -109,8 +110,14 @@ func (ix *Indexer) Index(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	log.Printf("indexed %d books, %d notes in %s; corpus: %d sources, %d chunks",
-		books, notes, time.Since(start).Round(time.Second), sources, chunks)
+	// One wide event per pass rather than a line per stage: everything needed to
+	// judge the pass is on it, and passes can be compared field by field.
+	slog.InfoContext(ctx, "pass complete",
+		"books", books,
+		"notes", notes,
+		"took", time.Since(start).Round(time.Second).String(),
+		"sources", sources,
+		"chunks", chunks)
 	return nil
 }
 
@@ -145,7 +152,7 @@ func (ix *Indexer) indexKind(
 			// would cancel the group and abandon the rest of the library, so
 			// the file is logged and the walk goes on.
 			if changed, err := ix.indexFile(gctx, kind, root, rel, present, parse); err != nil {
-				log.Printf("skip %s: %v", rel, err)
+				slog.WarnContext(gctx, "skipped", "path", rel, "err", err)
 			} else if changed {
 				updated.Add(1)
 			}
@@ -162,7 +169,7 @@ func (ix *Indexer) indexKind(
 	// An empty walk means the mount is missing, not that every file was deleted;
 	// pruning on that would wipe the whole index.
 	if len(files) == 0 {
-		log.Printf("no %s files under %s, skipping prune", kind, root)
+		slog.WarnContext(ctx, "no files under root, skipping prune", "kind", kind, "root", root)
 		return int(updated.Load()), nil
 	}
 	if _, err := ix.store.Prune(ctx, kind, files); err != nil {
@@ -203,7 +210,7 @@ func (ix *Indexer) indexFile(
 		return false, err
 	}
 	if found && !present[old] {
-		log.Printf("renamed: %s -> %s", old, rel)
+		slog.InfoContext(ctx, "renamed", "from", old, "to", rel)
 		return false, ix.store.Rename(ctx, old, rel, title)
 	}
 
@@ -217,7 +224,7 @@ func (ix *Indexer) indexFile(
 	if len(chunks) == 0 {
 		dropped, err := ix.store.Forget(ctx, rel)
 		if dropped {
-			log.Printf("no text in %s: dropped (a scan without OCR?)", rel)
+			slog.WarnContext(ctx, "no text, dropped (a scan without OCR?)", "path", rel)
 		}
 		return false, err
 	}
@@ -235,7 +242,7 @@ func (ix *Indexer) Embed(ctx context.Context) error {
 	if err != nil || pending == 0 {
 		return err
 	}
-	log.Printf("embedding %d chunks", pending)
+	slog.InfoContext(ctx, "embedding", "pending", pending)
 
 	start := time.Now()
 	done := 0
@@ -271,13 +278,14 @@ func (ix *Indexer) Embed(ctx context.Context) error {
 		if done%(ix.opts.Batch*20) == 0 {
 			rate := float64(done) / time.Since(start).Seconds()
 			left := time.Duration(float64(int(pending)-done)/rate) * time.Second
-			log.Printf("embedded %d/%d (%.1f chunks/s, ~%s left)",
-				done, pending, rate, left.Round(time.Minute))
+			slog.InfoContext(ctx, "embedding progress",
+				"done", done, "pending", pending,
+				"rate", math.Round(rate*10)/10, "left", left.Round(time.Minute).String())
 		}
 	}
-	log.Printf("embedded %d chunks in %s", done, time.Since(start).Round(time.Second))
+	slog.InfoContext(ctx, "embedded", "chunks", done, "took", time.Since(start).Round(time.Second).String())
 	if n, err := ix.store.Quarantined(ctx); err == nil && n > 0 {
-		log.Printf("%d chunks quarantined after repeated embedding failures", n)
+		slog.WarnContext(ctx, "chunks quarantined after repeated embedding failures", "chunks", n)
 	}
 	return ctx.Err()
 }

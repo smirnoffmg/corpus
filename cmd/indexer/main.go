@@ -4,7 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -17,8 +17,12 @@ import (
 )
 
 func main() {
+	// SetDefault also redirects the log package, so anything a dependency logs
+	// through it lands in the same stream, in the same shape.
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
 	if err := run(); err != nil {
-		log.Fatal(err)
+		slog.Error("exit", "err", err)
+		os.Exit(1)
 	}
 }
 
@@ -57,7 +61,7 @@ func run() error {
 		if err != nil {
 			return fmt.Errorf("requeue: %w", err)
 		}
-		log.Printf("requeued %d quarantined chunks", n)
+		slog.InfoContext(ctx, "requeued quarantined chunks", "chunks", n)
 	}
 
 	indexer := index.New(st, embed.New(*ollama, *model), index.Options{
@@ -71,14 +75,14 @@ func run() error {
 
 	for {
 		if err := indexer.Pass(ctx); err != nil {
-			log.Printf("pass: %v", err)
+			slog.ErrorContext(ctx, "pass", "err", err)
 		}
 		if *interval == 0 {
 			return nil
 		}
 		select {
 		case <-ctx.Done():
-			log.Print("stopping")
+			slog.InfoContext(ctx, "stopping")
 			return nil
 		case <-time.After(*interval):
 		}

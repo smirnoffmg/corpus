@@ -5,7 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -18,8 +18,12 @@ import (
 )
 
 func main() {
+	// SetDefault also redirects the log package, so anything a dependency logs
+	// through it lands in the same stream, in the same shape.
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
 	if err := run(); err != nil {
-		log.Fatal(err)
+		slog.Error("exit", "err", err)
+		os.Exit(1)
 	}
 }
 
@@ -46,11 +50,11 @@ func run() error {
 	}
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Printf("serve: %v", err)
+			slog.Error("serve", "err", err)
 			stop()
 		}
 	}()
-	log.Printf("corpus mcp listening on %s/mcp", *addr)
+	slog.Info("listening", "addr", *addr, "path", "/mcp")
 
 	<-ctx.Done()
 	shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)

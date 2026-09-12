@@ -7,7 +7,7 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -128,7 +128,7 @@ func (s *Service) hybrid(ctx context.Context, q corpus.Query) ([]corpus.Hit, err
 	}
 	semantic, err := s.vector(ctx, deep)
 	if err != nil {
-		log.Printf("vector leg unavailable, falling back to text: %v", err)
+		slog.WarnContext(ctx, "vector leg unavailable, falling back to text", "err", err)
 		return truncate(text, limit), nil
 	}
 	return truncate(rank.Fuse(text, semantic), limit), nil

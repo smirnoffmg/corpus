@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"log"
+	"log/slog"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -111,7 +111,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 		return err
 	}
 	for _, m := range applied {
-		log.Printf("migration applied: %s", m.Source.Path)
+		slog.InfoContext(ctx, "migration applied", "migration", m.Source.Path)
 	}
 	return nil
 }
