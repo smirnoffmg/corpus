@@ -36,8 +36,8 @@ repos:
         pass_filenames: false
 
       - id: go-test
-        name: go test -race
-        entry: scripts/test.sh
+        name: go test -race + покрытие >= 80% по пакету
+        entry: scripts/coverage.sh
         language: system
         always_run: true       # миграция, compose или набор запросов тоже ломают сборку
         pass_filenames: false

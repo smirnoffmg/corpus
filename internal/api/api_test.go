@@ -194,3 +194,114 @@ func TestReadOnlyEndpointsRefuseOtherMethods(t *testing.T) {
 		}
 	}
 }
+
+// The HTTP surface is thin, but it is what the shell and the browser reach, and
+// every endpoint below was previously only exercised for the method it refuses.
+func TestHTTPEndpointsAnswerInTheirDocumentedShape(t *testing.T) {
+	store := &fakeStore{
+		text:     []corpus.Hit{{ID: 7, Kind: "book", Title: "Книга", Locator: "с. 1"}},
+		semantic: []corpus.Hit{{ID: 8, Kind: "vault", Title: "Заметка", Locator: "H"}},
+	}
+	srv := httptest.NewServer(api.New(store, &fakeEmbedder{}).Handler())
+	defer srv.Close()
+
+	t.Run("search", func(t *testing.T) {
+		var body struct {
+			Hits []corpus.Hit `json:"hits"`
+		}
+		// The default mode is hybrid, so both legs are fused into the answer.
+		get(t, srv.URL+"/search?q=агрегат&limit=5", &body)
+		if len(body.Hits) != 2 {
+			t.Fatalf("hits = %+v, want both legs", body.Hits)
+		}
+		seen := map[int64]bool{}
+		for _, h := range body.Hits {
+			seen[h.ID] = true
+		}
+		if !seen[7] || !seen[8] {
+			t.Errorf("hits = %+v, want the text and the vector leg", body.Hits)
+		}
+	})
+
+	t.Run("compare", func(t *testing.T) {
+		var modes map[string][]corpus.Hit
+		get(t, srv.URL+"/compare?q=агрегат&limit=5", &modes)
+		for _, mode := range []string{"fts", "vector", "hybrid"} {
+			if _, ok := modes[mode]; !ok {
+				t.Errorf("compare is missing the %s leg", mode)
+			}
+		}
+	})
+
+	t.Run("read", func(t *testing.T) {
+		var passage corpus.Passage
+		get(t, srv.URL+"/read?id=7&neighbours", &passage)
+		if passage.Body != "body" {
+			t.Errorf("body = %q", passage.Body)
+		}
+	})
+
+	t.Run("status", func(t *testing.T) {
+		var status map[string]any
+		get(t, srv.URL+"/status", &status)
+		if status["sources"] != float64(1) || status["chunks"] != float64(2) {
+			t.Errorf("status = %v", status)
+		}
+		if status["embedder"] != "ok" {
+			t.Errorf("embedder = %v, want ok", status["embedder"])
+		}
+	})
+
+	t.Run("healthz", func(t *testing.T) {
+		resp, err := http.Get(srv.URL + "/healthz")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("healthz = %d", resp.StatusCode)
+		}
+	})
+}
+
+// /status is where a degraded embedder has to be visible; /healthz stays 200,
+// because search still answers on full text and a restart would fix nothing.
+func TestStatusReportsADegradedEmbedderWhileHealthzStaysUp(t *testing.T) {
+	store := &fakeStore{}
+	embedder := &fakeEmbedder{err: errors.New("connection refused")}
+	srv := httptest.NewServer(api.New(store, embedder).Handler())
+	defer srv.Close()
+
+	var status map[string]any
+	get(t, srv.URL+"/status", &status)
+	if status["embedder"] != "unreachable" {
+		t.Errorf("embedder = %v, want unreachable", status["embedder"])
+	}
+	if status["degraded"] == nil {
+		t.Error("a degraded service must say so")
+	}
+
+	resp, err := http.Get(srv.URL + "/healthz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("healthz = %d, want 200 while only the embedder is away", resp.StatusCode)
+	}
+}
+
+func get(t *testing.T, url string, into any) {
+	t.Helper()
+	resp, err := http.Get(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET %s = %d", url, resp.StatusCode)
+	}
+	if err := json.NewDecoder(resp.Body).Decode(into); err != nil {
+		t.Fatalf("decode %s: %v", url, err)
+	}
+}

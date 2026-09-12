@@ -2,9 +2,11 @@ package index_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -25,6 +27,9 @@ type recordingStore struct {
 	renamed   []string
 	forgotten []string
 	unchanged bool
+	pending   []corpus.Pending
+	attempted []int64
+	embedded  []int64
 }
 
 func newStore() *recordingStore {
@@ -95,13 +100,38 @@ func (s *recordingStore) Prune(_ context.Context, kind string, seen []string) (i
 
 func (s *recordingStore) Stats(context.Context) (int64, int64, error) { return 0, 0, nil }
 
-func (s *recordingStore) MissingEmbeddings(context.Context) (int64, error) { return 0, nil }
-func (s *recordingStore) Quarantined(context.Context) (int64, error)       { return 0, nil }
-func (s *recordingStore) PendingEmbeddings(context.Context, int) ([]corpus.Pending, error) {
-	return nil, nil
+func (s *recordingStore) MissingEmbeddings(context.Context) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return int64(len(s.pending)), nil
 }
-func (s *recordingStore) CountAttempt(context.Context, []int64) error { return nil }
-func (s *recordingStore) SaveEmbeddings(context.Context, []int64, [][]float32) error {
+
+func (s *recordingStore) Quarantined(context.Context) (int64, error) { return 0, nil }
+
+// PendingEmbeddings drains the queue the way the real one does: a batch at a
+// time, and nothing left once every chunk has a vector.
+func (s *recordingStore) PendingEmbeddings(_ context.Context, limit int) ([]corpus.Pending, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.pending) < limit {
+		limit = len(s.pending)
+	}
+	batch := s.pending[:limit]
+	s.pending = s.pending[limit:]
+	return batch, nil
+}
+
+func (s *recordingStore) CountAttempt(_ context.Context, ids []int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.attempted = append(s.attempted, ids...)
+	return nil
+}
+
+func (s *recordingStore) SaveEmbeddings(_ context.Context, ids []int64, _ [][]float32) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.embedded = append(s.embedded, ids...)
 	return nil
 }
 
@@ -114,6 +144,25 @@ func (s *recordingStore) counts() (replaced int, pruned []string) {
 type nopEmbedder struct{}
 
 func (nopEmbedder) Embed(context.Context, []string) ([][]float32, error) { return nil, nil }
+
+// countingEmbedder answers with one vector per body, and can be told to fail.
+type countingEmbedder struct {
+	mu     sync.Mutex
+	calls  int
+	sizes  []int
+	broken error
+}
+
+func (e *countingEmbedder) Embed(_ context.Context, bodies []string) ([][]float32, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.calls++
+	e.sizes = append(e.sizes, len(bodies))
+	if e.broken != nil {
+		return nil, e.broken
+	}
+	return make([][]float32, len(bodies)), nil
+}
 
 // vault writes n notes and returns the directory holding them, plus an empty
 // directory to stand in for the book library.
@@ -267,5 +316,118 @@ func TestAFileWithNoTextIsNotIndexed(t *testing.T) {
 	}
 	if len(store.forgotten) != 1 || store.forgotten[0] != "empty.md" {
 		t.Errorf("forgotten = %v, want [empty.md]", store.forgotten)
+	}
+}
+
+func queued(n int) []corpus.Pending {
+	out := make([]corpus.Pending, n)
+	for i := range out {
+		out[i] = corpus.Pending{ID: int64(i + 1), Body: fmt.Sprintf("кусок %d", i+1)}
+	}
+	return out
+}
+
+func TestEmbedDrainsTheQueueInBatches(t *testing.T) {
+	store := newStore()
+	store.pending = queued(5)
+	embedder := &countingEmbedder{}
+
+	ix := index.New(store, embedder, index.Options{Batch: 2})
+	if err := ix.Embed(t.Context()); err != nil {
+		t.Fatalf("embed: %v", err)
+	}
+
+	if got, want := len(store.embedded), 5; got != want {
+		t.Errorf("embedded %d chunks, want %d", got, want)
+	}
+	if got := embedder.sizes; len(got) != 3 || got[0] != 2 || got[2] != 1 {
+		t.Errorf("batch sizes = %v, want [2 2 1]", got)
+	}
+}
+
+// The attempt is recorded before the embedder is called, so a chunk that kills
+// the process still counts against its retries instead of being tried forever.
+func TestEmbedCountsTheAttemptBeforeTheCallThatMayFail(t *testing.T) {
+	store := newStore()
+	store.pending = queued(2)
+	embedder := &countingEmbedder{broken: errors.New("ollama is down")}
+
+	ix := index.New(store, embedder, index.Options{Batch: 2})
+	err := ix.Embed(t.Context())
+
+	if err == nil {
+		t.Fatal("a failing embedder must stop the pass")
+	}
+	if len(store.attempted) != 2 {
+		t.Errorf("attempts recorded = %d, want 2", len(store.attempted))
+	}
+	if len(store.embedded) != 0 {
+		t.Errorf("nothing should have been saved, got %d", len(store.embedded))
+	}
+}
+
+func TestEmbedWithAnEmptyQueueDoesNotCallTheEmbedder(t *testing.T) {
+	store := newStore()
+	embedder := &countingEmbedder{}
+
+	ix := index.New(store, embedder, index.Options{Batch: 4})
+	if err := ix.Embed(t.Context()); err != nil {
+		t.Fatalf("embed: %v", err)
+	}
+	if embedder.calls != 0 {
+		t.Errorf("embedder called %d times on an empty queue", embedder.calls)
+	}
+}
+
+// Pass is Index and then Embed: the text index must be complete before a slow
+// or absent embedder gets a chance to hold the run up.
+func TestPassIndexesAndThenEmbeds(t *testing.T) {
+	notes, books := vault(t, 3)
+	store := newStore()
+	store.pending = queued(3)
+	embedder := &countingEmbedder{}
+
+	ix := index.New(store, embedder, index.Options{Books: books, Vault: notes, Parallel: 2, Batch: 8})
+	if err := ix.Pass(t.Context()); err != nil {
+		t.Fatalf("pass: %v", err)
+	}
+
+	replaced, _ := store.counts()
+	if replaced != 3 {
+		t.Errorf("indexed %d notes, want 3", replaced)
+	}
+	if len(store.embedded) != 3 {
+		t.Errorf("embedded %d chunks, want 3", len(store.embedded))
+	}
+}
+
+// Templater sources are code, not knowledge, and .obsidian is the vault's own
+// bookkeeping: both would otherwise be indexed as notes and answer searches.
+func TestWalkSkipsTemplatesAndVaultInternals(t *testing.T) {
+	notes, books := vault(t, 1)
+	for _, dir := range []string{"99 - templates", ".obsidian", ".git"} {
+		if err := os.MkdirAll(filepath.Join(notes, dir), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		body := "# Шаблон\n\nТекст.\n"
+		if err := os.WriteFile(filepath.Join(notes, dir, "skipped.md"), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	store := newStore()
+	ix := index.New(store, nopEmbedder{}, index.Options{Books: books, Vault: notes, Parallel: 2})
+	if err := ix.Index(t.Context()); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	replaced, seen := store.counts()
+	if replaced != 1 {
+		t.Errorf("indexed %d notes, want only the real one", replaced)
+	}
+	for _, path := range seen {
+		if strings.Contains(path, "templates") || strings.HasPrefix(path, ".") {
+			t.Errorf("%s should not have been walked", path)
+		}
 	}
 }

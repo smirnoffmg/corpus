@@ -6,7 +6,14 @@
 set -e
 min=${COVERAGE_MIN:-80}
 
-out=$(go test -cover ./...)
+# The store tests start a container, so without Docker the number would say
+# more about the laptop than about the tests.
+if ! docker info >/dev/null 2>&1; then
+    echo "Docker не запущен — покрытие не измеряется, тесты идут в -short"
+    exec go test -race -short ./...
+fi
+
+out=$(go test -race -cover ./...)
 echo "$out"
 
 echo "$out" | awk -v min="$min" '
