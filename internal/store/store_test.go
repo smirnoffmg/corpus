@@ -2,120 +2,152 @@ package store_test
 
 import (
 	"context"
+	"flag"
+	"fmt"
 	"os"
-	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stretchr/testify/require"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/modules/postgres"
 
 	"github.com/smirnoffmg/corpus/internal/corpus"
 	"github.com/smirnoffmg/corpus/internal/store"
 )
 
-// open connects to the compose database; without TEST_DATABASE_URL the test is
-// skipped so that `go test ./...` stays runnable with no infrastructure. The
-// second pool is the test's own way to inspect and clean up rows, so that the
-// test does not have to reach inside the store.
-func open(t *testing.T) (*store.Store, *pgxpool.Pool, context.Context) {
-	t.Helper()
-	dsn := os.Getenv("TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("TEST_DATABASE_URL not set")
+// One container for the whole package, migrated once and snapshotted; each test
+// restores that snapshot instead of paying for a container of its own. The
+// image is the one compose runs, because the schema needs pgvector and a plain
+// postgres image would fail the second migration rather than the first test.
+var (
+	container *postgres.PostgresContainer
+	dsn       string
+)
+
+func TestMain(m *testing.M) {
+	// testing.Short reads a flag, so the flags have to be parsed first.
+	flag.Parse()
+	if testing.Short() {
+		os.Exit(m.Run())
 	}
 
 	ctx := context.Background()
+	ctr, err := postgres.Run(ctx, "pgvector/pgvector:pg18",
+		postgres.WithDatabase("corpus"),
+		postgres.WithUsername("corpus"),
+		postgres.WithPassword("corpus"),
+		postgres.WithSQLDriver("pgx"),
+		postgres.BasicWaitStrategies(),
+	)
+	if err != nil {
+		// Loud rather than skipped: a store suite that quietly passes with no
+		// database is a green run that proves nothing. `go test -short` is the
+		// way to run the rest of the tests without Docker.
+		fmt.Fprintf(os.Stderr, "store tests need Docker (or -short): %v\n", err)
+		os.Exit(1)
+	}
+	container = ctr
+
+	code := 1
+	defer func() {
+		_ = testcontainers.TerminateContainer(ctr)
+		os.Exit(code)
+	}()
+
+	if dsn, err = ctr.ConnectionString(ctx, "sslmode=disable"); err != nil {
+		fmt.Fprintf(os.Stderr, "connection string: %v\n", err)
+		return
+	}
 	st, err := store.Open(ctx, dsn)
 	if err != nil {
-		t.Fatalf("connect: %v", err)
+		fmt.Fprintf(os.Stderr, "connect: %v\n", err)
+		return
 	}
+	if err := st.Migrate(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "migrate: %v\n", err)
+		return
+	}
+	st.Close()
+
+	if err := ctr.Snapshot(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "snapshot: %v\n", err)
+		return
+	}
+	code = m.Run()
+}
+
+// open hands the test a store and a second pool of its own for inspecting rows
+// without reaching inside the store. The database is returned to the migrated
+// snapshot afterwards, so tests neither see nor clean up each other's rows.
+func open(t *testing.T) (*store.Store, *pgxpool.Pool, context.Context) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("-short: the store tests need a database")
+	}
+
+	ctx := context.Background()
+	// Registered first, so it runs last: Restore drops the database, which
+	// fails while the pools below still hold connections to it.
+	t.Cleanup(func() { require.NoError(t, container.Restore(ctx)) })
+
+	st, err := store.Open(ctx, dsn)
+	require.NoError(t, err, "connect")
 	t.Cleanup(st.Close)
 
 	pool, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		t.Fatalf("connect: %v", err)
-	}
+	require.NoError(t, err, "connect")
 	t.Cleanup(pool.Close)
 
 	return st, pool, ctx
 }
 
 func TestReplaceAndSearchRussianIsStemmed(t *testing.T) {
-	st, pool, ctx := open(t)
+	st, _, ctx := open(t)
 
 	src := corpus.Source{Kind: "book", Path: "__test__/стеммер.pdf", Title: "Тестовая книга", Hash: "h1"}
-	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM sources WHERE path = $1`, src.Path)
-	})
-
 	chunks := []corpus.Chunk{{
 		Ord: 42, Page: 42, Printed: 42, Lang: "russian",
 		Body: "Агрегат задаёт границу согласованности внутри предметной области корпускрипт.",
 	}}
-	if err := st.Replace(ctx, src, chunks); err != nil {
-		t.Fatalf("replace: %v", err)
-	}
+	require.NoError(t, st.Replace(ctx, src, chunks), "replace")
 
 	// "агрегатов" is inflected, so a match proves the russian snowball
 	// configuration is in play; the nonsense word pins the hit to this row,
 	// which real books would otherwise outrank.
 	hits, err := st.Search(ctx, corpus.Query{Text: "агрегатов корпускрипт", Kind: "book", Limit: 10})
-	if err != nil {
-		t.Fatalf("search: %v", err)
-	}
+	require.NoError(t, err, "search")
 
-	for _, h := range hits {
-		if h.Path == src.Path {
-			// The locator is composed from the page, not stored with the chunk.
-			if h.Locator != "с. 42" {
-				t.Errorf("locator = %q, want %q", h.Locator, "с. 42")
-			}
-			if !strings.Contains(h.Snippet, "<<") {
-				t.Errorf("snippet is not highlighted: %q", h.Snippet)
-			}
-			return
-		}
-	}
-	t.Fatalf("inflected query did not match the indexed chunk; hits: %+v", hits)
+	got := find(t, hits, src.Path)
+	// The locator is composed from the page, not stored with the chunk.
+	require.Equal(t, "с. 42", got.Locator)
+	require.Contains(t, got.Snippet, "<<", "snippet is not highlighted")
 }
 
 func TestReplaceIsIdempotentPerSource(t *testing.T) {
 	st, pool, ctx := open(t)
 
 	src := corpus.Source{Kind: "vault", Path: "__test__/note.md", Title: "note", Hash: "h1"}
-	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM sources WHERE path = $1`, src.Path)
-	})
-
 	chunk := []corpus.Chunk{{Ord: 1, Heading: "H", Lang: "english", Body: "consistency boundary"}}
 	for range 2 {
-		if err := st.Replace(ctx, src, chunk); err != nil {
-			t.Fatalf("replace: %v", err)
-		}
+		require.NoError(t, st.Replace(ctx, src, chunk), "replace")
 	}
 
 	var n int
 	err := pool.QueryRow(ctx, `
 		SELECT count(*) FROM chunks c JOIN sources s ON s.id = c.source_id
 		WHERE s.path = $1`, src.Path).Scan(&n)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n != 1 {
-		t.Errorf("chunk count after two passes = %d, want 1", n)
-	}
+	require.NoError(t, err)
+	require.Equal(t, 1, n, "chunk count after two passes")
 }
 
 func TestSearchOrderDoesNotDependOnTheLimit(t *testing.T) {
-	st, pool, ctx := open(t)
+	st, _, ctx := open(t)
 
 	// Two chunks that name the term equally often score identically. Without a
 	// tiebreaker their order came out differently at different limits, so the
 	// same query answered differently depending on how many hits were asked for.
 	src := corpus.Source{Kind: "vault", Path: "__test__/ties.md", Title: "ties", Hash: "h1"}
-	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM sources WHERE path = $1`, src.Path)
-	})
-
 	chunks := make([]corpus.Chunk, 6)
 	for i := range chunks {
 		chunks[i] = corpus.Chunk{
@@ -123,26 +155,19 @@ func TestSearchOrderDoesNotDependOnTheLimit(t *testing.T) {
 			Body: "корпускрипт равнозначный кусок номер " + string(rune('а'+i)),
 		}
 	}
-	if err := st.Replace(ctx, src, chunks); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, st.Replace(ctx, src, chunks))
 
 	var first string
 	for _, limit := range []int{1, 2, 3, 4, 10, 20} {
 		hits, err := st.Search(ctx, corpus.Query{Text: "корпускрипт", Kind: "vault", Limit: limit})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(hits) == 0 {
-			t.Fatalf("limit %d returned nothing", limit)
-		}
+		require.NoError(t, err)
+		require.NotEmpty(t, hits, "limit %d returned nothing", limit)
 		if first == "" {
 			first = hits[0].Locator + hits[0].Snippet
 			continue
 		}
-		if got := hits[0].Locator + hits[0].Snippet; got != first {
-			t.Errorf("limit %d put a different chunk first", limit)
-		}
+		require.Equal(t, first, hits[0].Locator+hits[0].Snippet,
+			"limit %d put a different chunk first", limit)
 	}
 }
 
@@ -152,7 +177,7 @@ func TestSearchOrderDoesNotDependOnTheLimit(t *testing.T) {
 // returns a book's path as its title, or cites the PDF page as the printed one.
 // The values below are deliberately distinct per field so that a swap shows up.
 func TestSearchMapsColumnsToTheRightFields(t *testing.T) {
-	st, pool, ctx := open(t)
+	st, _, ctx := open(t)
 
 	src := corpus.Source{
 		Kind:  "book",
@@ -160,48 +185,33 @@ func TestSearchMapsColumnsToTheRightFields(t *testing.T) {
 		Title: "Заголовок книги",
 		Hash:  "h1",
 	}
-	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM sources WHERE path = $1`, src.Path)
-	})
-
 	chunks := []corpus.Chunk{{
 		Ord: 1, Page: 203, Printed: 189, Lang: "russian",
 		Body: "Стюард перезапускает подчинённую горутину корпускрипт.",
 	}}
-	if err := st.Replace(ctx, src, chunks); err != nil {
-		t.Fatalf("replace: %v", err)
-	}
+	require.NoError(t, st.Replace(ctx, src, chunks), "replace")
 
 	hits, err := st.Search(ctx, corpus.Query{Text: "корпускрипт", Kind: "book", Limit: 10})
-	if err != nil {
-		t.Fatalf("search: %v", err)
-	}
+	require.NoError(t, err, "search")
 
-	var got corpus.Hit
+	got := find(t, hits, src.Path)
+	require.Equal(t, src.Title, got.Title, "Title")
+	require.Equal(t, src.Kind, got.Kind, "Kind")
+	require.Equal(t, 203, got.Page, "Page should be the PDF page")
+	// Printed 189 differs from PDF 203, so a page/printed swap changes this.
+	require.Equal(t, "с. 189 (PDF 203)", got.Locator, "Locator")
+	require.Contains(t, got.Snippet, "<<", "Snippet is not the highlighted headline")
+}
+
+// find returns the hit for one path, failing the test when the search did not
+// return it at all — which is a different failure from a field being wrong.
+func find(t *testing.T, hits []corpus.Hit, path string) corpus.Hit {
+	t.Helper()
 	for _, h := range hits {
-		if h.Path == src.Path {
-			got = h
-			break
+		if h.Path == path {
+			return h
 		}
 	}
-	if got.ID == 0 {
-		t.Fatalf("the indexed chunk is not among %d hits", len(hits))
-	}
-
-	if got.Title != src.Title {
-		t.Errorf("Title = %q, want %q", got.Title, src.Title)
-	}
-	if got.Kind != src.Kind {
-		t.Errorf("Kind = %q, want %q", got.Kind, src.Kind)
-	}
-	if got.Page != 203 {
-		t.Errorf("Page = %d, want the PDF page 203", got.Page)
-	}
-	// Printed 189 differs from PDF 203, so a page/printed swap changes this.
-	if want := "с. 189 (PDF 203)"; got.Locator != want {
-		t.Errorf("Locator = %q, want %q", got.Locator, want)
-	}
-	if !strings.Contains(got.Snippet, "<<") {
-		t.Errorf("Snippet is not the highlighted headline: %q", got.Snippet)
-	}
+	require.FailNowf(t, "not found", "no hit for %s among %d hits", path, len(hits))
+	return corpus.Hit{}
 }

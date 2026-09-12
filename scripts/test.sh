@@ -1,9 +1,11 @@
 #!/bin/sh
-# The store tests need a database and skip without one; give them the compose
-# instance when it is listening, so they actually run rather than silently pass.
+# The store tests start their own Postgres through testcontainers, so the only
+# thing they need is a Docker daemon. Without one they fail loudly rather than
+# skipping: a store suite that passes with no database proves nothing. -short
+# is the deliberate way to run everything else.
 set -e
-if nc -z localhost 5433 2>/dev/null; then
-    TEST_DATABASE_URL="postgres://corpus:corpus@localhost:5433/corpus" exec go test -race ./...
+if docker info >/dev/null 2>&1; then
+    exec go test -race ./...
 fi
-echo "БД не слушает 5433 — тесты хранилища пропущены"
-exec go test -race ./...
+echo "Docker не запущен — тесты хранилища пропущены (-short)"
+exec go test -race -short ./...
