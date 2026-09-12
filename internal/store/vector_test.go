@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -119,4 +120,32 @@ func TestRepeatedFailuresQuarantineAChunkUntilItIsRequeued(t *testing.T) {
 	pending, err = st.PendingEmbeddings(ctx, 10)
 	require.NoError(t, err)
 	require.Len(t, pending, 1, "requeueing puts it back at the head")
+}
+
+// When a chunk got its vector is what makes two evaluation runs comparable: the
+// vector leg only sees embedded chunks, so a figure taken mid-queue measures how
+// far the queue got. Without a timestamp that is unrecoverable after the fact.
+func TestSavingAnEmbeddingRecordsWhenItHappened(t *testing.T) {
+	st, pool, ctx := open(t)
+
+	require.NoError(t, st.Replace(ctx, book("__test__/when.pdf", "Книга", "h1"),
+		[]corpus.Chunk{{Ord: 1, Page: 1, Lang: "russian", Body: "корпускрипт время"}}))
+
+	pending, err := st.PendingEmbeddings(ctx, 10)
+	require.NoError(t, err)
+	require.Len(t, pending, 1)
+
+	var before *time.Time
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT embedded_at FROM chunks WHERE id = $1`, pending[0].ID).Scan(&before))
+	require.Nil(t, before, "a chunk with no vector has no embedding time")
+
+	start := time.Now().UTC()
+	require.NoError(t, st.SaveEmbeddings(ctx, []int64{pending[0].ID}, [][]float32{unit(0)}))
+
+	var after *time.Time
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT embedded_at FROM chunks WHERE id = $1`, pending[0].ID).Scan(&after))
+	require.NotNil(t, after, "saving a vector must record when")
+	require.False(t, after.UTC().Before(start.Add(-time.Second)), "stamped in the past: %s", after)
 }

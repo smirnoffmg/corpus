@@ -115,7 +115,7 @@ func (s *Store) SaveEmbeddings(ctx context.Context, ids []int64, vectors [][]flo
 		literals[i] = vectorLiteral(v)
 	}
 	_, err := s.pool.Exec(ctx, `
-		UPDATE chunks SET embedding = data.vec::vector
+		UPDATE chunks SET embedding = data.vec::vector, embedded_at = now()
 		FROM unnest($1::bigint[], $2::text[]) AS data(id, vec)
 		WHERE chunks.id = data.id`, ids, literals)
 	return err

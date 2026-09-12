@@ -334,13 +334,15 @@ chunks are still queued measures how far the queue got, not how well retrieval
 works. Check first:
 
 ```sh
-docker compose exec db psql -U corpus -d corpus \
-  -c "SELECT count(*) FILTER (WHERE embedding IS NULL) FROM chunks"
+docker compose exec db psql -U corpus -d corpus -c \
+  "SELECT count(*) FILTER (WHERE embedding IS NULL) AS queued, max(embedded_at) FROM chunks"
 ```
 
-The exact moment the queue drained cannot be recovered — `chunks` carries no
-timestamp — which is the other half of the lesson: compare runs taken at a known
-state, not runs taken whenever.
+`chunks.embedded_at` is when each vector was written, so a past run can be placed
+against the state of the corpus rather than guessed at — which it had to be the
+first time this happened, since the column did not exist yet. Rows embedded
+before it was added stay NULL: that time is genuinely unknown, and a row stamped
+with the migration's `now()` would read as a measurement.
 
 A query may be repaired when it is *ambiguous* — "split the data into groups and
 take from each in proportion" describes SQL grouping as well as stratified
