@@ -323,6 +323,25 @@ changes to ranking, not as an absolute measure of quality. Numbers are comparabl
 only across runs on the same set and the same corpus — adding queries or books
 moves them without anything in the code changing.
 
+**The same corpus also means a drained embedding queue.** Repeated runs are
+exactly reproducible: four in a row, one of them against a rebuilt binary,
+matched to the digit. Across a working day they did not. `vector` found@10 read
+61% and later 65%, `hybrid` 71% and later 74%, with no change to ranking and
+with `fts` identical to the digit throughout — the text index answers as soon as
+a chunk is stored, while the vector leg only sees chunks that already have an
+embedding, and the indexer fills those in behind it. So a figure taken while
+chunks are still queued measures how far the queue got, not how well retrieval
+works. Check first:
+
+```sh
+docker compose exec db psql -U corpus -d corpus \
+  -c "SELECT count(*) FILTER (WHERE embedding IS NULL) FROM chunks"
+```
+
+The exact moment the queue drained cannot be recovered — `chunks` carries no
+timestamp — which is the other half of the lesson: compare runs taken at a known
+state, not runs taken whenever.
+
 A query may be repaired when it is *ambiguous* — "split the data into groups and
 take from each in proportion" describes SQL grouping as well as stratified
 sampling, and the corpus has both. A query that is merely *hard* stays as it is;
