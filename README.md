@@ -52,6 +52,12 @@ milliseconds — and the drop is reported only when it actually removes somethin
 
 ## Search
 
+In the browser: <http://localhost:8081/> — search, read the passage behind a
+hit and copy its citation, open a manual's original page, and add books and
+manuals on the library page. It works offline; see [working offline](docs/offline.md).
+
+From a shell:
+
 ```sh
 curl -s 'http://localhost:8080/search?q=агрегат+DDD&kind=book&limit=5' | jq
 ```
@@ -119,4 +125,5 @@ The remaining quarter is fixed by renaming the file.
 - [Architecture](docs/architecture.md) — embeddings, Postgres, containers, design notes
 - [Search evaluation](docs/search-evaluation.md) — the judged set and what it decided
 - [Reference manuals](docs/manuals.md) — indexing scikit-learn, NLTK and other Sphinx sites
+- [Working offline](docs/offline.md) — what to do before a flight
 - [Development](docs/development.md) — pre-commit checks, lint, races

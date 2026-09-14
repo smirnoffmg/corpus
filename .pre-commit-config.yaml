@@ -42,6 +42,20 @@ repos:
         always_run: true       # миграция, compose или набор запросов тоже ломают сборку
         pass_filenames: false
 
+      - id: front-lint
+        name: front — eslint и типы
+        entry: bash -c 'cd front && npm run lint && npx tsc -b'
+        language: system
+        files: ^front/
+        pass_filenames: false
+
+      - id: front-test
+        name: front — vitest + покрытие >= 80%
+        entry: bash -c 'cd front && npm run test:coverage'
+        language: system
+        files: ^front/
+        pass_filenames: false
+
       - id: corpus-eval
         name: оценка поиска (справочно)
         entry: bash -c 'cd back && scripts/eval.sh'

@@ -1,4 +1,4 @@
-.PHONY: up down test lint cover
+.PHONY: up down test lint cover front-test front-lint
 
 up:
 	docker compose up -d --build
@@ -14,3 +14,9 @@ lint:
 
 cover:
 	cd back && ./scripts/coverage.sh
+
+front-test:
+	cd front && npm run test:coverage
+
+front-lint:
+	cd front && npm run lint && npx tsc -b

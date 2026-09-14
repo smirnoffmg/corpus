@@ -1,0 +1,618 @@
+/* A reading room with call slips. The citation is the thing this corpus exists
+   to produce, so every hit is set as a slip — kind colour, title, the place to
+   cite — and the one flourish is the highlighter stroke under matched words.
+   Everything is bundled: the fonts come from @fontsource, nothing loads from
+   the network. */
+
+:root {
+  --paper: #f6f7f4;
+  --surface: #fdfdfb;
+  --ink: #1e2530;
+  --muted: #5e6874;
+  --rule: #d8ddd6;
+  --code: #eceee9;
+  --marker: #f3d36b;
+  --book: #8c2f39;
+  --vault: #2e6a4e;
+  --docs: #2b5a88;
+  --warn: #9a6a12;
+  --warn-bg: #fbf0d3;
+  --problem: #9a2a2a;
+
+  --sans: 'PT Sans', 'Helvetica Neue', Arial, sans-serif;
+  --serif: 'PT Serif', Georgia, 'Times New Roman', serif;
+  --mono: 'PT Mono', Menlo, Consolas, monospace;
+
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #171c22;
+    --surface: #1f252d;
+    --ink: #e3e6e9;
+    --muted: #9aa4ae;
+    --rule: #343c46;
+    --code: #222931;
+    --marker: rgb(214 170 40 / 0.45);
+    --book: #de8a93;
+    --vault: #82c4a4;
+    --docs: #8ab5e2;
+    --warn: #e2b75a;
+    --warn-bg: #332b17;
+    --problem: #f0a0a0;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 400 1.0625rem/1.5 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: inherit;
+  text-underline-offset: 0.18em;
+  text-decoration-thickness: 1px;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--docs);
+  outline-offset: 2px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+h1,
+h2 {
+  font-family: var(--serif);
+  font-weight: 700;
+  line-height: 1.2;
+  margin: 0;
+}
+
+.shell {
+  max-width: 70rem;
+  margin: 0 auto;
+  padding: 0 1.25rem 4rem;
+}
+
+/* Masthead */
+
+.masthead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem 2rem;
+  padding-block: 1.25rem 1rem;
+}
+
+.wordmark {
+  font: 700 1.4rem/1 var(--serif);
+  text-decoration: none;
+  letter-spacing: 0.01em;
+}
+
+.masthead nav {
+  display: flex;
+  gap: 1.25rem;
+}
+
+.masthead nav a {
+  color: var(--muted);
+  text-decoration: none;
+  padding-bottom: 0.15rem;
+  border-bottom: 2px solid transparent;
+}
+
+.masthead nav a:hover {
+  color: var(--ink);
+}
+
+.masthead nav a[aria-current='page'] {
+  color: var(--ink);
+  border-bottom-color: var(--ink);
+}
+
+.banner {
+  margin: 0 0 1.5rem;
+  padding: 0.6rem 0.9rem;
+  background: var(--warn-bg);
+  border-left: 3px solid var(--warn);
+  border-radius: 0 4px 4px 0;
+}
+
+.quiet {
+  color: var(--muted);
+}
+
+.problem {
+  color: var(--problem);
+  border-left: 3px solid currentcolor;
+  padding-left: 0.8rem;
+  max-width: 44rem;
+}
+
+.problem code {
+  font-family: var(--mono);
+  font-size: 0.9em;
+}
+
+.empty p {
+  max-width: 40rem;
+}
+
+/* Search form */
+
+.query {
+  margin-block: 1rem 2rem;
+}
+
+.query-line {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 1rem;
+  align-items: end;
+}
+
+.query-line input {
+  width: 100%;
+  min-width: 0;
+  padding: 0.35rem 0;
+  border: 0;
+  border-bottom: 2px solid var(--ink);
+  border-radius: 0;
+  background: transparent;
+  font: 400 clamp(1.4rem, 3.5vw, 1.9rem) / 1.25 var(--serif);
+}
+
+.query-line input::placeholder {
+  color: var(--muted);
+  opacity: 0.7;
+}
+
+.query-line input:focus-visible {
+  outline: none;
+  border-bottom-color: var(--docs);
+}
+
+.query-line button,
+.upload-actions button {
+  padding: 0.55rem 1.3rem;
+  border: 0;
+  border-radius: 4px;
+  background: var(--ink);
+  color: var(--paper);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.upload-actions button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 2.5rem;
+  margin-top: 1rem;
+}
+
+.filters fieldset {
+  /* A fieldset is min-content wide by default, which pushed the page past a
+     phone's width. */
+  min-inline-size: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.filters legend {
+  float: left;
+  margin-right: 0.4rem;
+  color: var(--muted);
+}
+
+.choice input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.choice span,
+.tabs button {
+  display: inline-block;
+  padding: 0.2rem 0.75rem;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.choice span:hover,
+.tabs button:hover {
+  border-color: var(--muted);
+}
+
+.choice input:checked + span,
+.tabs button[aria-pressed='true'] {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+
+.choice input:focus-visible + span {
+  outline: 2px solid var(--docs);
+  outline-offset: 2px;
+}
+
+/* Hits: each one a call slip beside the passage it points to */
+
+.hits {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.hit {
+  display: grid;
+  gap: 0.5rem 2.5rem;
+  padding-block: 1.1rem;
+  border-top: 1px solid var(--rule);
+}
+
+@media (min-width: 56rem) {
+  .hit {
+    grid-template-columns: 20rem 1fr;
+  }
+}
+
+.kind-book {
+  --kind: var(--book);
+}
+
+.kind-vault {
+  --kind: var(--vault);
+}
+
+.kind-docs {
+  --kind: var(--docs);
+}
+
+.slip {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding-left: 0.85rem;
+  border-left: 3px solid var(--kind);
+  min-width: 0;
+}
+
+.slip-title {
+  font: 700 1.05rem/1.3 var(--serif);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.slip-title:hover {
+  text-decoration: underline;
+}
+
+.slip-locator {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.slip-kind {
+  color: var(--kind);
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.snippet {
+  margin: 0;
+  max-width: 44rem;
+  font: 400 1.02rem/1.6 var(--serif);
+  overflow-wrap: anywhere;
+}
+
+mark {
+  color: inherit;
+  background: linear-gradient(to top, var(--marker) 0 58%, transparent 58%);
+  padding: 0 0.1em;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+@media (prefers-color-scheme: dark) {
+  mark {
+    background: var(--marker);
+    border-radius: 2px;
+  }
+}
+
+/* Reader */
+
+.reader {
+  max-width: 44rem;
+  margin-top: 1rem;
+}
+
+.back {
+  display: inline-block;
+  margin-bottom: 1.5rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+  cursor: pointer;
+}
+
+.reader-head {
+  padding-left: 1rem;
+  border-left: 3px solid var(--kind);
+  margin-bottom: 2rem;
+}
+
+.reader-head h1 {
+  font-size: clamp(1.6rem, 4vw, 2.2rem);
+  margin-block: 0.2rem 0.4rem;
+  overflow-wrap: anywhere;
+}
+
+.reader-locator {
+  margin: 0;
+  font-size: 1.1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+
+.actions button,
+.actions a,
+.file-button {
+  display: inline-block;
+  padding: 0.35rem 0.9rem;
+  border: 1px solid var(--ink);
+  border-radius: 4px;
+  background: transparent;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.actions button:hover,
+.actions a:hover,
+.file-button:hover {
+  background: var(--surface);
+}
+
+.passage,
+.context {
+  font: 400 1.125rem/1.65 var(--serif);
+}
+
+.passage p,
+.context p {
+  margin-block: 0 1em;
+}
+
+
+
+.context {
+  color: var(--muted);
+  font-size: 1rem;
+  padding-left: 1rem;
+  border-left: 1px dashed var(--rule);
+  margin-block: 1.5rem;
+}
+
+.context .context-label {
+  font: 400 0.85rem/1.4 var(--sans);
+  margin-bottom: 0.4rem;
+}
+
+pre {
+  margin: 0 0 1em;
+  padding: 0.85rem 1rem;
+  overflow-x: auto;
+  background: var(--code);
+  border-radius: 4px;
+  font: 400 0.9rem/1.5 var(--mono);
+}
+
+/* Library */
+
+.library h1 {
+  font-size: 2rem;
+  margin-block: 1rem 1.5rem;
+}
+
+.upload {
+  margin-bottom: 2.5rem;
+  max-width: 44rem;
+}
+
+.upload h2 {
+  font-size: 1.2rem;
+  margin-bottom: 0.75rem;
+}
+
+.dropzone {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.25rem;
+  padding: 1.25rem;
+  border: 1.5px dashed var(--rule);
+  border-radius: 6px;
+}
+
+.dropzone.over {
+  border-color: var(--ink);
+  background: var(--surface);
+}
+
+.dropzone p {
+  margin: 0;
+}
+
+.dropzone .chosen {
+  flex-basis: 100%;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.file-button:has(input:focus-visible) {
+  outline: 2px solid var(--docs);
+  outline-offset: 2px;
+}
+
+.field {
+  display: grid;
+  gap: 0.25rem;
+  margin-top: 1rem;
+}
+
+.field input,
+.library-bar input {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--surface);
+}
+
+.field small {
+  color: var(--muted);
+}
+
+.upload-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.sending {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--muted);
+}
+
+.recent ul {
+  list-style: none;
+  margin: 1rem 0 0;
+  padding: 0;
+}
+
+.recent li {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-block: 0.4rem;
+  border-top: 1px solid var(--rule);
+}
+
+.library-bar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.tabs {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th {
+  text-align: left;
+  font-weight: 400;
+  color: var(--muted);
+  padding: 0 1rem 0.4rem 0;
+  border-bottom: 1px solid var(--ink);
+}
+
+td {
+  padding: 0.55rem 1rem 0.55rem 0;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: baseline;
+}
+
+td.detail {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+td:last-child {
+  white-space: nowrap;
+}
+
+.meter {
+  display: inline-block;
+  width: 3.5rem;
+  height: 0.35rem;
+  margin-right: 0.6rem;
+  vertical-align: middle;
+  background: var(--rule);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.meter::after {
+  content: '';
+  display: block;
+  height: 100%;
+  width: calc(var(--fill) * 100%);
+  background: var(--ink);
+}
+
+.state-errors .meter::after {
+  background: var(--problem);
+}

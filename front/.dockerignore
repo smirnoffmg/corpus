@@ -1,0 +1,5 @@
+# The build stage does COPY . .; node_modules would override the npm ci above.
+node_modules
+dist
+coverage
+.dockerignore

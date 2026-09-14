@@ -1,6 +1,6 @@
 # Development
 
-Checks, linting and race testing. The Go module lives in `back/`.
+Checks, linting and race testing. The Go module lives in `back/`, the web UI in `front/`.
 
 ## Checks before a commit
 
@@ -85,3 +85,21 @@ DATABASE_URL=postgres://corpus:corpus@localhost:5433/corpus_race \
 The dead ollama address is deliberate: the run then also shows the embedding pass
 failing without taking the text index down with it. Last run: 8 books, 226 notes,
 8182 chunks, no races.
+
+## The web UI
+
+```sh
+cd front
+npm ci
+npm run dev            # http://localhost:5173, /api proxied to mcpd on :8080
+npm run test:coverage  # vitest; fails under 80% statements, like the Go gate
+npm run lint && npx tsc -b
+```
+
+`make front-test` and `make front-lint` run the same, and pre-commit runs both
+when a file under `front/` changes. `front/.npmrc` sets `legacy-peer-deps`:
+npm 10.9 crashes resolving vitest's optional peers without it, and the lockfile
+was written with it, so every install needs it too.
+
+In development `/docs/` is not served — in compose nginx serves the manuals'
+original pages — so "open the original" only works against the container.

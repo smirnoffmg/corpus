@@ -70,5 +70,22 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  front:
+    build: ./front
+    image: corpus-front:latest
+    ports:
+      - "127.0.0.1:8081:80"
+    volumes:
+      - ${DOCS_DIR:-./.docs-empty}:/data/docs:ro
+    depends_on:
+      mcpd:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
 volumes:
   pgdata:
