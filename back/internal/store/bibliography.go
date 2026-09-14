@@ -56,8 +56,9 @@ func (s *Store) References(ctx context.Context) ([]corpus.Reference, error) {
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (corpus.Reference, error) { return scanReference(row) })
 }
 
-// SaveReference stores a description. A new one gets a citation key; an
-// existing one keeps its key whatever changes, because the key is already
+// SaveReference stores a description. Its citation key follows the record
+// while it is a draft — a draft is usually missing the year the key is made
+// of — and is fixed from the moment it is checked, because from then on it is
 // typed into papers.
 func (s *Store) SaveReference(ctx context.Context, key string, csl corpus.CSL, status string) (corpus.Reference, error) {
 	citekey, err := s.citekey(ctx, key, csl)
@@ -66,7 +67,7 @@ func (s *Store) SaveReference(ctx context.Context, key string, csl corpus.CSL, s
 	}
 	return scanReference(s.pool.QueryRow(ctx, `
 		INSERT INTO bibliography (key, citekey, csl, status) VALUES ($1, $2, $3, $4)
-		ON CONFLICT (key) DO UPDATE SET csl = EXCLUDED.csl, status = EXCLUDED.status, updated_at = now()
+		ON CONFLICT (key) DO UPDATE SET citekey = EXCLUDED.citekey, csl = EXCLUDED.csl, status = EXCLUDED.status, updated_at = now()
 		RETURNING `+referenceColumns, key, citekey, csl, status))
 }
 
@@ -84,16 +85,16 @@ func (s *Store) EnsureDraft(ctx context.Context, key string, csl corpus.CSL) err
 }
 
 func (s *Store) citekey(ctx context.Context, key string, csl corpus.CSL) (string, error) {
-	var existing string
-	err := s.pool.QueryRow(ctx, `SELECT citekey FROM bibliography WHERE key = $1`, key).Scan(&existing)
-	if err == nil {
+	var existing, status string
+	err := s.pool.QueryRow(ctx, `SELECT citekey, status FROM bibliography WHERE key = $1`, key).Scan(&existing, &status)
+	switch {
+	case err == nil && status == "checked":
 		return existing, nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
+	case err != nil && !errors.Is(err, pgx.ErrNoRows):
 		return "", err
 	}
 	base := cite.KeyBase(csl)
-	rows, err := s.pool.Query(ctx, `SELECT citekey FROM bibliography WHERE starts_with(citekey, $1)`, base)
+	rows, err := s.pool.Query(ctx, `SELECT citekey FROM bibliography WHERE starts_with(citekey, $1) AND key <> $2`, base, key)
 	if err != nil {
 		return "", err
 	}

@@ -103,7 +103,7 @@ func TestBookDraftDistrustsWhatFileNamesAndMetadataAdd(t *testing.T) {
 	if draft["type"] != "book" || draft["DOI"] != nil {
 		t.Errorf("a DOI from the references made the book a paper: %v", draft)
 	}
-	for _, junk := range []string{"Tim@", "petrshegolev", "Len Bass, Paul Clements,Rick Kazman"} {
+	for _, junk := range []string{"Tim@", "petrshegolev", "Len Bass, Paul Clements,Rick Kazman", "William Kennedy with Brian Ketelsen"} {
 		if d := cite.BookDraft("T", junk, "", ""); d["author"] != nil {
 			t.Errorf("%q became %v", junk, d["author"])
 		}

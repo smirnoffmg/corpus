@@ -221,7 +221,8 @@ func plausibleAuthors(authors []map[string]any) bool {
 	for _, a := range authors {
 		family, _ := a["family"].(string)
 		given, _ := a["given"].(string)
-		if given == "" || !personName.MatchString(family) || !personName.MatchString(given) {
+		if given == "" || !personName.MatchString(family) || !personName.MatchString(given) ||
+			strings.Contains(" "+given+" ", " with ") || len(strings.Fields(given)) > 3 {
 			return false
 		}
 	}

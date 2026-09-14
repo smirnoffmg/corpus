@@ -60,6 +60,23 @@ func TestADraftNeverOverwritesADescription(t *testing.T) {
 	require.ErrorIs(t, err, store.ErrNoReference)
 }
 
+func TestADraftsKeyFollowsItsRecordUntilChecked(t *testing.T) {
+	st, _, ctx := open(t)
+	draft, err := st.SaveReference(ctx, "h", corpus.CSL{"title": "Concurrency in Go"}, "draft")
+	require.NoError(t, err)
+	require.Equal(t, "concurrency", draft.CiteKey)
+
+	record := corpus.CSL{"title": "Concurrency in Go", "author": []any{map[string]any{"family": "Cox-Buday"}}, "issued": map[string]any{"date-parts": []any{[]any{2017}}}}
+	checked, err := st.SaveReference(ctx, "h", record, "checked")
+	require.NoError(t, err)
+	require.Equal(t, "coxbuday2017", checked.CiteKey)
+
+	record["issued"] = map[string]any{"date-parts": []any{[]any{2018}}}
+	again, err := st.SaveReference(ctx, "h", record, "checked")
+	require.NoError(t, err)
+	require.Equal(t, "coxbuday2017", again.CiteKey, "a checked key is already in papers")
+}
+
 func TestADescriptionOutlivesItsSource(t *testing.T) {
 	st, _, ctx := open(t)
 	require.NoError(t, st.Replace(ctx, book("a.pdf", "A", "hash-a"), oneChunk("ISBN 978-1-449-37332-0")))
