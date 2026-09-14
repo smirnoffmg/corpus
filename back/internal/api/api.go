@@ -265,7 +265,7 @@ func (s *Service) Handler() http.Handler {
 
 // queryFromURL reads a search off the query string. `norm` is the ts_rank_cd
 // length normalisation: a knob that exists so it can be measured against the
-// judged set before anyone changes the default (see README).
+// judged set before anyone changes the default (see docs/search-evaluation.md).
 func queryFromURL(v url.Values) corpus.Query {
 	return corpus.Query{
 		Text:          v.Get("q"),

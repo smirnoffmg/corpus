@@ -1,5 +1,5 @@
 #!/bin/sh
-# Ranking must not change unmeasured (see README). The numbers are shown, never
+# Ranking must not change unmeasured (see docs/search-evaluation.md). The numbers are shown, never
 # enforced: the corpus keeps growing, so a fixed threshold would cry wolf.
 set -e
 if ! curl -s --max-time 2 http://localhost:8080/healthz >/dev/null 2>&1; then
