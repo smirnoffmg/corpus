@@ -23,28 +23,28 @@ repos:
       # он не знает про группировку импортов.
       - id: golangci-lint-fmt
         name: golangci-lint fmt
-        entry: golangci-lint fmt
+        entry: bash -c 'cd back && golangci-lint fmt'
         language: system
         always_run: true
         pass_filenames: false
 
       - id: golangci-lint
         name: golangci-lint run
-        entry: golangci-lint run
+        entry: bash -c 'cd back && golangci-lint run'
         language: system
         always_run: true       # миграция, compose или набор запросов тоже ломают сборку
         pass_filenames: false
 
       - id: go-test
         name: go test -race + покрытие >= 80% по пакету
-        entry: scripts/coverage.sh
+        entry: bash -c 'cd back && scripts/coverage.sh'
         language: system
         always_run: true       # миграция, compose или набор запросов тоже ломают сборку
         pass_filenames: false
 
       - id: corpus-eval
         name: оценка поиска (справочно)
-        entry: scripts/eval.sh
+        entry: bash -c 'cd back && scripts/eval.sh'
         language: system
         always_run: true       # миграция, compose или набор запросов тоже ломают сборку
         pass_filenames: false

@@ -16,7 +16,7 @@ services:
       retries: 10
 
   indexer:
-    build: .
+    build: ./back
     image: corpus:latest
     command: ["indexer", "--interval", "15m"]
     environment:
@@ -42,7 +42,7 @@ services:
     restart: unless-stopped
 
   mcpd:
-    build: .
+    build: ./back
     image: corpus:latest
     command: ["mcpd"]
     environment:

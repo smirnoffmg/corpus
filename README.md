@@ -140,7 +140,7 @@ binds a privileged port, so the image runs as `nobody`.
 ## Design notes
 
 **Migrations are goose, embedded in the binary.** They live in
-`internal/store/migrations`, next to the package that owns the schema, and travel
+`back/internal/store/migrations`, next to the package that owns the schema, and travel
 inside the image rather than as a mounted directory. The indexer applies them on
 start; goose keeps the ledger of what ran.
 
@@ -189,7 +189,7 @@ passing all three. That is the trade for a zero-argument `docker compose up`.
 
 **No service layer.** The logic here is a transaction script, and a service layer
 over one is just its public interface repeated (Khononov, printed p. 151). What
-the layering *does* enforce is direction: `internal/corpus` holds the types and
+the layering *does* enforce is direction: `back/internal/corpus` holds the types and
 imports nothing, and extraction, storage, ranking and the API all point at it.
 
 ## Naming books
@@ -213,7 +213,8 @@ pre-commit install          # once per clone
 pre-commit run --all-files  # the whole repository, not just what is staged
 ```
 
-The four everyday commands have a `Makefile`: `make up`, `make down`, `make
+The Go module lives in `back/`, and every `go` and `golangci-lint` command
+below runs from there. The four everyday commands have a root `Makefile`: `make up`, `make down`, `make
 test`, `make lint` — and `make cover` for the gate below. `lint` formats before
 it checks, because `golangci-lint run` reports formatting too and would
 otherwise complain about what `golangci-lint fmt` was about to fix.
@@ -225,7 +226,7 @@ fixed threshold would cry wolf; the numbers are there to be looked at when a
 change touches ranking. `--no-verify` skips the lot, deliberately.
 
 The coverage gate is per package rather than per repository, because an average
-hides a package at 30% behind two at 100%, and 30% is where the bugs are. `cmd/`
+hides a package at 30% behind two at 100%, and 30% is where the bugs are. `back/cmd/`
 is exempt: those are composition roots whose bodies are flag parsing and wiring,
 and a test that covers them tests the test. `COVERAGE_MIN` moves the line.
 
@@ -271,7 +272,7 @@ go test -race ./...
 The detector "will only find races that are contained in code that is exercised"
 (Cox-Buday, *Concurrency in Go*, printed p. 214), so the extraction pool — the one
 place here where goroutines share state — is driven by a test of its own in
-`internal/index`, over a temporary directory of notes with the workers turned up.
+`back/internal/index`, over a temporary directory of notes with the workers turned up.
 Swapping its atomic counter for a plain one makes that test report a race and
 lose updates, which is how one knows the test is worth having.
 
@@ -303,7 +304,7 @@ that is what caught it.
 
 ## Evaluation
 
-`eval/queries.json` holds judged queries: a question, and the pages that answer
+`back/eval/queries.json` holds judged queries: a question, and the pages that answer
 it. Ground truth was located by exact phrase in the text, never by this system's
 own ranking — a set built from the tool's own output would only measure its
 agreement with itself.

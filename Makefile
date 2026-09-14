@@ -7,11 +7,10 @@ down:
 	docker compose down
 
 test:
-	go test -race ./...
+	cd back && go test -race ./...
 
 lint:
-	golangci-lint fmt
-	golangci-lint run
+	cd back && golangci-lint fmt && golangci-lint run
 
 cover:
-	./scripts/coverage.sh
+	cd back && ./scripts/coverage.sh
