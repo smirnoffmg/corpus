@@ -15,6 +15,7 @@ export function progress({ chunks, embedded, quarantined }: Counts): { state: St
 
 export interface Manual extends Counts {
   name: string
+  description: SourceStatus['description']
   home: string // the page a manual opens at
   pages: number
   indexed_at: string
@@ -26,7 +27,7 @@ export function groupManuals(pages: SourceStatus[]): Manual[] {
   const byName = new Map<string, Manual>()
   for (const p of pages) {
     const name = p.path.split('/')[0]
-    const m = byName.get(name) ?? { name, home: p.path, pages: 0, chunks: 0, embedded: 0, quarantined: 0, indexed_at: p.indexed_at }
+    const m = byName.get(name) ?? { name, description: p.description, home: p.path, pages: 0, chunks: 0, embedded: 0, quarantined: 0, indexed_at: p.indexed_at }
     if (homelier(p.path, m.home, name)) m.home = p.path
     m.pages++
     m.chunks += p.chunks

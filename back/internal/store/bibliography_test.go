@@ -67,7 +67,7 @@ func TestADescriptionOutlivesItsSource(t *testing.T) {
 	undescribed, err := st.UndescribedBooks(ctx)
 	require.NoError(t, err)
 	require.Len(t, undescribed, 1)
-	require.Contains(t, undescribed[0].Text, "ISBN 978-1-449-37332-0")
+	require.Contains(t, undescribed[0].Head, "ISBN 978-1-449-37332-0")
 
 	require.NoError(t, st.EnsureDraft(ctx, "hash-a", corpus.CSL{"title": "A"}))
 	undescribed, err = st.UndescribedBooks(ctx)

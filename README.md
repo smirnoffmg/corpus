@@ -132,5 +132,6 @@ The remaining quarter is fixed by renaming the file.
 - [Architecture](docs/architecture.md) — embeddings, Postgres, containers, design notes
 - [Search evaluation](docs/search-evaluation.md) — the judged set and what it decided
 - [Reference manuals](docs/manuals.md) — indexing scikit-learn, NLTK and other Sphinx sites
+- [Citing sources](docs/citing.md) — descriptions, ГОСТ/APA/IEEE, BibLaTeX and Pandoc export
 - [Working offline](docs/offline.md) — what to do before a flight
 - [Development](docs/development.md) — pre-commit checks, lint, races

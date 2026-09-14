@@ -2,6 +2,7 @@ import { useContext, useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router'
 import { ApiError, read, type Passage } from '../api'
 import { Blocks } from '../components/Blocks'
+import { CitationPanel } from '../components/CitationPanel'
 import { OriginalLink } from '../components/OriginalLink'
 import { kindName } from '../kinds'
 import { originalUrl } from '../library'
@@ -88,6 +89,7 @@ export function ReaderPage() {
           {original && <OriginalLink kind={p.kind} href={original} />}
         </div>
       </header>
+      {p.kind !== 'vault' && <CitationPanel passage={p} />}
       {p.previous && (
         <section className="context" aria-labelledby="context-previous">
           <p className="context-label" id="context-previous">

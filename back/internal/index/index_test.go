@@ -171,7 +171,7 @@ func (s *recordingStore) UndescribedBooks(context.Context) ([]corpus.Undescribed
 		for _, c := range s.chunks[path] {
 			text.WriteString(c.Body + "\n")
 		}
-		out = append(out, corpus.Undescribed{Path: path, Hash: src.Hash, Title: src.Title, Text: text.String()})
+		out = append(out, corpus.Undescribed{Path: path, Hash: src.Hash, Title: src.Title, Head: text.String()})
 	}
 	return out, nil
 }

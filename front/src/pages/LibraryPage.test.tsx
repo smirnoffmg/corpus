@@ -9,7 +9,7 @@ import { LibraryPage } from './LibraryPage'
 
 const book = (over: Partial<SourceStatus> = {}): SourceStatus => ({
   kind: 'book', path: 'Concurrency in Go.pdf', title: 'Concurrency in Go', indexed_at: '2026-09-14T10:00:00Z',
-  chunks: 240, embedded: 240, quarantined: 0, ...over,
+  chunks: 240, embedded: 240, quarantined: 0, description: '', ...over,
 })
 
 class FakeXHR {
@@ -43,7 +43,7 @@ function renderLibrary(url = '/library', pollMs = 20) {
 describe('LibraryPage', () => {
   it('lists books with how far each has come', async () => {
     stubApi((url) => (url.pathname === '/api/sources'
-      ? { body: { sources: [book(), book({ path: 'uploads/b.pdf', title: 'B', chunks: 10, embedded: 4 })] } }
+      ? { body: { sources: [book(), book({ path: 'uploads/b.pdf', title: 'B', chunks: 10, embedded: 4, description: 'checked' })] } }
       : undefined))
     renderLibrary()
 
@@ -52,6 +52,8 @@ describe('LibraryPage', () => {
     expect(within(rows[1]).getByText('Готово')).toBeInTheDocument()
     expect(within(rows[1]).getByRole('link', { name: 'Concurrency in Go' })).toHaveAttribute('href', '/books/Concurrency%20in%20Go.pdf')
     expect(within(rows[2]).getByText('Векторизация 40%')).toBeInTheDocument()
+    expect(within(rows[1]).getByRole('link', { name: 'Описание: Concurrency in Go' })).toHaveTextContent('Описать')
+    expect(within(rows[1]).getByRole('link', { name: 'Описание: Concurrency in Go' })).toHaveAttribute('href', '/describe?kind=book&path=Concurrency+in+Go.pdf')
   })
 
   it('shows a manual as one row with its pages summed', async () => {
@@ -62,9 +64,10 @@ describe('LibraryPage', () => {
     renderLibrary('/library?kind=docs')
 
     const rows = await screen.findAllByRole('row')
-    expect(calls[0].searchParams.get('kind')).toBe('docs')
+    expect(calls.find((c) => c.pathname === '/api/sources')?.searchParams.get('kind')).toBe('docs')
     expect(rows).toHaveLength(2)
     expect(within(rows[1]).getByRole('link', { name: 'nltk' })).toHaveAttribute('href', '/docs/nltk/index.html')
+    expect(within(rows[1]).getByRole('link', { name: 'Описание: nltk' })).toHaveAttribute('href', '/describe?kind=docs&path=nltk%2Findex.html')
     expect(within(rows[1]).getByText('2 страницы')).toBeInTheDocument()
     expect(within(rows[1]).getByText('1 фрагмент без вектора')).toBeInTheDocument()
   })

@@ -114,11 +114,10 @@ func (s *Store) citekey(ctx context.Context, key string, csl corpus.CSL) (string
 func (s *Store) UndescribedBooks(ctx context.Context) ([]corpus.Undescribed, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT s.path, s.hash, s.title,
-		       coalesce((SELECT string_agg(body, E'\n' ORDER BY ord) FROM (
-		           (SELECT ord, body FROM chunks WHERE source_id = s.id ORDER BY ord LIMIT 8)
-		           UNION
-		           (SELECT ord, body FROM chunks WHERE source_id = s.id ORDER BY ord DESC LIMIT 4)
-		       ) edge), '')
+		       coalesce((SELECT string_agg(body, E'\n' ORDER BY ord) FROM
+		           (SELECT ord, body FROM chunks WHERE source_id = s.id ORDER BY ord LIMIT 8) head), ''),
+		       coalesce((SELECT string_agg(body, E'\n' ORDER BY ord) FROM
+		           (SELECT ord, body FROM chunks WHERE source_id = s.id ORDER BY ord DESC LIMIT 4) tail), '')
 		FROM sources s
 		LEFT JOIN bibliography b ON b.key = s.hash
 		WHERE s.kind = 'book' AND b.key IS NULL
@@ -128,7 +127,7 @@ func (s *Store) UndescribedBooks(ctx context.Context) ([]corpus.Undescribed, err
 	}
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (corpus.Undescribed, error) {
 		var u corpus.Undescribed
-		err := row.Scan(&u.Path, &u.Hash, &u.Title, &u.Text)
+		err := row.Scan(&u.Path, &u.Hash, &u.Title, &u.Head, &u.Tail)
 		return u, err
 	})
 }

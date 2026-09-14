@@ -1,0 +1,196 @@
+<?xml version="1.0" encoding="utf-8"?>
+<style xmlns="http://purl.org/net/xbiblio/csl" class="in-text" version="1.0" demote-non-dropping-particle="never" default-locale="ru-RU">
+  <info>
+    <title>ГОСТ Р 7.0.100–2018</title>
+    <id>corpus-gost-r-7-0-100-2018</id>
+    <summary>Bibliographic references after the templates of GOST R 7.0.100-2018 for books, articles, chapters and web pages. Written for corpus; the community styles either follow the older 7.0.5-2008 or misplace the standard's punctuation.</summary>
+    <category citation-format="numeric"/>
+    <updated>2026-09-14T00:00:00+00:00</updated>
+    <rights license="http://creativecommons.org/licenses/by-sa/3.0/">This work is licensed under a Creative Commons Attribution-ShareAlike 3.0 License</rights>
+  </info>
+  <locale>
+    <terms>
+      <!-- The heading names the first author alone; the rest follow the slash. -->
+      <term name="and others"></term>
+      <term name="et-al"> [и др.]</term>
+    </terms>
+  </locale>
+  <macro name="heading">
+    <names variable="author">
+      <name name-as-sort-order="all" sort-separator=", " initialize-with=". " et-al-min="2" et-al-use-first="1"/>
+      <et-al term="and others"/>
+    </names>
+  </macro>
+  <macro name="responsibility">
+    <names variable="author" delimiter=" ; ">
+      <name initialize-with=". " delimiter=", " et-al-min="4" et-al-use-first="1"/>
+      <et-al term="et-al"/>
+    </names>
+  </macro>
+  <macro name="editors">
+    <names variable="translator" delimiter=" ; ">
+      <label form="verb-short" suffix=" "/>
+      <name initialize-with=". " delimiter=", "/>
+    </names>
+  </macro>
+  <macro name="title-block">
+    <group delimiter=" / ">
+      <group delimiter=" : ">
+        <text variable="title"/>
+        <text variable="genre"/>
+      </group>
+      <group delimiter=" ; ">
+        <text macro="responsibility"/>
+        <text macro="editors"/>
+      </group>
+    </group>
+  </macro>
+  <macro name="year">
+    <date variable="issued"><date-part name="year"/></date>
+  </macro>
+  <macro name="imprint">
+    <group delimiter=", ">
+      <group delimiter=" : ">
+        <text variable="publisher-place"/>
+        <text variable="publisher"/>
+      </group>
+      <text macro="year"/>
+    </group>
+  </macro>
+  <macro name="extent">
+    <group delimiter=" ">
+      <text variable="number-of-pages"/>
+      <label variable="number-of-pages" form="short" plural="never"/>
+    </group>
+  </macro>
+  <macro name="pages">
+    <group delimiter=" ">
+      <label variable="page" form="short" plural="never" text-case="capitalize-first"/>
+      <text variable="page"/>
+    </group>
+  </macro>
+  <macro name="volume-issue">
+    <group delimiter=", ">
+      <group delimiter=" ">
+        <label variable="volume" form="short" text-case="capitalize-first"/>
+        <text variable="volume"/>
+      </group>
+      <group delimiter=" ">
+        <text value="№"/>
+        <text variable="issue"/>
+      </group>
+    </group>
+  </macro>
+  <macro name="accessed">
+    <group delimiter=" ">
+      <text variable="URL" prefix="URL: "/>
+      <date variable="accessed" prefix="(дата обращения: " suffix=")">
+        <date-part name="day" form="numeric-leading-zeros" suffix="."/>
+        <date-part name="month" form="numeric-leading-zeros" suffix="."/>
+        <date-part name="year"/>
+      </date>
+    </group>
+  </macro>
+  <macro name="content-type">
+    <choose>
+      <if type="webpage post post-weblog software" match="any">
+        <text value="Текст : электронный"/>
+      </if>
+      <else-if variable="URL">
+        <text value="Текст : электронный"/>
+      </else-if>
+      <else>
+        <text value="Текст : непосредственный"/>
+      </else>
+    </choose>
+  </macro>
+  <macro name="head">
+    <group delimiter=" ">
+      <text macro="heading" suffix="."/>
+      <text macro="title-block"/>
+    </group>
+  </macro>
+  <macro name="bibliography">
+    <choose>
+      <if type="article-journal article-magazine article-newspaper" match="any">
+        <group delimiter=". – ">
+          <group delimiter=" // ">
+            <group delimiter=". – ">
+              <text macro="head"/>
+              <text macro="content-type"/>
+            </group>
+            <text variable="container-title"/>
+          </group>
+          <text macro="year"/>
+          <text macro="volume-issue"/>
+          <text macro="pages"/>
+          <text macro="accessed"/>
+        </group>
+      </if>
+      <else-if type="chapter paper-conference entry-encyclopedia entry-dictionary" match="any">
+        <group delimiter=". – ">
+          <group delimiter=" // ">
+            <group delimiter=". – ">
+              <text macro="head"/>
+              <text macro="content-type"/>
+            </group>
+            <group delimiter=" / ">
+              <text variable="container-title"/>
+              <names variable="editor" delimiter=" ; ">
+                <label form="verb-short" suffix=" "/>
+                <name initialize-with=". " delimiter=", "/>
+              </names>
+            </group>
+          </group>
+          <text macro="imprint"/>
+          <text macro="pages"/>
+          <text macro="accessed"/>
+        </group>
+      </else-if>
+      <else-if type="webpage post post-weblog" match="any">
+        <group delimiter=". – ">
+          <group delimiter=" // ">
+            <group delimiter=". – ">
+              <text macro="head"/>
+              <text macro="content-type"/>
+            </group>
+            <group delimiter=" ">
+              <text variable="container-title"/>
+              <text value=": [сайт]"/>
+            </group>
+          </group>
+          <text macro="accessed"/>
+        </group>
+      </else-if>
+      <else>
+        <group delimiter=". – ">
+          <text macro="head"/>
+          <text variable="edition"/>
+          <text macro="imprint"/>
+          <text macro="extent"/>
+          <text variable="collection-title" prefix="(" suffix=")"/>
+          <text variable="ISBN" prefix="ISBN "/>
+          <text macro="accessed"/>
+          <text macro="content-type"/>
+        </group>
+      </else>
+    </choose>
+  </macro>
+  <citation>
+    <layout delimiter="; " prefix="[" suffix="]">
+      <group delimiter=", ">
+        <text variable="citation-number"/>
+        <group delimiter=" ">
+          <label variable="locator" form="short"/>
+          <text variable="locator"/>
+        </group>
+      </group>
+    </layout>
+  </citation>
+  <bibliography entry-spacing="0">
+    <layout suffix=".">
+      <text variable="citation-number" suffix=". "/>
+      <text macro="bibliography"/>
+    </layout>
+  </bibliography>
+</style>

@@ -4,7 +4,7 @@ import { groupManuals, manualName, originalUrl, progress, stateLabel } from './l
 
 const source = (over: Partial<SourceStatus>): SourceStatus => ({
   kind: 'docs', path: 'nltk/index.html', title: 'nltk · NLTK', indexed_at: '2026-09-14T10:00:00Z',
-  chunks: 10, embedded: 10, quarantined: 0, ...over,
+  chunks: 10, embedded: 10, quarantined: 0, description: '', ...over,
 })
 
 describe('progress', () => {
@@ -38,8 +38,8 @@ describe('groupManuals', () => {
       source({ path: 'scikit-learn/modules/svm.html', chunks: 2, embedded: 0, indexed_at: '2026-09-14T11:00:00Z' }),
     ])
     expect(groups).toEqual([
-      { name: 'nltk', home: 'nltk/index.html', pages: 2, chunks: 8, embedded: 4, quarantined: 1, indexed_at: '2026-09-14T10:00:00Z' },
-      { name: 'scikit-learn', home: 'scikit-learn/modules/svm.html', pages: 1, chunks: 2, embedded: 0, quarantined: 0, indexed_at: '2026-09-14T11:00:00Z' },
+      { name: 'nltk', description: '', home: 'nltk/index.html', pages: 2, chunks: 8, embedded: 4, quarantined: 1, indexed_at: '2026-09-14T10:00:00Z' },
+      { name: 'scikit-learn', description: '', home: 'scikit-learn/modules/svm.html', pages: 1, chunks: 2, embedded: 0, quarantined: 0, indexed_at: '2026-09-14T11:00:00Z' },
     ])
   })
 })

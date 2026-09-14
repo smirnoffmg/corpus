@@ -79,16 +79,37 @@ func TestParseAuthors(t *testing.T) {
 }
 
 func TestBookDraft(t *testing.T) {
-	draft := cite.BookDraft("Designing Data-Intensive Applications", "Martin Kleppmann", "O'Reilly. ISBN: 978-1-449-37332-0")
+	draft := cite.BookDraft("Designing Data-Intensive Applications", "Martin Kleppmann", "O'Reilly. ISBN: 978-1-449-37332-0", "")
 	if draft["type"] != "book" || draft["title"] != "Designing Data-Intensive Applications" || draft["ISBN"] != "9781449373320" {
 		t.Errorf("draft = %v", draft)
 	}
 	if authors, _ := draft["author"].([]map[string]any); len(authors) != 1 {
 		t.Errorf("author = %v", draft["author"])
 	}
-	paper := cite.BookDraft("Attention", "", "arXiv. doi:10.48550/arXiv.1706.03762")
+	paper := cite.BookDraft("Attention", "", "arXiv. doi:10.48550/arXiv.1706.03762", "")
 	if paper["type"] != "article-journal" || paper["DOI"] != "10.48550/arXiv.1706.03762" {
 		t.Errorf("a PDF with a DOI and no ISBN is a paper: %v", paper)
+	}
+}
+
+func TestBookDraftDistrustsWhatFileNamesAndMetadataAdd(t *testing.T) {
+	draft := cite.BookDraft("[PROGRAMMING][Clean Code by Robert C Martin]", "19:56:25", "", "References\n[12] doi:10.1145/212433.220201")
+	if draft["title"] != "Clean Code by Robert C Martin" {
+		t.Errorf("title = %q", draft["title"])
+	}
+	if _, ok := draft["author"]; ok {
+		t.Errorf("a timestamp became an author: %v", draft["author"])
+	}
+	if draft["type"] != "book" || draft["DOI"] != nil {
+		t.Errorf("a DOI from the references made the book a paper: %v", draft)
+	}
+	for _, junk := range []string{"Tim@", "petrshegolev", "Len Bass, Paul Clements,Rick Kazman"} {
+		if d := cite.BookDraft("T", junk, "", ""); d["author"] != nil {
+			t.Errorf("%q became %v", junk, d["author"])
+		}
+	}
+	if d := cite.BookDraft("Fundamentals of Data Engineering (Reis, Housley) (example-books.org)", "", "", ""); d["title"] != "Fundamentals of Data Engineering (Reis, Housley)" {
+		t.Errorf("title = %q", d["title"])
 	}
 }
 

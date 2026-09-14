@@ -320,7 +320,7 @@ func (ix *Indexer) draft(ctx context.Context, manuals []string) error {
 	}
 	for _, b := range books {
 		author := extract.PDFAuthor(ctx, filepath.Join(ix.opts.Books, b.Path))
-		if err := ix.store.EnsureDraft(ctx, b.Hash, cite.BookDraft(b.Title, author, b.Text)); err != nil {
+		if err := ix.store.EnsureDraft(ctx, b.Hash, cite.BookDraft(b.Title, author, b.Head, b.Tail)); err != nil {
 			return err
 		}
 	}

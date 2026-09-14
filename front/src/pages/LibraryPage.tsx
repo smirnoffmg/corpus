@@ -1,7 +1,9 @@
 import { useCallback, useContext, useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router'
+import { Link, useSearchParams } from 'react-router'
 import { sources, type Kind, type SourceStatus } from '../api'
+import { describeHref } from '../cite'
 import { OriginalLink } from '../components/OriginalLink'
+import { StylesPanel } from '../components/StylesPanel'
 import { UploadPanel } from '../components/UploadPanel'
 import { groupManuals, originalUrl, progress, stateLabel } from '../library'
 import { VaultContext } from '../vault'
@@ -13,6 +15,8 @@ const tabs: { kind: Kind; label: string }[] = [
   { kind: 'vault', label: 'Заметки' },
 ]
 
+const descriptionLabel: Record<SourceStatus['description'], string> = { '': 'Описать', draft: 'Черновик', checked: 'Проверено' }
+
 // The vault alone is thousands of notes; past this many rows a table is
 // scrolled, not read, and the filter is the way in.
 const shownRows = 300
@@ -21,6 +25,7 @@ interface Row {
   key: string
   title: string
   href: string | null
+  describe: { path: string; status: SourceStatus['description'] } | null
   detail: string
   counts: { chunks: number; embedded: number; quarantined: number }
 }
@@ -31,11 +36,12 @@ function rowsOf(kind: Kind, list: SourceStatus[], vault?: string): Row[] {
       key: m.name,
       title: m.name,
       href: originalUrl({ kind, path: m.home }),
+      describe: { path: m.home, status: m.description },
       detail: `${m.pages} ${plural(m.pages, ['страница', 'страницы', 'страниц'])}`,
       counts: m,
     }))
   }
-  return list.map((s) => ({ key: s.path, title: s.title, href: originalUrl(s, vault), detail: s.path, counts: s }))
+  return list.map((s) => ({ key: s.path, title: s.title, href: originalUrl(s, vault), describe: kind === 'book' ? { path: s.path, status: s.description } : null, detail: s.path, counts: s }))
 }
 
 export function LibraryPage({ pollMs = 5000 }: { pollMs?: number }) {
@@ -70,6 +76,16 @@ export function LibraryPage({ pollMs = 5000 }: { pollMs?: number }) {
       <h1>Библиотека</h1>
       <UploadPanel pollMs={pollMs} onSettled={refresh} />
 
+      <div className="library-exports">
+        <span className="quiet">Все описания для LaTeX и Pandoc:</span>
+        <a href="/api/bibliography/export?format=biblatex" download>
+          corpus.bib
+        </a>
+        <a href="/api/bibliography/export?format=csl-json" download>
+          corpus.json
+        </a>
+      </div>
+
       <div className="library-bar">
         <div className="tabs" role="group" aria-label="Тип источников">
           {tabs.map((t) => (
@@ -101,6 +117,7 @@ export function LibraryPage({ pollMs = 5000 }: { pollMs?: number }) {
                 <th scope="col">{kind === 'docs' ? 'Мануал' : 'Название'}</th>
                 <th scope="col">{kind === 'docs' ? 'Страниц' : 'Файл'}</th>
                 <th scope="col">Состояние</th>
+                {kind !== 'vault' && <th scope="col">Описание</th>}
               </tr>
             </thead>
             <tbody>
@@ -122,6 +139,13 @@ export function LibraryPage({ pollMs = 5000 }: { pollMs?: number }) {
                       <span className="meter" style={{ '--fill': fraction } as React.CSSProperties} aria-hidden="true" />
                       <span>{stateLabel(r.counts)}</span>
                     </td>
+                    {r.describe && (
+                      <td className={`description-${r.describe.status || 'none'}`}>
+                        <Link to={describeHref(kind, r.describe.path)} aria-label={`Описание: ${r.title}`}>
+                          {descriptionLabel[r.describe.status]}
+                        </Link>
+                      </td>
+                    )}
                   </tr>
                 )
               })}
@@ -129,6 +153,7 @@ export function LibraryPage({ pollMs = 5000 }: { pollMs?: number }) {
           </table>
         </div>
       )}
+      <StylesPanel />
       {rows.length > shownRows && (
         <p className="quiet">
           Показаны первые {shownRows} из {rows.length}. Уточните фильтр, чтобы увидеть остальные.

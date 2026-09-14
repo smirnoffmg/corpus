@@ -100,10 +100,11 @@ type Style struct {
 }
 
 // Undescribed is a book without a bibliographic description, with the text
-// of its opening and closing pages, where ISBN and DOI are printed.
+// of its opening pages (the copyright page) and closing ones (the imprint of a
+// Russian book, and the references of any book).
 type Undescribed struct {
 	Path, Hash, Title string
-	Text              string
+	Head, Tail        string
 }
 
 // Pending is a chunk that has no embedding yet.

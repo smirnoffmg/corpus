@@ -207,19 +207,47 @@ func ParseAuthors(s string) []map[string]any {
 	return out
 }
 
-// BookDraft is what can be said about a PDF without asking anyone: its title,
-// the author its metadata claims, and an ISBN or DOI found in its text. A DOI
-// without an ISBN marks a paper rather than a book.
-func BookDraft(title, pdfAuthor, text string) corpus.CSL {
+var (
+	filenameTags = regexp.MustCompile(`^(?:\s*\[[^\]]*\])+\s*|\s*\([^()\s]+\.(?:org|com|net|io|ru)\)\s*$`)
+	// "[PROGRAMMING][Clean Code]": a shelf tag, then the title in brackets too.
+	bracketedOnly = regexp.MustCompile(`^(?:\[[^\]]*\])*\[([^\]]+)\]$`)
+	personName    = regexp.MustCompile(`^[\p{L}][\p{L}.'’ -]*$`)
+)
+
+// plausibleAuthors keeps the Author field only when every name in it reads as
+// a person's: PDF metadata is filled by whatever made the file, and holds
+// timestamps, logins and e-mail handles as often as authors.
+func plausibleAuthors(authors []map[string]any) bool {
+	for _, a := range authors {
+		family, _ := a["family"].(string)
+		given, _ := a["given"].(string)
+		if given == "" || !personName.MatchString(family) || !personName.MatchString(given) {
+			return false
+		}
+	}
+	return len(authors) > 0
+}
+
+// BookDraft is what can be said about a PDF without asking anyone: its title
+// without the tags of its file name, the author its metadata claims when that
+// is plausible, an ISBN from its opening or closing pages, and a DOI from its
+// opening pages only — the closing pages of a book are its references, full
+// of other works' DOIs. A DOI without an ISBN marks a paper rather than a book.
+func BookDraft(title, pdfAuthor, head, tail string) corpus.CSL {
+	if m := bracketedOnly.FindStringSubmatch(strings.TrimSpace(title)); m != nil {
+		title = m[1]
+	} else if cleaned := strings.TrimSpace(filenameTags.ReplaceAllString(title, "")); cleaned != "" {
+		title = cleaned
+	}
 	draft := corpus.CSL{"type": "book", "title": title}
-	if authors := ParseAuthors(pdfAuthor); authors != nil {
+	if authors := ParseAuthors(pdfAuthor); plausibleAuthors(authors) {
 		draft["author"] = authors
 	}
-	isbns := FindISBN(text)
+	isbns := FindISBN(head + "\n" + tail)
 	if len(isbns) > 0 {
 		draft["ISBN"] = isbns[0]
 	}
-	if doi := FindDOI(text); doi != "" {
+	if doi := FindDOI(head); doi != "" {
 		draft["DOI"] = doi
 		if len(isbns) == 0 {
 			draft["type"] = "article-journal"

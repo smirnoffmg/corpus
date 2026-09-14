@@ -636,3 +636,167 @@ td a:hover,
 td a:focus-visible {
   text-decoration: underline;
 }
+
+/* Citation */
+
+.citation {
+  margin-block: 0 2rem;
+  padding: 1rem 1.1rem;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+}
+
+.citation-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1.25rem;
+  margin-bottom: 0.75rem;
+}
+
+.citation-bar label {
+  display: inline-flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--surface);
+}
+
+.draft {
+  color: var(--warn);
+}
+
+.citation dl {
+  margin: 0;
+}
+
+.citation-line {
+  display: grid;
+  gap: 0.15rem;
+  padding-block: 0.5rem;
+  border-top: 1px solid var(--rule);
+}
+
+.citation-line dt {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.citation-line dd {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  margin: 0;
+  font-family: var(--serif);
+  overflow-wrap: anywhere;
+}
+
+.citation-line button,
+.lookup-line button,
+.actions button,
+button.secondary {
+  flex: none;
+  padding: 0.25rem 0.7rem;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  font-family: var(--sans);
+}
+
+/* Library additions */
+
+.library-exports {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
+  margin-bottom: 1.25rem;
+}
+
+td.description-none a,
+td.description-draft a {
+  color: var(--warn);
+}
+
+.styles {
+  margin-top: 3rem;
+  max-width: 44rem;
+}
+
+.styles h2,
+.lookup h2 {
+  font-size: 1.2rem;
+  margin-bottom: 0.5rem;
+}
+
+.lookup-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.lookup-line input {
+  flex: 1 1 14rem;
+  min-width: 0;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--surface);
+}
+
+/* Describe */
+
+.describe {
+  max-width: 44rem;
+  margin-top: 1rem;
+}
+
+.describe h1 {
+  font-size: 2rem;
+}
+
+.describe-path {
+  overflow-wrap: anywhere;
+  margin-top: 0.3rem;
+}
+
+.describe code {
+  font-family: var(--mono);
+}
+
+.lookup,
+.preview {
+  margin-block: 1.5rem;
+}
+
+.found {
+  margin-top: 1rem;
+}
+
+.describe-form {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.describe-form .field input,
+.describe-form .field textarea,
+.describe-form .field select {
+  width: 100%;
+}
+
+.preview-text {
+  font-family: var(--serif);
+  padding-left: 0.9rem;
+  border-left: 3px solid var(--docs);
+}

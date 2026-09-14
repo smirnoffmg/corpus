@@ -33,6 +33,22 @@ export interface SourceStatus {
   chunks: number
   embedded: number
   quarantined: number
+  description: '' | 'draft' | 'checked'
+}
+
+export type CSLRecord = Record<string, unknown>
+
+export interface Reference {
+  key: string
+  citekey: string
+  csl: CSLRecord
+  status: 'draft' | 'checked'
+  updated_at: string
+}
+
+export interface StyleInfo {
+  id: string
+  title: string
 }
 
 export interface Status {
@@ -99,6 +115,50 @@ export async function sources(filter: { kind?: Kind; prefix?: string }, signal?:
   if (filter.kind) q.set('kind', filter.kind)
   if (filter.prefix) q.set('prefix', filter.prefix)
   return (await getJSON<{ sources: SourceStatus[] }>(`/sources?${q}`, signal)).sources
+}
+
+async function sendJSON<T>(method: string, path: string, body: unknown): Promise<T> {
+  const res = await fetch(`/api${path}`, {
+    method,
+    headers: { 'Content-Type': typeof body === 'string' ? 'application/xml' : 'application/json' },
+    body: typeof body === 'string' ? body : JSON.stringify(body),
+  })
+  if (!res.ok) throw new ApiError(res.status, (await res.text()).trim() || res.statusText)
+  return (await res.json()) as T
+}
+
+function sourceQuery(kind: Kind, path: string): string {
+  return new URLSearchParams({ kind, path }).toString()
+}
+
+export function getReference(kind: Kind, path: string, signal?: AbortSignal): Promise<{ key: string; reference: Reference | null }> {
+  return getJSON(`/bibliography?${sourceQuery(kind, path)}`, signal)
+}
+
+export function saveReference(kind: Kind, path: string, csl: CSLRecord, status: Reference['status']): Promise<Reference> {
+  return sendJSON('PUT', `/bibliography?${sourceQuery(kind, path)}`, { csl, status })
+}
+
+export async function lookupReference(id: { doi: string } | { isbn: string }): Promise<CSLRecord> {
+  return (await sendJSON<{ csl: CSLRecord }>('POST', '/bibliography/lookup', id)).csl
+}
+
+export async function styles(signal?: AbortSignal): Promise<StyleInfo[]> {
+  return (await getJSON<{ styles?: StyleInfo[] }>('/styles', signal)).styles ?? []
+}
+
+export async function styleXML(id: string): Promise<string> {
+  const res = await fetch(`/api/styles/${encodeURIComponent(id)}`)
+  if (!res.ok) throw new ApiError(res.status, (await res.text()).trim())
+  return res.text()
+}
+
+export function addStyle(xml: string): Promise<StyleInfo> {
+  return sendJSON('POST', '/styles', xml)
+}
+
+export function fetchStyle(name: string): Promise<StyleInfo> {
+  return sendJSON('POST', '/styles/fetch', { name })
 }
 
 export function status(signal?: AbortSignal): Promise<Status> {

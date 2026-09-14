@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, NavLink, Route, Routes } from 'react-router'
 import { status as fetchStatus, type Status } from './api'
+import { DescribePage } from './pages/DescribePage'
 import { LibraryPage } from './pages/LibraryPage'
 import { ReaderPage } from './pages/ReaderPage'
 import { SearchPage } from './pages/SearchPage'
@@ -41,6 +42,7 @@ export function App() {
           <Route path="/" element={<SearchPage status={status} />} />
           <Route path="/read/:id" element={<ReaderPage />} />
           <Route path="/library" element={<LibraryPage />} />
+          <Route path="/describe" element={<DescribePage />} />
           <Route
             path="*"
             element={
