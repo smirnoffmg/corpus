@@ -1,6 +1,7 @@
 # corpus
 
-Full-text search over the PDF library in `~/Desktop/books`, the Obsidian vault
+Full-text search over the PDF library and reference manuals in `~/.corpus/data`,
+the Obsidian vault
 and reference manuals such as scikit-learn and NLTK. Exposed as an MCP server and as plain HTTP.
 
 The unit of a hit is a **citable location** — a page for a book, a heading path
@@ -33,10 +34,15 @@ characters, and those are the defaults in code, with the numbers beside them.
 ## Run
 
 ```sh
-cp .env.example .env   # point BOOKS_DIR / VAULT_DIR at the real directories
+cp .env.example .env   # point VAULT_DIR at the vault; the library defaults to ~/.corpus/data
 docker compose up -d --build
 docker compose logs -f indexer
 ```
+
+The library is one directory, `LIBRARY_DIR` (by default `~/.corpus/data`):
+`books/` for PDFs and `manuals/` for [reference manuals](docs/manuals.md).
+Uploads from the UI land there too, so it is the one place to back up besides
+the vault, which stays wherever Obsidian keeps it.
 
 The indexer re-scans every 15 minutes and skips files whose SHA-256 is unchanged,
 so the vault stays current while obsidian-git commits into it.

@@ -5,7 +5,7 @@ repos:
     rev: v6.0.0
     hooks:
       - id: check-added-large-files
-        args: [--maxkb=1024]   # книги живут в ~/Desktop/books, в репозитории им не место
+        args: [--maxkb=1024]   # книги живут в ~/.corpus/data, в репозитории им не место
       - id: detect-private-key
       - id: check-merge-conflict
       - id: check-yaml

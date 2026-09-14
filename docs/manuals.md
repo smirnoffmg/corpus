@@ -6,11 +6,12 @@ the `docs` kind — `kind=docs` on `/search`, "manuals" in the UI.
 
 ## Layout
 
-`DOCS_DIR` in `.env` holds one directory per manual, and the directory's name is
+`manuals/` in the library (`LIBRARY_DIR`, by default `~/.corpus/data`) holds
+one directory per manual, and the directory's name is
 the manual's name in every citation:
 
 ```
-$DOCS_DIR/
+$LIBRARY_DIR/manuals/
   scikit-learn/   index.html, modules/svm.html, …
   nltk/           index.html, howto/tokenize.html, api/…, book/…
 ```
@@ -20,8 +21,7 @@ heading path of the section — `1.4. Support Vector Machines > 1.4.1.
 Classification` — as its locator, and the section's id as its anchor, so a hit
 links straight to the place in the original page.
 
-Without `DOCS_DIR` compose mounts an empty directory and the kind simply has no
-sources.
+An empty `manuals/` simply means the kind has no sources.
 
 ## Getting the manuals
 
@@ -34,17 +34,17 @@ Both ship as ready-built HTML; nothing needs Sphinx.
   ```sh
   curl -L -o sklearn-docs.zip \
     https://github.com/scikit-learn/scikit-learn.github.io/raw/refs/heads/main/1.9/_downloads/scikit-learn-docs.zip
-  unzip -q sklearn-docs.zip -d "$DOCS_DIR/scikit-learn"
+  unzip -q sklearn-docs.zip -d "$LIBRARY_DIR/manuals/scikit-learn"
   ```
 
   The archive has no top-level directory, so `index.html` lands directly in
-  `$DOCS_DIR/scikit-learn/`.
+  `$LIBRARY_DIR/manuals/scikit-learn/`.
 - **NLTK** — the built nltk.org site is the repository
   `nltk/nltk.github.com`:
 
   ```sh
-  git clone --depth 1 https://github.com/nltk/nltk.github.com "$DOCS_DIR/nltk"
-  rm -rf "$DOCS_DIR/nltk/.git" "$DOCS_DIR/nltk/book-jp" "$DOCS_DIR/nltk/book_1ed"
+  git clone --depth 1 https://github.com/nltk/nltk.github.com "$LIBRARY_DIR/manuals/nltk"
+  rm -rf "$LIBRARY_DIR/manuals/nltk/.git" "$LIBRARY_DIR/manuals/nltk/book-jp" "$LIBRARY_DIR/manuals/nltk/book_1ed"
   ```
 
   The Japanese translation would be detected as English and stemmed as
