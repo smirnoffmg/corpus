@@ -86,6 +86,20 @@ question "where is this discussed" and the question "does a note about this
 already exist" want different answers. `GET /compare?q=…` runs all three and returns them side by
 side.
 
+## Adding to the library
+
+```sh
+curl -F file=@book.pdf 'http://localhost:8080/upload?kind=book'
+curl -F file=@site.zip 'http://localhost:8080/upload?kind=docs&manual=nltk'
+curl -s 'http://localhost:8080/sources?kind=book' | jq
+```
+
+A PDF is saved to `uploads/` in the book library, a ZIP of a manual's built HTML
+is unpacked into the manuals directory, and the indexer starts on it at once.
+`/sources` lists every source with how many of its chunks are stored, embedded
+and quarantined; `kind` and `prefix` narrow it. Uploads are limited to 300 MB
+(`mcpd --upload-max`).
+
 ## Naming books
 
 A citation shows the source's title, and a title comes from the filename, so the

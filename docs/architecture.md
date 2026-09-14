@@ -50,8 +50,10 @@ so without it `.env` — with the database password — and the whole `.git` his
 are baked into that layer. They never reach the runtime image, but the layer is
 real, cached, and would travel with a push.
 
-Neither binary writes to disk, both read their mounts read-only, and neither
-binds a privileged port, so the image runs as `nobody`.
+The indexer reads its mounts read-only. `mcpd` mounts the books and the manuals
+read-write, because uploads are saved into them (see below); nothing else is
+written, and neither binary binds a privileged port, so the image runs as
+`nobody`.
 
 ## Design notes
 
@@ -83,6 +85,26 @@ read the same tables differently — does not apply to two binaries built from o
 module, but the schema is still a contract: a migration has to be deployed to
 both, and the indexer is the one that applies migrations, so it must come up
 first. That ordering is load-bearing and easy to miss.
+
+The one message between them travels through Postgres too. After an upload
+`mcpd` sends `NOTIFY corpus_reindex`, and the indexer, which `LISTEN`s on a
+connection of its own, starts a pass at once instead of at the next interval.
+An embedding run gives way between batches — a manual takes hours to embed, and
+a book uploaded meanwhile should be searchable by its text in seconds. The
+listener holds a dedicated connection rather than a pooled one, because a pooled
+connection keeps its `LISTEN` when released. If that connection drops, the
+indexer falls back to the interval and listens again on its next pass.
+
+**Uploads land in the library itself.** A PDF goes to `uploads/` under the
+books, a ZIP of a manual is unpacked into its own directory under the manuals —
+the directories the indexer already walks. A separate uploads root would not
+work: a pass prunes every source of a kind that is missing from that kind's
+root, so a second root for books would be wiped on every pass. Writes go
+through `os.Root`, which keeps every path inside its root whatever an archive's
+entry names say, and a file appears only once complete — a book is written
+under a dot name and renamed, a manual is unpacked into `.upload-tmp/` and
+renamed into place — because the indexer may walk the directory at any moment.
+The vault is not an upload target: Obsidian owns it.
 
 **The embedding queue is a table, with a quarantine.** A batch that fails
 permanently would otherwise block every chunk behind it forever, since the queue

@@ -7,7 +7,11 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -16,6 +20,7 @@ import (
 
 	"github.com/smirnoffmg/corpus/internal/corpus"
 	"github.com/smirnoffmg/corpus/internal/rank"
+	"github.com/smirnoffmg/corpus/internal/upload"
 )
 
 type Store interface {
@@ -23,6 +28,15 @@ type Store interface {
 	SearchVector(ctx context.Context, vector []float32, kind string, limit int) ([]corpus.Hit, error)
 	Read(ctx context.Context, id int64, neighbours bool) (corpus.Passage, error)
 	Stats(ctx context.Context) (int64, int64, error)
+	Sources(ctx context.Context, kind, prefix string) ([]corpus.SourceStatus, error)
+	RequestReindex(ctx context.Context) error
+}
+
+// Library is where uploads go: books and manuals, into the directories the
+// indexer walks.
+type Library interface {
+	AddBook(name string, r io.Reader) (path string, err error)
+	AddManual(name string, r io.Reader) (manual string, err error)
 }
 
 type Embedder interface {
@@ -30,12 +44,26 @@ type Embedder interface {
 }
 
 type Service struct {
-	store    Store
-	embedder Embedder
+	store     Store
+	embedder  Embedder
+	library   Library
+	maxUpload int64
 }
 
-func New(store Store, embedder Embedder) *Service {
-	return &Service{store: store, embedder: embedder}
+type Option func(*Service)
+
+// WithLibrary accepts uploads of at most maxBytes each. Without it the service
+// only reads, and an upload is refused as unavailable.
+func WithLibrary(lib Library, maxBytes int64) Option {
+	return func(s *Service) { s.library, s.maxUpload = lib, maxBytes }
+}
+
+func New(store Store, embedder Embedder, opts ...Option) *Service {
+	s := &Service{store: store, embedder: embedder}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 const (
@@ -262,6 +290,21 @@ func (s *Service) Handler() http.Handler {
 		writeJSON(w, status)
 	})
 
+	mux.HandleFunc("GET /sources", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		sources, err := s.store.Sources(r.Context(), q.Get("kind"), q.Get("prefix"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if sources == nil {
+			sources = []corpus.SourceStatus{}
+		}
+		writeJSON(w, map[string][]corpus.SourceStatus{"sources": sources})
+	})
+
+	mux.HandleFunc("POST /upload", s.upload)
+
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		if _, _, err := s.store.Stats(r.Context()); err != nil {
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
@@ -271,6 +314,85 @@ func (s *Service) Handler() http.Handler {
 	})
 
 	return mux
+}
+
+// upload takes one multipart part named "file". What it is travels in the query
+// string — kind=book, or kind=docs with an optional manual name — so the file
+// can be streamed to disk as it arrives instead of being parsed into memory
+// first to find the fields beside it.
+func (s *Service) upload(w http.ResponseWriter, r *http.Request) {
+	if s.library == nil {
+		http.Error(w, "uploads are not configured on this server", http.StatusServiceUnavailable)
+		return
+	}
+	q := r.URL.Query()
+	kind := q.Get("kind")
+	if kind != "book" && kind != "docs" {
+		// The vault is not an upload target: Obsidian owns it.
+		http.Error(w, "kind must be book or docs", http.StatusBadRequest)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, s.maxUpload)
+	mr, err := r.MultipartReader()
+	if err != nil {
+		http.Error(w, "expected a multipart/form-data body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	var part *multipart.Part
+	for {
+		p, partErr := mr.NextPart()
+		if partErr != nil {
+			uploadError(w, r, fmt.Errorf("%w: no part named file", upload.ErrInvalid), partErr)
+			return
+		}
+		if p.FormName() == "file" {
+			part = p
+			break
+		}
+	}
+
+	var path string
+	if kind == "book" {
+		path, err = s.library.AddBook(part.FileName(), part)
+	} else {
+		name := q.Get("manual")
+		if name == "" {
+			name = upload.ManualName(part.FileName())
+		}
+		path, err = s.library.AddManual(name, part)
+	}
+	if err != nil {
+		uploadError(w, r, err, err)
+		return
+	}
+
+	// The file is in place either way; a lost wake-up only means it waits for
+	// the next scheduled pass.
+	if err := s.store.RequestReindex(r.Context()); err != nil {
+		slog.WarnContext(r.Context(), "reindex request failed", "err", err)
+	}
+	slog.InfoContext(r.Context(), "uploaded", "kind", kind, "path", path)
+	w.WriteHeader(http.StatusCreated)
+	writeJSON(w, map[string]string{"kind": kind, "path": path})
+}
+
+// uploadError answers with the status the failure deserves. cause is checked
+// for a body over the size limit, which surfaces as a read error wherever the
+// reading happened to be.
+func uploadError(w http.ResponseWriter, r *http.Request, err, cause error) {
+	var tooBig *http.MaxBytesError
+	switch {
+	case errors.As(cause, &tooBig), errors.Is(err, upload.ErrTooLarge):
+		http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)
+	case errors.Is(err, upload.ErrExists):
+		http.Error(w, err.Error(), http.StatusConflict)
+	case errors.Is(err, upload.ErrInvalid):
+		http.Error(w, err.Error(), http.StatusBadRequest)
+	default:
+		slog.ErrorContext(r.Context(), "upload failed", "err", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 // queryFromURL reads a search off the query string. `norm` is the ts_rank_cd

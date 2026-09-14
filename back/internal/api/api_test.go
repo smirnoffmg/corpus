@@ -14,10 +14,24 @@ import (
 )
 
 type fakeStore struct {
-	text     []corpus.Hit
-	semantic []corpus.Hit
-	lastText int
-	lastNorm int
+	text            []corpus.Hit
+	semantic        []corpus.Hit
+	lastText        int
+	lastNorm        int
+	sources         []corpus.SourceStatus
+	lastKind        string
+	lastPrefix      string
+	reindexRequests int
+}
+
+func (f *fakeStore) Sources(_ context.Context, kind, prefix string) ([]corpus.SourceStatus, error) {
+	f.lastKind, f.lastPrefix = kind, prefix
+	return f.sources, nil
+}
+
+func (f *fakeStore) RequestReindex(context.Context) error {
+	f.reindexRequests++
+	return nil
 }
 
 func (f *fakeStore) Search(_ context.Context, q corpus.Query) ([]corpus.Hit, error) {
@@ -183,7 +197,7 @@ func TestReadOnlyEndpointsRefuseOtherMethods(t *testing.T) {
 	srv := httptest.NewServer(api.New(&fakeStore{text: []corpus.Hit{}}, &fakeEmbedder{}).Handler())
 	defer srv.Close()
 
-	for _, path := range []string{"/search?q=x", "/compare?q=x", "/read?id=1", "/status", "/healthz"} {
+	for _, path := range []string{"/search?q=x", "/compare?q=x", "/read?id=1", "/status", "/healthz", "/sources"} {
 		resp, err := http.Post(srv.URL+path, "text/plain", nil)
 		if err != nil {
 			t.Fatalf("POST %s: %v", path, err)

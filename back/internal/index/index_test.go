@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/smirnoffmg/corpus/internal/corpus"
 	"github.com/smirnoffmg/corpus/internal/index"
@@ -32,6 +33,8 @@ type recordingStore struct {
 	pending   []corpus.Pending
 	attempted []int64
 	embedded  []int64
+	stats     int
+	onStats   func(calls int) // called with the lock held, once per finished Index
 }
 
 func newStore() *recordingStore {
@@ -104,7 +107,15 @@ func (s *recordingStore) Prune(_ context.Context, kind string, seen []string) (i
 	return 0, nil
 }
 
-func (s *recordingStore) Stats(context.Context) (int64, int64, error) { return 0, 0, nil }
+func (s *recordingStore) Stats(context.Context) (int64, int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.stats++
+	if s.onStats != nil {
+		s.onStats(s.stats)
+	}
+	return 0, 0, nil
+}
 
 func (s *recordingStore) MissingEmbeddings(context.Context) (int64, error) {
 	s.mu.Lock()
@@ -157,6 +168,7 @@ type countingEmbedder struct {
 	calls  int
 	sizes  []int
 	broken error
+	onCall func(calls int)
 }
 
 func (e *countingEmbedder) Embed(_ context.Context, bodies []string) ([][]float32, error) {
@@ -164,6 +176,9 @@ func (e *countingEmbedder) Embed(_ context.Context, bodies []string) ([][]float3
 	defer e.mu.Unlock()
 	e.calls++
 	e.sizes = append(e.sizes, len(bodies))
+	if e.onCall != nil {
+		e.onCall(e.calls)
+	}
 	if e.broken != nil {
 		return nil, e.broken
 	}
@@ -454,6 +469,7 @@ func manual(t *testing.T) string {
 		"scikit-learn/_modules/sklearn/svm.html":    page,
 		"scikit-learn/_static/theme.html":           page,
 		"scikit-learn/_sources/modules/svm.rst.txt": "SVM\n===\n",
+		".upload-tmp/0123abcd/index.html":           page,
 	}
 	for rel, body := range files {
 		path := filepath.Join(root, rel)
@@ -510,8 +526,9 @@ func TestSphinxByProductsAreNotSources(t *testing.T) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	for path := range store.sources {
-		if strings.Contains(path, "/_") || strings.Contains(path, "index.html") || strings.HasSuffix(path, "search.html") {
-			t.Errorf("indexed %s: an index, search page or build directory is not a source", path)
+		if strings.Contains(path, "/_") || strings.Contains(path, "index.html") || strings.HasSuffix(path, "search.html") ||
+			strings.HasPrefix(path, ".upload-tmp") {
+			t.Errorf("indexed %s: an index, search page, build directory or half-unpacked upload is not a source", path)
 		}
 	}
 }
@@ -528,5 +545,115 @@ func TestNoDocsRootSkipsTheKind(t *testing.T) {
 	defer store.mu.Unlock()
 	if _, ok := store.pruned["docs"]; ok {
 		t.Error("pruned docs although no docs root was given")
+	}
+}
+
+func listenOn(wake <-chan struct{}) func(context.Context) (<-chan struct{}, error) {
+	return func(context.Context) (<-chan struct{}, error) { return wake, nil }
+}
+
+// runFor runs the loop and fails the test if it does not stop by itself — every
+// test below cancels it from inside, once it has seen what it waits for.
+func runFor(t *testing.T, ix *index.Indexer, ctx context.Context, interval time.Duration, listen func(context.Context) (<-chan struct{}, error)) {
+	t.Helper()
+	done := make(chan error, 1)
+	go func() { done <- ix.Run(ctx, interval, listen) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("run: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the loop did not reach the expected pass")
+	}
+}
+
+// Embedding a whole manual takes hours; an upload made meanwhile must not wait
+// for the queue to drain before its text is searchable.
+func TestAReindexRequestInterruptsEmbeddingBetweenBatches(t *testing.T) {
+	notes, books := vault(t, 1)
+	store := newStore()
+	store.pending = queued(10)
+	wake := make(chan struct{}, 1)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	remaining := -1
+	store.onStats = func(calls int) {
+		if calls == 2 {
+			remaining = len(store.pending)
+			cancel()
+		}
+	}
+	embedder := &countingEmbedder{onCall: func(calls int) {
+		if calls == 1 {
+			wake <- struct{}{}
+		}
+	}}
+	ix := index.New(store, embedder, index.Options{Books: books, Vault: notes, Batch: 2})
+
+	runFor(t, ix, ctx, time.Hour, listenOn(wake))
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if remaining != 8 {
+		t.Errorf("the second pass started with %d chunks queued, want 8 — right after the batch in flight", remaining)
+	}
+}
+
+func TestAReindexRequestWhileIdleDoesNotWaitForTheInterval(t *testing.T) {
+	notes, books := vault(t, 1)
+	store := newStore()
+	wake := make(chan struct{}, 1)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	store.onStats = func(calls int) {
+		switch calls {
+		case 1:
+			wake <- struct{}{}
+		case 2:
+			cancel()
+		}
+	}
+	ix := index.New(store, nopEmbedder{}, index.Options{Books: books, Vault: notes})
+
+	runFor(t, ix, ctx, time.Hour, listenOn(wake))
+}
+
+// A listener whose connection dropped closes its channel. A closed channel is
+// always ready, so a loop that kept selecting on it would index flat out.
+func TestALostListenerFallsBackToTheInterval(t *testing.T) {
+	notes, books := vault(t, 1)
+	store := newStore()
+	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer cancel()
+
+	var mu sync.Mutex
+	listens := 0
+	listen := func(context.Context) (<-chan struct{}, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		listens++
+		if listens == 1 {
+			closed := make(chan struct{})
+			close(closed)
+			return closed, nil
+		}
+		return nil, errors.New("database restarting")
+	}
+	ix := index.New(store, nopEmbedder{}, index.Options{Books: books, Vault: notes})
+
+	runFor(t, ix, ctx, 50*time.Millisecond, listen)
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if store.stats > 12 {
+		t.Errorf("%d passes in 300ms on a 50ms interval: the loop spun on the closed channel", store.stats)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if listens < 2 {
+		t.Errorf("listened %d times, want the listener re-established", listens)
 	}
 }

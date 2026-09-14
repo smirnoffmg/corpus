@@ -50,6 +50,23 @@ Both ship as ready-built HTML; nothing needs Sphinx.
   The Japanese translation would be detected as English and stemmed as
   nonsense, and the first edition of the book duplicates the second.
 
+## Uploading
+
+A manual can also be uploaded as a ZIP of its built HTML — from the library
+page of the UI, or with curl:
+
+```sh
+curl -F file=@scikit-learn-docs.zip 'http://localhost:8080/upload?kind=docs&manual=scikit-learn'
+```
+
+`manual` names the directory; without it the name comes from the ZIP's file
+name. When every entry of the archive sits in one top-level directory, that
+directory is stripped, so a ZIP of a site's folder and a ZIP of its contents
+unpack the same way. An archive is refused if an entry points outside the
+manual or is a link, if it holds no HTML, if a manual of that name exists, or if
+it unpacks to more than 100,000 entries or 4 GB. The indexer starts on it at
+once; `GET /sources?prefix=scikit-learn/` shows each page's progress.
+
 ## What is read, and what is not
 
 Only the content area of a page is indexed — `<article>`, else `role="main"`,

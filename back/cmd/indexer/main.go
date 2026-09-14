@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/smirnoffmg/corpus/internal/embed"
 	"github.com/smirnoffmg/corpus/internal/extract"
@@ -78,18 +77,13 @@ func run() error {
 		DocsSplitter: extract.Splitter{Above: *docsAbove, Target: *docsTarget},
 	})
 
-	for {
-		if err := indexer.Pass(ctx); err != nil {
-			slog.ErrorContext(ctx, "pass", "err", err)
+	if *interval == 0 {
+		if passErr := indexer.Pass(ctx); passErr != nil {
+			slog.ErrorContext(ctx, "pass", "err", passErr)
 		}
-		if *interval == 0 {
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			slog.InfoContext(ctx, "stopping")
-			return nil
-		case <-time.After(*interval):
-		}
+		return nil
 	}
+	runErr := indexer.Run(ctx, *interval, st.ListenReindex)
+	slog.InfoContext(ctx, "stopping")
+	return runErr
 }

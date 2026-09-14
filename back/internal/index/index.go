@@ -250,20 +250,90 @@ func (ix *Indexer) indexFile(
 	return true, ix.store.Replace(ctx, src, chunks)
 }
 
+// Run indexes and embeds every interval, and starts a pass at once whenever
+// listen's channel delivers — an upload has landed and should not wait for the
+// next scheduled pass. listen may be nil, and is called again whenever its
+// channel closes, so a dropped database connection only costs the wake-ups
+// until the next pass. Run returns when ctx ends.
+func (ix *Indexer) Run(ctx context.Context, interval time.Duration, listen func(context.Context) (<-chan struct{}, error)) error {
+	var wake <-chan struct{}
+	for ctx.Err() == nil {
+		if wake == nil && listen != nil {
+			w, err := listen(ctx)
+			if err != nil && ctx.Err() == nil {
+				slog.WarnContext(ctx, "reindex requests unavailable, indexing on the interval only", "err", err)
+			}
+			wake = w
+		}
+
+		if ix.pass(ctx, wake) {
+			continue
+		}
+
+		timer := time.NewTimer(interval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+		case <-timer.C:
+		case _, ok := <-wake:
+			timer.Stop()
+			if !ok {
+				// A closed channel is always ready; selecting on it again would
+				// turn the loop into a spin.
+				wake = nil
+			}
+		}
+	}
+	return nil
+}
+
+// pass is one Index and Embed for Run, which logs failures rather than
+// stopping on them: the next pass is the retry. It reports whether embedding
+// gave way to a reindex request.
+func (ix *Indexer) pass(ctx context.Context, wake <-chan struct{}) (interrupted bool) {
+	if err := ix.Index(ctx); err != nil && ctx.Err() == nil {
+		slog.ErrorContext(ctx, "pass", "err", err)
+	}
+	interrupted, err := ix.embed(ctx, wake)
+	if err != nil && ctx.Err() == nil {
+		slog.ErrorContext(ctx, "pass", "err", err)
+	}
+	return interrupted
+}
+
 // Embed fills in embeddings for chunks that have none.
 func (ix *Indexer) Embed(ctx context.Context) error {
+	_, err := ix.embed(ctx, nil)
+	return err
+}
+
+// embed drains the queue, and gives way between batches when wake delivers:
+// a whole manual takes hours to embed, and a book uploaded meanwhile should be
+// searchable by its text in seconds. The batch in flight is finished first, so
+// no attempt is spent on an interrupted call.
+func (ix *Indexer) embed(ctx context.Context, wake <-chan struct{}) (interrupted bool, err error) {
 	pending, err := ix.store.MissingEmbeddings(ctx)
 	if err != nil || pending == 0 {
-		return err
+		return false, err
 	}
 	slog.InfoContext(ctx, "embedding", "pending", pending)
 
 	start := time.Now()
 	done := 0
 	for ctx.Err() == nil {
+		select {
+		case _, ok := <-wake:
+			if ok {
+				slog.InfoContext(ctx, "embedding paused for a reindex request", "done", done, "pending", pending)
+				return true, nil
+			}
+			wake = nil
+		default:
+		}
+
 		chunks, err := ix.store.PendingEmbeddings(ctx, ix.opts.Batch)
 		if err != nil {
-			return err
+			return false, err
 		}
 		if len(chunks) == 0 {
 			break
@@ -278,14 +348,14 @@ func (ix *Indexer) Embed(ctx context.Context) error {
 		// The attempt is recorded before the call, so a crash or a timeout counts
 		// too; otherwise a chunk that kills the process is retried forever.
 		if attemptErr := ix.store.CountAttempt(ctx, ids); attemptErr != nil {
-			return attemptErr
+			return false, attemptErr
 		}
 		vectors, err := ix.embedder.Embed(ctx, bodies)
 		if err != nil {
-			return err
+			return false, err
 		}
 		if err := ix.store.SaveEmbeddings(ctx, ids, vectors); err != nil {
-			return err
+			return false, err
 		}
 
 		done += len(chunks)
@@ -301,7 +371,7 @@ func (ix *Indexer) Embed(ctx context.Context) error {
 	if n, err := ix.store.Quarantined(ctx); err == nil && n > 0 {
 		slog.WarnContext(ctx, "chunks quarantined after repeated embedding failures", "chunks", n)
 	}
-	return ctx.Err()
+	return false, ctx.Err()
 }
 
 // title asks the document what it is called; a note is named by its filename,
@@ -358,6 +428,9 @@ func skipDir(name string) bool {
 		// Sphinx build by-products: theme assets, the reST sources, and the
 		// highlighted source code of every module, which the API pages already
 		// document.
+		return true
+	case ".upload-tmp":
+		// A manual being unpacked; it is renamed into place once complete.
 		return true
 	}
 	return false

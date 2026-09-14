@@ -3,7 +3,10 @@
 // at it, rather than at each other.
 package corpus
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // Chunk is one indexable unit: a page of a PDF or a section of a note.
 type Chunk struct {
@@ -54,6 +57,18 @@ type Hit struct {
 	Page    int     `json:"page,omitempty"`
 	Rank    float32 `json:"rank"`
 	Snippet string  `json:"snippet"`
+}
+
+// SourceStatus is how far a source has come: stored, embedded, or stuck. It is
+// what a library listing shows while an upload works its way through.
+type SourceStatus struct {
+	Kind        string    `json:"kind"`
+	Path        string    `json:"path"`
+	Title       string    `json:"title"`
+	IndexedAt   time.Time `json:"indexed_at"`
+	Chunks      int64     `json:"chunks"`
+	Embedded    int64     `json:"embedded"`
+	Quarantined int64     `json:"quarantined"`
 }
 
 // Pending is a chunk that has no embedding yet.
