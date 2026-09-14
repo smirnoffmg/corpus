@@ -9,9 +9,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 type Client struct {
@@ -67,8 +69,57 @@ type transient struct{ err error }
 func (t transient) Error() string { return t.err.Error() }
 func (t transient) Unwrap() error { return t.err }
 
+// errContextOverflow is ollama refusing an input that tokenizes past the
+// model's context. Its truncate option does not help: ollama 0.32 returns the
+// error with truncate set, and with num_ctx raised to the model's full 8192.
+var errContextOverflow = errors.New("input exceeds the model's context")
+
+// shortestInput is where shortening stops: below it an input that still does
+// not fit is not text the model can say anything about.
+const shortestInput = 64
+
 // Embed returns one vector per input, in the same order.
+//
+// Characters are only a proxy for tokens, and a proxy that dense text breaks:
+// a regular expression spelled out in exotic Unicode is a token or more per
+// character. When a batch overflows, its inputs are embedded one by one and
+// only the one that overflows is shortened, so the rest of the batch keeps
+// full-length vectors instead of sharing its failure.
 func (c *Client) Embed(ctx context.Context, inputs []string) ([][]float32, error) {
+	vectors, err := c.embedRetrying(ctx, inputs)
+	if !errors.Is(err, errContextOverflow) {
+		return vectors, err
+	}
+	out := make([][]float32, len(inputs))
+	for i, input := range inputs {
+		if out[i], err = c.embedFitting(ctx, input); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+// embedFitting halves an input until the model accepts it. The start is kept,
+// which is what truncation would have kept.
+func (c *Client) embedFitting(ctx context.Context, input string) ([]float32, error) {
+	original := utf8.RuneCountInString(input)
+	for {
+		vectors, err := c.embedRetrying(ctx, []string{input})
+		if err == nil {
+			if n := utf8.RuneCountInString(input); n < original {
+				slog.WarnContext(ctx, "input shortened to fit the model's context", "from", original, "to", n)
+			}
+			return vectors[0], nil
+		}
+		runes := []rune(input)
+		if !errors.Is(err, errContextOverflow) || len(runes) <= shortestInput {
+			return nil, err
+		}
+		input = string(runes[:len(runes)/2])
+	}
+}
+
+func (c *Client) embedRetrying(ctx context.Context, inputs []string) ([][]float32, error) {
 	delay := c.backoff
 	var err error
 	made := 0
@@ -128,6 +179,9 @@ func (c *Client) embedOnce(ctx context.Context, inputs []string) ([][]float32, e
 		failure := fmt.Errorf("ollama %s: %s", resp.Status, strings.TrimSpace(string(snippet)))
 		if retryableStatus(resp.StatusCode) {
 			return nil, transient{failure}
+		}
+		if resp.StatusCode == http.StatusBadRequest && bytes.Contains(snippet, []byte("exceeds the context length")) {
+			return nil, fmt.Errorf("%w: %w", errContextOverflow, failure)
 		}
 		return nil, failure
 	}
