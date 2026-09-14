@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useContext, useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router'
 import { ApiError, read, type Passage } from '../api'
 import { Blocks } from '../components/Blocks'
+import { OriginalLink } from '../components/OriginalLink'
 import { kindName } from '../kinds'
 import { originalUrl } from '../library'
+import { VaultContext } from '../vault'
 
 interface Loaded {
   id: string
@@ -17,6 +19,7 @@ export function ReaderPage() {
   const navigate = useNavigate()
   const [loaded, setLoaded] = useState<Loaded>()
   const [copied, setCopied] = useState(false)
+  const vault = useContext(VaultContext)
 
   useEffect(() => {
     const request = new AbortController()
@@ -65,7 +68,7 @@ export function ReaderPage() {
   }
 
   const p = current.passage
-  const original = originalUrl(p)
+  const original = originalUrl(p, vault)
   const copy = async () => {
     await navigator.clipboard.writeText(`${p.title}, ${p.locator}`)
     setCopied(true)
@@ -82,11 +85,7 @@ export function ReaderPage() {
           <button type="button" onClick={copy}>
             {copied ? 'Скопировано' : 'Скопировать цитату'}
           </button>
-          {original && (
-            <a href={original} target="_blank" rel="noreferrer">
-              Открыть оригинал
-            </a>
-          )}
+          {original && <OriginalLink kind={p.kind} href={original} />}
         </div>
       </header>
       {p.previous && (

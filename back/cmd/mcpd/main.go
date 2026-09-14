@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -28,6 +29,13 @@ func main() {
 	}
 }
 
+func vaultNameFrom(dir string) string {
+	if dir == "" {
+		return ""
+	}
+	return filepath.Base(filepath.Clean(dir))
+}
+
 func run() error {
 	addr := flag.String("addr", ":8080", "listen address")
 	ollama := flag.String("ollama", "http://host.docker.internal:11434", "ollama base URL")
@@ -36,6 +44,9 @@ func run() error {
 	books := flag.String("books", "/data/books", "book library that uploaded PDFs are saved into")
 	docs := flag.String("docs", "/data/docs", "manuals directory that uploaded ZIPs are unpacked into")
 	uploadMax := flag.Int64("upload-max", 300<<20, "largest upload accepted, in bytes")
+	// Inside the container the vault is /data/vault; its Obsidian name is the
+	// name of the directory on the host, which compose passes along.
+	vaultName := flag.String("vault-name", vaultNameFrom(os.Getenv("CORPUS_VAULT_DIR")), "Obsidian vault name, for obsidian:// links to notes")
 	flag.Parse()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -47,7 +58,7 @@ func run() error {
 	}
 	defer st.Close()
 
-	var opts []api.Option
+	opts := []api.Option{api.WithVault(*vaultName)}
 	// Uploads are an addition to search, not a condition of it: a server whose
 	// library directories are missing still answers queries.
 	if lib, err := upload.Open(*books, *docs, upload.Limits{}); err != nil {

@@ -48,6 +48,7 @@ type Service struct {
 	embedder  Embedder
 	library   Library
 	maxUpload int64
+	vault     string
 }
 
 type Option func(*Service)
@@ -56,6 +57,12 @@ type Option func(*Service)
 // only reads, and an upload is refused as unavailable.
 func WithLibrary(lib Library, maxBytes int64) Option {
 	return func(s *Service) { s.library, s.maxUpload = lib, maxBytes }
+}
+
+// WithVault names the Obsidian vault, so a client can build obsidian:// links
+// to notes; the name is the vault directory's.
+func WithVault(name string) Option {
+	return func(s *Service) { s.vault = name }
 }
 
 func New(store Store, embedder Embedder, opts ...Option) *Service {
@@ -278,6 +285,9 @@ func (s *Service) Handler() http.Handler {
 	mux.HandleFunc("GET /status", func(w http.ResponseWriter, r *http.Request) {
 		sources, chunks, err := s.store.Stats(r.Context())
 		status := map[string]any{"sources": sources, "chunks": chunks, "db": "ok"}
+		if s.vault != "" {
+			status["vault"] = s.vault
+		}
 		if err != nil {
 			status["db"] = err.Error()
 		}

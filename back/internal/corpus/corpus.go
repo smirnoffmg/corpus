@@ -104,6 +104,10 @@ func Locator(heading string, page, printed int) string {
 	switch {
 	case heading != "":
 		return heading
+	case page == 0:
+		// Text above a note's first heading: there is no finer place to cite
+		// than the note itself.
+		return ""
 	case printed == 0:
 		return fmt.Sprintf("PDF %d", page)
 	case printed != page:

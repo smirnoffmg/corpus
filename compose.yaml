@@ -50,6 +50,7 @@ services:
     command: ["mcpd"]
     environment:
       DATABASE_URL: postgres://corpus:${POSTGRES_PASSWORD:-corpus}@db:5432/corpus
+      CORPUS_VAULT_DIR: ${VAULT_DIR:?set VAULT_DIR in .env}
     # Read-write, unlike the indexer's: uploads are saved into the library
     # itself (uploads/ under the books, one directory per manual), so that the
     # indexer finds them where it already looks.

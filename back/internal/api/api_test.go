@@ -347,3 +347,24 @@ func TestReadReturnsThePassageBehindAHit(t *testing.T) {
 		t.Errorf("body = %q, want the store's passage", passage.Body)
 	}
 }
+
+// The vault's name is what an obsidian:// link needs to open a note, and only
+// the server knows which directory the vault is.
+func TestStatusNamesTheVaultWhenConfigured(t *testing.T) {
+	srv := httptest.NewServer(api.New(&fakeStore{}, &fakeEmbedder{}, api.WithVault("obsidian")).Handler())
+	defer srv.Close()
+
+	var status map[string]any
+	get(t, srv.URL+"/status", &status)
+	if status["vault"] != "obsidian" {
+		t.Errorf("vault = %v, want obsidian", status["vault"])
+	}
+
+	bare := httptest.NewServer(api.New(&fakeStore{}, &fakeEmbedder{}).Handler())
+	defer bare.Close()
+	status = nil
+	get(t, bare.URL+"/status", &status)
+	if _, ok := status["vault"]; ok {
+		t.Errorf("status = %v, want no vault when none is configured", status)
+	}
+}

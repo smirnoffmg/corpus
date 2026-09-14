@@ -22,6 +22,17 @@ describe('App', () => {
     expect(screen.getByText(/4\s410 источников/)).toBeInTheDocument()
   })
 
+  it('lets a note be opened in the vault the server names', async () => {
+    stubApi((url) => {
+      if (url.pathname === '/api/status') return { body: { sources: 1, chunks: 1, db: 'ok', embedder: 'ok', vault: 'obsidian' } }
+      return { body: { hits: [{ id: 3, kind: 'vault', title: 'Кросс-энтропия', path: 'Кросс-энтропия.md', locator: '', rank: 1, snippet: 'x' }] } }
+    })
+    renderApp('/?q=x')
+    expect(await screen.findByRole('link', { name: 'Открыть в Obsidian' })).toHaveAttribute(
+      'href', 'obsidian://open?vault=obsidian&file=' + encodeURIComponent('Кросс-энтропия'),
+    )
+  })
+
   it('stays quiet when everything answers', async () => {
     stubApi(() => ({ body: { sources: 1, chunks: 2, db: 'ok', embedder: 'ok' } }))
     renderApp('/')

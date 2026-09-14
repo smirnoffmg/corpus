@@ -4,6 +4,7 @@ import { status as fetchStatus, type Status } from './api'
 import { LibraryPage } from './pages/LibraryPage'
 import { ReaderPage } from './pages/ReaderPage'
 import { SearchPage } from './pages/SearchPage'
+import { VaultContext } from './vault'
 
 export function App() {
   const [status, setStatus] = useState<Status | null>(null)
@@ -17,6 +18,7 @@ export function App() {
   }, [])
 
   return (
+    <VaultContext value={status?.vault}>
     <div className="shell">
       <header className="masthead">
         <Link to="/" className="wordmark">
@@ -51,5 +53,6 @@ export function App() {
         </Routes>
       </main>
     </div>
+    </VaultContext>
   )
 }

@@ -51,7 +51,17 @@ describe('originalUrl', () => {
     )
     expect(originalUrl({ kind: 'book', path: 'a.pdf' })).toBe('/books/a.pdf')
   })
-  it('has no original for a note, which lives in Obsidian', () => {
+  it('opens a note in Obsidian at the heading it was cited by', () => {
+    expect(originalUrl({ kind: 'vault', path: 'brain/Cross entropy.md', locator: 'What it is > Example' }, 'my vault')).toBe(
+      'obsidian://open?vault=my%20vault&file=brain%2FCross%20entropy%23Example',
+    )
+  })
+  it('opens a note without a heading at its top', () => {
+    expect(originalUrl({ kind: 'vault', path: 'Daily/2026-09-14.md', locator: '' }, 'obsidian')).toBe(
+      'obsidian://open?vault=obsidian&file=Daily%2F2026-09-14',
+    )
+  })
+  it('cannot link a note while the vault name is unknown', () => {
     expect(originalUrl({ kind: 'vault', path: 'note.md' })).toBeNull()
   })
 })

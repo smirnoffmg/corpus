@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useContext, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { search, type Hit, type Kind, type Mode, type Status } from '../api'
 import { Highlight } from '../components/Highlight'
 import { kindFilters, kindName, modes } from '../kinds'
+import { OriginalLink } from '../components/OriginalLink'
 import { originalUrl } from '../library'
+import { VaultContext } from '../vault'
 import { plural } from '../text'
 
 interface Result {
@@ -22,6 +24,7 @@ export function SearchPage({ status }: { status?: Status | null }) {
   const [result, setResult] = useState<Result>()
   const input = useRef<HTMLInputElement>(null)
   const form = useRef<HTMLFormElement>(null)
+  const vault = useContext(VaultContext)
 
   useEffect(() => {
     if (!q) return
@@ -131,7 +134,7 @@ export function SearchPage({ status }: { status?: Status | null }) {
       {current?.hits && current.hits.length > 0 && (
         <ol className="hits">
           {current.hits.map((h) => {
-            const original = originalUrl(h)
+            const original = originalUrl(h, vault)
             return (
             <li key={h.id} className={`hit kind-${h.kind}`}>
               <div className="slip">
@@ -141,11 +144,7 @@ export function SearchPage({ status }: { status?: Status | null }) {
                 <span className="slip-locator">{h.locator}</span>
                 <span className="slip-kind">
                   {kindName[h.kind]}
-                  {original && (
-                    <a href={original} target="_blank" rel="noreferrer" className="slip-open">
-                      Открыть оригинал
-                    </a>
-                  )}
+                  {original && <OriginalLink kind={h.kind} href={original} className="slip-open" />}
                 </span>
               </div>
               <p className="snippet">

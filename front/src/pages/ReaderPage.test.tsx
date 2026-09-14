@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes } from 'react-router'
 import { describe, expect, it, vi } from 'vitest'
 import type { Passage } from '../api'
 import { stubApi } from '../test/fetch'
+import { VaultContext } from '../vault'
 import { ReaderPage } from './ReaderPage'
 
 const passage: Passage = {
@@ -51,11 +52,22 @@ describe('ReaderPage', () => {
     expect(screen.getByRole('link', { name: 'Открыть оригинал' })).toHaveAttribute('href', '/books/Concurrency%20in%20Go.pdf#page=203')
   })
 
-  it('offers no original for a note', async () => {
-    stubApi(() => ({ body: { ...passage, kind: 'vault', path: 'note.md', anchor: undefined } }))
-    renderReader()
-    await screen.findByRole('heading', { name: passage.title })
-    expect(screen.queryByRole('link', { name: 'Открыть оригинал' })).toBeNull()
+  it('opens a note in Obsidian once the vault is known', async () => {
+    stubApi(() => ({ body: { ...passage, kind: 'vault', path: 'brain/Кросс-энтропия.md', locator: 'Что это', anchor: undefined } }))
+    render(
+      <VaultContext value="obsidian">
+        <MemoryRouter initialEntries={['/read/7']}>
+          <Routes>
+            <Route path="/read/:id" element={<ReaderPage />} />
+          </Routes>
+        </MemoryRouter>
+      </VaultContext>,
+    )
+    const link = await screen.findByRole('link', { name: 'Открыть в Obsidian' })
+    expect(link.getAttribute('href')).toBe(
+      'obsidian://open?vault=obsidian&file=' + encodeURIComponent('brain/Кросс-энтропия#Что это'),
+    )
+    expect(link).not.toHaveAttribute('target')
   })
 
   it('explains a passage that is gone', async () => {

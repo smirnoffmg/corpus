@@ -39,6 +39,7 @@ export function groupManuals(pages: SourceStatus[]): Manual[] {
 export interface Place {
   kind: Kind
   path: string
+  locator?: string
   anchor?: string
   page?: number
 }
@@ -46,17 +47,26 @@ export interface Place {
 // originalUrl is where nginx serves the source itself: a manual's own page,
 // with its styles and images, scrolled to the section; a book's PDF, opened by
 // the browser's viewer at the page (#page= is the PDF open parameter Chrome
-// and Firefox honour). A note has none — it lives in Obsidian.
-export function originalUrl({ kind, path, anchor, page }: Place): string | null {
+// and Firefox honour). A note opens in Obsidian itself, at the last heading of
+// its citation — an obsidian:// file may name one heading, not a path of them.
+export function originalUrl({ kind, path, locator, anchor, page }: Place, vault?: string): string | null {
   const escaped = path.split('/').map(encodeURIComponent).join('/')
   switch (kind) {
     case 'docs':
       return anchor ? `/docs/${escaped}#${encodeURIComponent(anchor)}` : `/docs/${escaped}`
     case 'book':
       return page ? `/books/${escaped}#page=${page}` : `/books/${escaped}`
-    default:
-      return null
+    case 'vault': {
+      if (!vault) return null
+      const heading = locator ? locator.split(' > ').pop() : ''
+      const file = path.replace(/\.md$/i, '') + (heading ? `#${heading}` : '')
+      return `obsidian://open?vault=${encodeURIComponent(vault)}&file=${encodeURIComponent(file)}`
+    }
   }
+}
+
+export function originalLabel(kind: Kind): string {
+  return kind === 'vault' ? 'Открыть в Obsidian' : 'Открыть оригинал'
 }
 
 const withoutVector: [string, string, string] = ['фрагмент без вектора', 'фрагмента без вектора', 'фрагментов без вектора']

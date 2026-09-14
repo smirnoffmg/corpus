@@ -41,6 +41,7 @@ export interface Status {
   db: string
   embedder: string
   degraded?: string
+  vault?: string
 }
 
 // SearchParams mirrors every knob /search takes, including the ones the page
