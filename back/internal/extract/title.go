@@ -15,6 +15,9 @@ func PDFTitle(ctx context.Context, path, fallback string) string {
 	return chooseTitle(pdfInfoField(ctx, path, "Title"), firstLines(ctx, path), fallback)
 }
 
+// PDFAuthor is the Author field of the PDF metadata, empty when absent.
+func PDFAuthor(ctx context.Context, path string) string { return pdfInfoField(ctx, path, "Author") }
+
 func pdfInfoField(ctx context.Context, path, field string) string {
 	out, err := exec.CommandContext(ctx, "pdfinfo", path).Output()
 	if err != nil {

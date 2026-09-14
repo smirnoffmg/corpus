@@ -49,6 +49,9 @@ type Service struct {
 	library   Library
 	maxUpload int64
 	vault     string
+
+	bibliography Bibliography
+	lookup       Lookup
 }
 
 type Option func(*Service)
@@ -314,6 +317,7 @@ func (s *Service) Handler() http.Handler {
 	})
 
 	mux.HandleFunc("POST /upload", s.upload)
+	s.bibliographyRoutes(mux)
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		if _, _, err := s.store.Stats(r.Context()); err != nil {

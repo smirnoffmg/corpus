@@ -4,6 +4,7 @@
 package corpus
 
 import (
+	"errors"
 	"fmt"
 	"time"
 )
@@ -69,6 +70,40 @@ type SourceStatus struct {
 	Chunks      int64     `json:"chunks"`
 	Embedded    int64     `json:"embedded"`
 	Quarantined int64     `json:"quarantined"`
+	Description string    `json:"description"` // "", "draft" or "checked"
+}
+
+// CSL is a bibliographic record in CSL-JSON, the format citeproc, Pandoc and
+// Zotero share. It is kept as a map: the schema has dozens of optional fields,
+// and the service only reads a handful of them.
+type CSL = map[string]any
+
+// ErrNoReference is a source that has no bibliographic description, or no
+// key to file one under.
+var ErrNoReference = errors.New("no bibliographic description")
+
+// Reference is a source's bibliographic description. Key is the source's
+// content hash for a book, "manual:<name>" for a manual, so a description
+// outlives the file being renamed, moved or re-uploaded.
+type Reference struct {
+	Key       string    `json:"key"`
+	CiteKey   string    `json:"citekey"`
+	CSL       CSL       `json:"csl"`
+	Status    string    `json:"status"` // "draft" until someone has checked it, then "checked"
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// Style is a citation style added beyond the bundled ones.
+type Style struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+}
+
+// Undescribed is a book without a bibliographic description, with the text
+// of its opening and closing pages, where ISBN and DOI are printed.
+type Undescribed struct {
+	Path, Hash, Title string
+	Text              string
 }
 
 // Pending is a chunk that has no embedding yet.

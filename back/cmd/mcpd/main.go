@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/smirnoffmg/corpus/internal/api"
+	"github.com/smirnoffmg/corpus/internal/cite"
 	"github.com/smirnoffmg/corpus/internal/embed"
 	"github.com/smirnoffmg/corpus/internal/store"
 	"github.com/smirnoffmg/corpus/internal/upload"
@@ -58,7 +59,7 @@ func run() error {
 	}
 	defer st.Close()
 
-	opts := []api.Option{api.WithVault(*vaultName)}
+	opts := []api.Option{api.WithVault(*vaultName), api.WithBibliography(st, cite.NewLookup())}
 	// Uploads are an addition to search, not a condition of it: a server whose
 	// library directories are missing still answers queries.
 	if lib, err := upload.Open(*books, *docs, upload.Limits{}); err != nil {

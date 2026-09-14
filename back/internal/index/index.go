@@ -22,6 +22,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/smirnoffmg/corpus/internal/cite"
 	"github.com/smirnoffmg/corpus/internal/corpus"
 	"github.com/smirnoffmg/corpus/internal/extract"
 	"github.com/smirnoffmg/corpus/internal/lang"
@@ -41,6 +42,8 @@ type Store interface {
 	PendingEmbeddings(ctx context.Context, limit int) ([]corpus.Pending, error)
 	CountAttempt(ctx context.Context, ids []int64) error
 	SaveEmbeddings(ctx context.Context, ids []int64, vectors [][]float32) error
+	UndescribedBooks(ctx context.Context) ([]corpus.Undescribed, error)
+	EnsureDraft(ctx context.Context, key string, csl corpus.CSL) error
 }
 
 type Embedder interface {
@@ -117,6 +120,12 @@ func (ix *Indexer) Index(ctx context.Context) error {
 	docs, err := ix.indexKind(ctx, "docs", ix.opts.Docs, ".html", ix.opts.DocsSplitter.HTML)
 	if err != nil {
 		return err
+	}
+
+	// Descriptions are drafted after indexing, from what the index now holds; a
+	// failure here costs a draft, not the pass.
+	if draftErr := ix.draft(ctx, docsManuals(ix.opts.Docs)); draftErr != nil && ctx.Err() == nil {
+		slog.WarnContext(ctx, "drafting descriptions", "err", draftErr)
 	}
 
 	sources, chunks, err := ix.store.Stats(ctx)
@@ -299,6 +308,50 @@ func (ix *Indexer) pass(ctx context.Context, wake <-chan struct{}) (interrupted 
 		slog.ErrorContext(ctx, "pass", "err", err)
 	}
 	return interrupted
+}
+
+// draft files a description for every book and manual that has none: title,
+// PDF author, ISBN or DOI for a book; title, version, address and publisher
+// for a manual. They are drafts, to be checked and completed by hand.
+func (ix *Indexer) draft(ctx context.Context, manuals []string) error {
+	books, err := ix.store.UndescribedBooks(ctx)
+	if err != nil {
+		return err
+	}
+	for _, b := range books {
+		author := extract.PDFAuthor(ctx, filepath.Join(ix.opts.Books, b.Path))
+		if err := ix.store.EnsureDraft(ctx, b.Hash, cite.BookDraft(b.Title, author, b.Text)); err != nil {
+			return err
+		}
+	}
+	for _, m := range manuals {
+		draft := extract.ManualDraft(filepath.Join(ix.opts.Docs, m), m, time.Now())
+		if err := ix.store.EnsureDraft(ctx, "manual:"+m, draft); err != nil {
+			return err
+		}
+	}
+	if len(books) > 0 {
+		slog.InfoContext(ctx, "drafted descriptions", "books", len(books))
+	}
+	return nil
+}
+
+// docsManuals lists the manual directories under the docs root.
+func docsManuals(root string) []string {
+	if root == "" {
+		return nil
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, e := range entries {
+		if e.IsDir() && !skipDir(e.Name()) && !strings.HasPrefix(e.Name(), ".") {
+			out = append(out, e.Name())
+		}
+	}
+	return out
 }
 
 // Embed fills in embeddings for chunks that have none.

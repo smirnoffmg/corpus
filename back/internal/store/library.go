@@ -21,9 +21,14 @@ func (s *Store) Sources(ctx context.Context, kind, prefix string) ([]corpus.Sour
 		SELECT s.kind, s.path, s.title, s.indexed_at,
 		       count(c.id) AS chunks,
 		       count(c.id) FILTER (WHERE c.embedding IS NOT NULL) AS embedded,
-		       count(c.id) FILTER (WHERE c.embedding IS NULL AND c.embed_attempts >= $3) AS quarantined
+		       count(c.id) FILTER (WHERE c.embedding IS NULL AND c.embed_attempts >= $3) AS quarantined,
+		       coalesce(min(b.status), '') AS description
 		FROM sources s
 		LEFT JOIN chunks c ON c.source_id = s.id
+		LEFT JOIN bibliography b ON b.key = CASE s.kind
+		    WHEN 'book' THEN s.hash
+		    WHEN 'docs' THEN 'manual:' || split_part(s.path, '/', 1)
+		END
 		WHERE ($1 = '' OR s.kind = $1)
 		  AND starts_with(s.path, $2)
 		GROUP BY s.id
@@ -34,7 +39,7 @@ func (s *Store) Sources(ctx context.Context, kind, prefix string) ([]corpus.Sour
 	}
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (corpus.SourceStatus, error) {
 		var r corpus.SourceStatus
-		err := row.Scan(&r.Kind, &r.Path, &r.Title, &r.IndexedAt, &r.Chunks, &r.Embedded, &r.Quarantined)
+		err := row.Scan(&r.Kind, &r.Path, &r.Title, &r.IndexedAt, &r.Chunks, &r.Embedded, &r.Quarantined, &r.Description)
 		return r, err
 	})
 }

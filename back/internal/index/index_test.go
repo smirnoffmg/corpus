@@ -34,6 +34,7 @@ type recordingStore struct {
 	attempted []int64
 	embedded  []int64
 	stats     int
+	drafts    map[string]corpus.CSL
 	onStats   func(calls int) // called with the lock held, once per finished Index
 }
 
@@ -41,6 +42,7 @@ func newStore() *recordingStore {
 	return &recordingStore{
 		replaced: map[string]int{},
 		sources:  map[string]corpus.Source{},
+		drafts:   map[string]corpus.CSL{},
 		chunks:   map[string][]corpus.Chunk{},
 		titles:   map[string]string{},
 		pruned:   map[string][]string{},
@@ -149,6 +151,37 @@ func (s *recordingStore) SaveEmbeddings(_ context.Context, ids []int64, _ [][]fl
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.embedded = append(s.embedded, ids...)
+	return nil
+}
+
+// UndescribedBooks reports every replaced book without a draft, with its
+// chunks as the text a real store would return.
+func (s *recordingStore) UndescribedBooks(context.Context) ([]corpus.Undescribed, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []corpus.Undescribed
+	for path, src := range s.sources {
+		if src.Kind != "book" {
+			continue
+		}
+		if _, ok := s.drafts[src.Hash]; ok {
+			continue
+		}
+		var text strings.Builder
+		for _, c := range s.chunks[path] {
+			text.WriteString(c.Body + "\n")
+		}
+		out = append(out, corpus.Undescribed{Path: path, Hash: src.Hash, Title: src.Title, Text: text.String()})
+	}
+	return out, nil
+}
+
+func (s *recordingStore) EnsureDraft(_ context.Context, key string, csl corpus.CSL) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.drafts[key]; !ok {
+		s.drafts[key] = csl
+	}
 	return nil
 }
 
@@ -655,5 +688,32 @@ func TestALostListenerFallsBackToTheInterval(t *testing.T) {
 	defer mu.Unlock()
 	if listens < 2 {
 		t.Errorf("listened %d times, want the listener re-established", listens)
+	}
+}
+
+func TestIndexDraftsADescriptionForEachManual(t *testing.T) {
+	notes, books := vault(t, 1)
+	store := newStore()
+	docs := manual(t)
+	if err := os.WriteFile(filepath.Join(docs, "scikit-learn", "index.html"), []byte(`<html><head><title>Home &#8212; scikit-learn 1.9.1 documentation</title><link rel="canonical" href="https://scikit-learn.org/stable/index.html"/></head><body><article><p>x</p></article></body></html>`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	ix := index.New(store, nopEmbedder{}, index.Options{Books: books, Vault: notes, Docs: docs})
+	if err := ix.Index(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	draft, ok := store.drafts["manual:scikit-learn"]
+	if !ok {
+		t.Fatalf("no draft for the manual; drafts = %v", store.drafts)
+	}
+	if draft["version"] != "1.9.1" || draft["URL"] != "https://scikit-learn.org/stable/" {
+		t.Errorf("draft = %v", draft)
+	}
+	if _, ok := store.drafts["manual:.upload-tmp"]; ok {
+		t.Error("an upload in progress is not a manual")
 	}
 }
