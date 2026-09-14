@@ -11,6 +11,7 @@ type Chunk struct {
 	Page    int    // 0 when the source has no pages
 	Printed int    // page number printed on the page; 0 when unknown
 	Heading string // path of headings inside a note; empty for a book page
+	Anchor  string // id of the section in an HTML page, to link to it; empty otherwise
 	Tags    []string
 	Lang    string // Postgres text-search config, filled in by the indexer
 	Body    string
@@ -29,7 +30,7 @@ type Source struct {
 // apart.
 type Query struct {
 	Text      string
-	Kind      string // "book", "vault", or empty for both
+	Kind      string // "book", "vault", "docs", or empty for all
 	Mode      string // "fts", "vector", or "hybrid" (default)
 	Limit     int
 	PerSource int // at most this many hits from one source; 0 for no limit
@@ -49,6 +50,7 @@ type Hit struct {
 	Title   string  `json:"title"`
 	Path    string  `json:"path"`
 	Locator string  `json:"locator"`
+	Anchor  string  `json:"anchor,omitempty"` // section id in an HTML source
 	Page    int     `json:"page,omitempty"`
 	Rank    float32 `json:"rank"`
 	Snippet string  `json:"snippet"`
@@ -67,6 +69,7 @@ type Passage struct {
 	Title    string `json:"title"`
 	Path     string `json:"path"`
 	Locator  string `json:"locator"`
+	Anchor   string `json:"anchor,omitempty"`
 	Body     string `json:"body"`
 	Previous string `json:"previous,omitempty"`
 	Next     string `json:"next,omitempty"`

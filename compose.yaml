@@ -24,6 +24,9 @@ services:
     volumes:
       - ${BOOKS_DIR:?set BOOKS_DIR in .env}:/data/books:ro
       - ${VAULT_DIR:?set VAULT_DIR in .env}:/data/vault:ro
+      # Optional: without DOCS_DIR the manuals root is an empty directory, so an
+      # older .env keeps working.
+      - ${DOCS_DIR:-./.docs-empty}:/data/docs:ro
     depends_on:
       db:
         condition: service_healthy

@@ -49,7 +49,7 @@ const (
 
 type searchInput struct {
 	Query     string `json:"query" jsonschema:"words to look for; supports quoted phrases and -exclusions"`
-	Kind      string `json:"kind,omitempty" jsonschema:"restrict to 'book' or 'vault'; empty searches both"`
+	Kind      string `json:"kind,omitempty" jsonschema:"restrict to 'book', 'vault' or 'docs' (reference manuals); empty searches all"`
 	Mode      string `json:"mode,omitempty" jsonschema:"'hybrid' (default), 'fts' for exact wording, 'vector' for meaning"`
 	PerSource int    `json:"per_source,omitempty" jsonschema:"at most this many hits from one book or note; 0 means no limit. Use 1 to see which sources match at all"`
 	Limit     int    `json:"limit,omitempty" jsonschema:"maximum hits to return, default 10"`
@@ -147,7 +147,12 @@ func (s *Service) Compare(ctx context.Context, q corpus.Query) (map[string][]cor
 	}
 	semantic, err := s.vector(ctx, deep)
 	if err != nil {
-		return nil, err
+		slog.WarnContext(ctx, "vector leg unavailable, comparing text alone", "err", err)
+		return map[string][]corpus.Hit{
+			"fts":    truncate(text, limit),
+			"vector": {},
+			"hybrid": truncate(text, limit),
+		}, nil
 	}
 	return map[string][]corpus.Hit{
 		"fts":    truncate(text, limit),
@@ -156,12 +161,17 @@ func (s *Service) Compare(ctx context.Context, q corpus.Query) (map[string][]cor
 	}, nil
 }
 
+// Read returns the full text behind a hit.
+func (s *Service) Read(ctx context.Context, id int64, neighbours bool) (corpus.Passage, error) {
+	return s.store.Read(ctx, id, neighbours)
+}
+
 func (s *Service) MCP() *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "corpus", Version: "v0.3.0"}, nil)
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "corpus_search",
-		Description: "Search the PDF library and the Obsidian vault. Returns ranked snippets with the book page or note heading to cite. " +
+		Description: "Search the PDF library, the Obsidian vault and reference manuals (Sphinx HTML such as scikit-learn and NLTK). Returns ranked snippets with the book page, or the note or manual heading, to cite. " +
 			"The corpus is half Russian and half English. Full-text search works inside one language only — ask a Russian question about an English book and 'fts' returns nothing, every time — so cross the language barrier with the default 'hybrid' or with 'vector'. " +
 			"'fts' also joins your words with AND: a question phrased as a sentence usually returns nothing, while the one term you actually want returns plenty.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in searchInput) (*mcp.CallToolResult, searchOutput, error) {
@@ -180,7 +190,7 @@ func (s *Service) MCP() *mcp.Server {
 		Name:        "corpus_read",
 		Description: "Return the full text behind a search hit: the whole book page or note section, optionally with the pages on either side. Use it to quote a source accurately instead of working from a snippet.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in readInput) (*mcp.CallToolResult, corpus.Passage, error) {
-		passage, err := s.store.Read(ctx, in.ID, in.Neighbours)
+		passage, err := s.Read(ctx, in.ID, in.Neighbours)
 		if err != nil {
 			return nil, corpus.Passage{}, err
 		}
@@ -225,7 +235,7 @@ func (s *Service) Handler() http.Handler {
 			http.Error(w, "id must be a number", http.StatusBadRequest)
 			return
 		}
-		passage, err := s.store.Read(r.Context(), id, r.URL.Query().Has("neighbours"))
+		passage, err := s.Read(r.Context(), id, r.URL.Query().Has("neighbours"))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return

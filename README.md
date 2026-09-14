@@ -1,7 +1,7 @@
 # corpus
 
-Full-text search over two sources at once: the PDF library in `~/Desktop/books`
-and the Obsidian vault. Exposed as an MCP server and as plain HTTP.
+Full-text search over the PDF library in `~/Desktop/books`, the Obsidian vault
+and reference manuals such as scikit-learn and NLTK. Exposed as an MCP server and as plain HTTP.
 
 The unit of a hit is a **citable location** — a page for a book, a heading path
 for a note — because the point is to quote a source in a note, not to learn that
@@ -62,7 +62,7 @@ As an MCP server:
 claude mcp add --transport http corpus http://localhost:8080/mcp
 ```
 
-`kind` is `book`, `vault`, or empty for both. `mode` picks the retrieval method:
+`kind` is `book`, `vault`, `docs` (reference manuals), or empty for all. `mode` picks the retrieval method:
 
 | mode               | finds                         | good for                        |
 | ------------------ | ----------------------------- | ------------------------------- |
@@ -104,4 +104,5 @@ The remaining quarter is fixed by renaming the file.
 
 - [Architecture](docs/architecture.md) — embeddings, Postgres, containers, design notes
 - [Search evaluation](docs/search-evaluation.md) — the judged set and what it decided
+- [Reference manuals](docs/manuals.md) — indexing scikit-learn, NLTK and other Sphinx sites
 - [Development](docs/development.md) — pre-commit checks, lint, races

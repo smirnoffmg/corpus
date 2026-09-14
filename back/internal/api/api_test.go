@@ -305,3 +305,31 @@ func get(t *testing.T, url string, into any) {
 		t.Fatalf("decode %s: %v", url, err)
 	}
 }
+
+// Offline the embedder is the part that goes away, and a comparison that fails
+// outright hides the two legs that still answer.
+func TestCompareFallsBackToTextWhenEmbedderIsDown(t *testing.T) {
+	store := &fakeStore{text: []corpus.Hit{{ID: 1}, {ID: 2}}}
+	embedder := &fakeEmbedder{err: errors.New("connection refused")}
+
+	out, err := api.New(store, embedder).Compare(context.Background(), corpus.Query{Text: "q", Limit: 5})
+	if err != nil {
+		t.Fatalf("compare returned an error instead of degrading: %v", err)
+	}
+	if len(out["fts"]) != 2 || len(out["hybrid"]) != 2 {
+		t.Errorf("fts = %+v, hybrid = %+v, want the text leg in both", out["fts"], out["hybrid"])
+	}
+	if got, ok := out["vector"]; !ok || got == nil || len(got) != 0 {
+		t.Errorf("vector = %#v, want an empty leg rather than a missing one", got)
+	}
+}
+
+func TestReadReturnsThePassageBehindAHit(t *testing.T) {
+	passage, err := api.New(&fakeStore{}, &fakeEmbedder{}).Read(context.Background(), 7, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if passage.Body != "body" {
+		t.Errorf("body = %q, want the store's passage", passage.Body)
+	}
+}

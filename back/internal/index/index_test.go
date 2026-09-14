@@ -20,6 +20,8 @@ import (
 type recordingStore struct {
 	mu        sync.Mutex
 	replaced  map[string]int
+	sources   map[string]corpus.Source
+	chunks    map[string][]corpus.Chunk
 	titles    map[string]string
 	pruned    map[string][]string
 	indexed   map[string]string // path -> hash, as a real store would remember
@@ -35,6 +37,8 @@ type recordingStore struct {
 func newStore() *recordingStore {
 	return &recordingStore{
 		replaced: map[string]int{},
+		sources:  map[string]corpus.Source{},
+		chunks:   map[string][]corpus.Chunk{},
 		titles:   map[string]string{},
 		pruned:   map[string][]string{},
 		indexed:  map[string]string{},
@@ -70,6 +74,8 @@ func (s *recordingStore) Replace(_ context.Context, src corpus.Source, chunks []
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.replaced[src.Path] = len(chunks)
+	s.sources[src.Path] = src
+	s.chunks[src.Path] = chunks
 	s.indexed[src.Path] = src.Hash
 	s.byHash[src.Hash] = src.Path
 	return nil
@@ -429,5 +435,98 @@ func TestWalkSkipsTemplatesAndVaultInternals(t *testing.T) {
 		if strings.Contains(path, "templates") || strings.HasPrefix(path, ".") {
 			t.Errorf("%s should not have been walked", path)
 		}
+	}
+}
+
+// manual lays out a scikit-learn-shaped documentation tree: one real page, and
+// the build by-products Sphinx leaves next to it.
+func manual(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	page := `<html><head><title>1.4. Support Vector Machines &#8212; scikit-learn documentation</title></head><body>
+<article><section id="svm"><h1>1.4. Support Vector Machines</h1><p>Intro.</p>
+<section id="classification"><h2>1.4.1. Classification</h2><p>SVC classifies.</p></section></section></article></body></html>`
+	files := map[string]string{
+		"scikit-learn/modules/svm.html":             page,
+		"scikit-learn/genindex.html":                page,
+		"scikit-learn/search.html":                  page,
+		"scikit-learn/py-modindex.html":             page,
+		"scikit-learn/_modules/sklearn/svm.html":    page,
+		"scikit-learn/_static/theme.html":           page,
+		"scikit-learn/_sources/modules/svm.rst.txt": "SVM\n===\n",
+	}
+	for rel, body := range files {
+		path := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root
+}
+
+func TestDocsAreIndexedBySectionAndNamedAfterTheirManual(t *testing.T) {
+	notes, books := vault(t, 1)
+	store := newStore()
+
+	ix := index.New(store, nopEmbedder{}, index.Options{Books: books, Vault: notes, Docs: manual(t)})
+	if err := ix.Index(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	const page = "scikit-learn/modules/svm.html"
+	src, ok := store.sources[page]
+	if !ok {
+		t.Fatalf("page not indexed; indexed %v", store.sources)
+	}
+	if src.Kind != "docs" {
+		t.Errorf("kind = %q, want docs", src.Kind)
+	}
+	if want := "scikit-learn · 1.4. Support Vector Machines"; src.Title != want {
+		t.Errorf("title = %q, want %q", src.Title, want)
+	}
+	chunks := store.chunks[page]
+	if len(chunks) != 2 || chunks[1].Anchor != "classification" || chunks[1].Lang != "english" {
+		t.Errorf("chunks = %+v, want two sections, the second anchored at classification", chunks)
+	}
+	if got := store.pruned["docs"]; len(got) != 1 || got[0] != page {
+		t.Errorf("prune saw %v, want only the page", got)
+	}
+}
+
+func TestSphinxByProductsAreNotSources(t *testing.T) {
+	store := newStore()
+	empty := t.TempDir()
+
+	ix := index.New(store, nopEmbedder{}, index.Options{Books: empty, Vault: empty, Docs: manual(t)})
+	if err := ix.Index(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	for path := range store.sources {
+		if strings.Contains(path, "/_") || strings.Contains(path, "index.html") || strings.HasSuffix(path, "search.html") {
+			t.Errorf("indexed %s: an index, search page or build directory is not a source", path)
+		}
+	}
+}
+
+func TestNoDocsRootSkipsTheKind(t *testing.T) {
+	notes, books := vault(t, 1)
+	store := newStore()
+
+	ix := index.New(store, nopEmbedder{}, index.Options{Books: books, Vault: notes})
+	if err := ix.Index(context.Background()); err != nil {
+		t.Fatalf("an unset docs root failed the pass: %v", err)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if _, ok := store.pruned["docs"]; ok {
+		t.Error("pruned docs although no docs root was given")
 	}
 }

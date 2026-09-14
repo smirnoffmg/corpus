@@ -127,6 +127,7 @@ SELECT c.id,
        s.title,
        s.path,
        c.heading,
+       coalesce(c.anchor, '') AS anchor,
        coalesce(c.page, 0) AS page,
        coalesce(c.printed_page, 0) AS printed_page,
        1 - (c.embedding <=> $1::vector) AS rank,
@@ -165,7 +166,7 @@ func vectorLiteral(v []float32) string {
 }
 
 const passageSQL = `
-SELECT s.kind, s.title, s.path, c.heading, coalesce(c.page,0), coalesce(c.printed_page,0), c.body,
+SELECT s.kind, s.title, s.path, c.heading, coalesce(c.anchor, ''), coalesce(c.page,0), coalesce(c.printed_page,0), c.body,
        (SELECT body FROM chunks p
          WHERE p.source_id = c.source_id AND p.ord < c.ord
          ORDER BY p.ord DESC LIMIT 1),
@@ -185,7 +186,7 @@ func (s *Store) Read(ctx context.Context, id int64, neighbours bool) (corpus.Pas
 	var heading *string
 	var page, printed int
 	err := s.pool.QueryRow(ctx, passageSQL, id).
-		Scan(&p.Kind, &p.Title, &p.Path, &heading, &page, &printed, &p.Body, &prev, &next)
+		Scan(&p.Kind, &p.Title, &p.Path, &heading, &p.Anchor, &page, &printed, &p.Body, &prev, &next)
 	if err != nil {
 		return corpus.Passage{}, fmt.Errorf("read chunk %d: %w", id, err)
 	}

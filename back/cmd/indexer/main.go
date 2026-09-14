@@ -30,6 +30,7 @@ func run() error {
 	var (
 		booksDir   = flag.String("books", "/data/books", "directory with PDF books")
 		vaultDir   = flag.String("vault", "/data/vault", "Obsidian vault root")
+		docsDir    = flag.String("docs", "/data/docs", "reference manuals, one directory of HTML per manual; empty skips them")
 		interval   = flag.Duration("interval", 0, "reindex period; 0 means index once and exit")
 		ollama     = flag.String("ollama", "http://host.docker.internal:11434", "ollama base URL")
 		model      = flag.String("model", "bge-m3", "embedding model")
@@ -39,6 +40,8 @@ func run() error {
 		bookTarget = flag.Int("book-split-target", 0, "size a book part aims for")
 		noteAbove  = flag.Int("note-split-above", 0, "split a note section longer than this; 0 keeps the measured default")
 		noteTarget = flag.Int("note-split-target", 0, "size a note part aims for")
+		docsAbove  = flag.Int("docs-split-above", 0, "split a manual section longer than this; 0 keeps the note default")
+		docsTarget = flag.Int("docs-split-target", 0, "size a manual part aims for")
 		requeue    = flag.Bool("requeue", false, "put quarantined chunks back in the embedding queue and continue")
 	)
 	flag.Parse()
@@ -67,10 +70,12 @@ func run() error {
 	indexer := index.New(st, embed.New(*ollama, *model), index.Options{
 		Books:        *booksDir,
 		Vault:        *vaultDir,
+		Docs:         *docsDir,
 		Batch:        *batch,
 		Parallel:     *parallel,
 		BookSplitter: extract.Splitter{Above: *bookAbove, Target: *bookTarget},
 		NoteSplitter: extract.Splitter{Above: *noteAbove, Target: *noteTarget},
+		DocsSplitter: extract.Splitter{Above: *docsAbove, Target: *docsTarget},
 	})
 
 	for {

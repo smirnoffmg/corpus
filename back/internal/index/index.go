@@ -50,10 +50,12 @@ type Embedder interface {
 type Options struct {
 	Books        string
 	Vault        string
+	Docs         string           // reference manuals, one directory per manual; empty skips them
 	Batch        int              // chunks per embedding request
 	Parallel     int              // extraction workers; defaults to the core count, capped
 	BookSplitter extract.Splitter // how long a book page chunk may be
 	NoteSplitter extract.Splitter // how long a note chunk may be
+	DocsSplitter extract.Splitter // how long a manual section chunk may be
 }
 
 type Indexer struct {
@@ -78,6 +80,12 @@ func New(store Store, embedder Embedder, opts Options) *Indexer {
 	// wants; only the note splitter gets a non-zero default.
 	if opts.NoteSplitter == (extract.Splitter{}) {
 		opts.NoteSplitter = extract.DefaultNoteSplitter
+	}
+	// A manual section is shaped like a note section — prose and code under a
+	// heading — so it starts from the note sizes until the judged set says
+	// otherwise.
+	if opts.DocsSplitter == (extract.Splitter{}) {
+		opts.DocsSplitter = extract.DefaultNoteSplitter
 	}
 	return &Indexer{store: store, embedder: embedder, opts: opts}
 }
@@ -106,6 +114,11 @@ func (ix *Indexer) Index(ctx context.Context) error {
 		return err
 	}
 
+	docs, err := ix.indexKind(ctx, "docs", ix.opts.Docs, ".html", ix.opts.DocsSplitter.HTML)
+	if err != nil {
+		return err
+	}
+
 	sources, chunks, err := ix.store.Stats(ctx)
 	if err != nil {
 		return err
@@ -115,6 +128,7 @@ func (ix *Indexer) Index(ctx context.Context) error {
 	slog.InfoContext(ctx, "pass complete",
 		"books", books,
 		"notes", notes,
+		"docs", docs,
 		"took", time.Since(start).Round(time.Second).String(),
 		"sources", sources,
 		"chunks", chunks)
@@ -126,6 +140,9 @@ func (ix *Indexer) indexKind(
 	kind, root, ext string,
 	parse func(string) ([]corpus.Chunk, error),
 ) (int, error) {
+	if root == "" {
+		return 0, nil
+	}
 	files, err := collect(root, ext)
 	if err != nil {
 		return 0, err
@@ -288,13 +305,21 @@ func (ix *Indexer) Embed(ctx context.Context) error {
 }
 
 // title asks the document what it is called; a note is named by its filename,
-// which in a vault is the note's real name.
+// which in a vault is the note's real name. A manual page is named after its
+// manual too: "Installation" is a page of every manual there is.
 func (ix *Indexer) title(ctx context.Context, kind, path, rel string) string {
 	name := strings.TrimSuffix(filepath.Base(rel), filepath.Ext(rel))
-	if kind != "book" {
-		return name
+	switch kind {
+	case "book":
+		return extract.PDFTitle(ctx, path, name)
+	case "docs":
+		page := extract.HTMLTitle(path, name)
+		if manual, _, nested := strings.Cut(filepath.ToSlash(rel), "/"); nested {
+			return manual + " · " + page
+		}
+		return page
 	}
-	return extract.PDFTitle(ctx, path, name)
+	return name
 }
 
 func collect(root, ext string) ([]string, error) {
@@ -309,7 +334,7 @@ func collect(root, ext string) ([]string, error) {
 			}
 			return nil
 		}
-		if !strings.EqualFold(filepath.Ext(path), ext) {
+		if !strings.EqualFold(filepath.Ext(path), ext) || skipFile(d.Name()) {
 			return nil
 		}
 		rel, err := filepath.Rel(root, path)
@@ -328,6 +353,21 @@ func skipDir(name string) bool {
 		return true
 	case "99 - templates":
 		// Templater sources are code, not knowledge.
+		return true
+	case "_static", "_sources", "_modules", "_images", "_downloads":
+		// Sphinx build by-products: theme assets, the reST sources, and the
+		// highlighted source code of every module, which the API pages already
+		// document.
+		return true
+	}
+	return false
+}
+
+// skipFile leaves out the pages Sphinx generates from the others: an index of
+// every term would match every query, and the search page has no content.
+func skipFile(name string) bool {
+	switch name {
+	case "genindex.html", "search.html", "py-modindex.html":
 		return true
 	}
 	return false

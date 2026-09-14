@@ -160,10 +160,10 @@ func (s *Store) Replace(ctx context.Context, src corpus.Source, chunks []corpus.
 	batch := &pgx.Batch{}
 	for _, c := range chunks {
 		batch.Queue(`
-			INSERT INTO chunks (source_id, ord, page, printed_page, heading, lang, tags, body, tsv)
-			VALUES ($1, $2, NULLIF($3, 0), NULLIF($4, 0), NULLIF($5, ''), $6, COALESCE($7::text[], '{}'), $8,
+			INSERT INTO chunks (source_id, ord, page, printed_page, heading, anchor, lang, tags, body, tsv)
+			VALUES ($1, $2, NULLIF($3, 0), NULLIF($4, 0), NULLIF($5, ''), NULLIF($10, ''), $6, COALESCE($7::text[], '{}'), $8,
 			        to_tsvector($9::regconfig, $8))`,
-			id, c.Ord, c.Page, c.Printed, c.Heading, c.Lang, c.Tags, c.Body, c.Lang)
+			id, c.Ord, c.Page, c.Printed, c.Heading, c.Lang, c.Tags, c.Body, c.Lang, c.Anchor)
 	}
 	if err := tx.SendBatch(ctx, batch).Close(); err != nil {
 		return fmt.Errorf("insert chunks for %s: %w", src.Path, err)
@@ -237,6 +237,7 @@ SELECT c.id,
        s.title,
        s.path,
        c.heading,
+       coalesce(c.anchor, '') AS anchor,
        coalesce(c.page, 0) AS page,
        coalesce(c.printed_page, 0) AS printed_page,
        ts_rank_cd(c.tsv, CASE c.lang WHEN 'russian' THEN q.ru ELSE q.en END, $4)
@@ -276,6 +277,7 @@ type hitRow struct {
 	Title   string  `db:"title"`
 	Path    string  `db:"path"`
 	Heading *string `db:"heading"`
+	Anchor  string  `db:"anchor"`
 	Page    int     `db:"page"`
 	Printed int     `db:"printed_page"`
 	Rank    float32 `db:"rank"`
@@ -295,6 +297,7 @@ func collectHits(rows pgx.Rows) ([]corpus.Hit, error) {
 			Title:   r.Title,
 			Path:    r.Path,
 			Locator: corpus.Locator(deref(r.Heading), r.Page, r.Printed),
+			Anchor:  r.Anchor,
 			Page:    r.Page,
 			Rank:    r.Rank,
 			Snippet: r.Snippet,
