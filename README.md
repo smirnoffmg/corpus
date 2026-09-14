@@ -59,7 +59,8 @@ milliseconds — and the drop is reported only when it actually removes somethin
 ## Search
 
 In the browser: <http://localhost:8081/> — search, read the passage behind a
-hit and copy its citation, open a manual's original page, and add books and
+hit and copy its citation, open the book's PDF at the page or the manual's
+original section, and add books and
 manuals on the library page. It works offline; see [working offline](docs/offline.md).
 
 From a shell:

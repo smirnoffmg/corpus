@@ -19,6 +19,7 @@ export interface Passage {
   path: string
   locator: string
   anchor?: string
+  page?: number
   body: string
   previous?: string
   next?: string

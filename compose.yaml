@@ -76,6 +76,7 @@ services:
     ports:
       - "127.0.0.1:8081:80"
     volumes:
+      - ${LIBRARY_DIR:-${HOME}/.corpus/data}/books:/data/books:ro
       - ${LIBRARY_DIR:-${HOME}/.corpus/data}/manuals:/data/docs:ro
     depends_on:
       mcpd:

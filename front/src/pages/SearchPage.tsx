@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router'
 import { search, type Hit, type Kind, type Mode, type Status } from '../api'
 import { Highlight } from '../components/Highlight'
 import { kindFilters, kindName, modes } from '../kinds'
+import { originalUrl } from '../library'
 import { plural } from '../text'
 
 interface Result {
@@ -129,20 +130,30 @@ export function SearchPage({ status }: { status?: Status | null }) {
       )}
       {current?.hits && current.hits.length > 0 && (
         <ol className="hits">
-          {current.hits.map((h) => (
+          {current.hits.map((h) => {
+            const original = originalUrl(h)
+            return (
             <li key={h.id} className={`hit kind-${h.kind}`}>
               <div className="slip">
                 <Link to={`/read/${h.id}`} className="slip-title">
                   {h.title}
                 </Link>
                 <span className="slip-locator">{h.locator}</span>
-                <span className="slip-kind">{kindName[h.kind]}</span>
+                <span className="slip-kind">
+                  {kindName[h.kind]}
+                  {original && (
+                    <a href={original} target="_blank" rel="noreferrer" className="slip-open">
+                      Открыть оригинал
+                    </a>
+                  )}
+                </span>
               </div>
               <p className="snippet">
                 <Highlight text={h.snippet} />
               </p>
             </li>
-          ))}
+            )
+          })}
         </ol>
       )}
     </div>

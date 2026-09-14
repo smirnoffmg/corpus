@@ -38,6 +38,9 @@ describe('SearchPage', () => {
     expect(calls[0].search).toBe('?q=svm&kind=docs')
     expect(within(item).getByRole('link', { name: hit.title })).toHaveAttribute('href', '/read/7')
     expect(within(item).getByText(hit.locator)).toBeInTheDocument()
+    expect(within(item).getByRole('link', { name: 'Открыть оригинал' })).toHaveAttribute(
+      'href', '/docs/scikit-learn/modules/svm.html#classification',
+    )
     expect(within(item).getByText('Мануал')).toBeInTheDocument()
     expect(within(item).getByText('svm', { selector: 'mark' })).toBeInTheDocument()
     expect(item.querySelector('script')).toBeNull()

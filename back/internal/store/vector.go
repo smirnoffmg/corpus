@@ -184,13 +184,13 @@ func (s *Store) Read(ctx context.Context, id int64, neighbours bool) (corpus.Pas
 	var p corpus.Passage
 	var prev, next *string
 	var heading *string
-	var page, printed int
+	var printed int
 	err := s.pool.QueryRow(ctx, passageSQL, id).
-		Scan(&p.Kind, &p.Title, &p.Path, &heading, &p.Anchor, &page, &printed, &p.Body, &prev, &next)
+		Scan(&p.Kind, &p.Title, &p.Path, &heading, &p.Anchor, &p.Page, &printed, &p.Body, &prev, &next)
 	if err != nil {
 		return corpus.Passage{}, fmt.Errorf("read chunk %d: %w", id, err)
 	}
-	p.Locator = corpus.Locator(deref(heading), page, printed)
+	p.Locator = corpus.Locator(deref(heading), p.Page, printed)
 	if neighbours {
 		if prev != nil {
 			p.Previous = *prev

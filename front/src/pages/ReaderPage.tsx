@@ -65,7 +65,7 @@ export function ReaderPage() {
   }
 
   const p = current.passage
-  const original = originalUrl(p.kind, p.path, p.anchor)
+  const original = originalUrl(p)
   const copy = async () => {
     await navigator.clipboard.writeText(`${p.title}, ${p.locator}`)
     setCopied(true)

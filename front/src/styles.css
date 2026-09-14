@@ -337,6 +337,15 @@ h2 {
   margin: 0;
 }
 
+.slip-open {
+  margin-left: 0.9rem;
+  color: var(--muted);
+}
+
+.slip-open:hover {
+  color: var(--ink);
+}
+
 .snippet {
   margin: 0;
   max-width: 44rem;

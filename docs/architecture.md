@@ -50,7 +50,7 @@ so without it `.env` — with the database password — and the whole `.git` his
 are baked into that layer. They never reach the runtime image, but the layer is
 real, cached, and would travel with a push.
 
-The indexer reads its mounts read-only. `mcpd` mounts the library — `books/` and
+The indexer reads its mounts read-only. The web UI's nginx mounts the library read-only to serve the originals — a book's PDF opened at `#page=N`, a manual's own page at its section. `mcpd` mounts the library — `books/` and
 `manuals/` under `LIBRARY_DIR` — read-write, because uploads are saved into them (see below); nothing else is
 written, and neither binary binds a privileged port, so the image runs as
 `nobody`.

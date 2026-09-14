@@ -184,6 +184,7 @@ func TestReadReturnsThePageAndItsNeighbours(t *testing.T) {
 	require.Equal(t, "корпускрипт середина", bare.Body)
 	require.Equal(t, src.Title, bare.Title)
 	require.Equal(t, "с. 11 (PDF 2)", bare.Locator)
+	require.Equal(t, 2, bare.Page, "the PDF page, which is what opens the file at the passage")
 	require.Empty(t, bare.Previous, "neighbours were not asked for")
 	require.Empty(t, bare.Next)
 

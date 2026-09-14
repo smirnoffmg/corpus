@@ -39,8 +39,8 @@ describe('ReaderPage', () => {
     expect(screen.getByText(passage.next!)).toBeInTheDocument()
   })
 
-  it('copies the citation', async () => {
-    stubApi(() => ({ body: { ...passage, kind: 'book', title: 'Concurrency in Go', locator: 'с. 189 (PDF 203)', anchor: undefined } }))
+  it('copies the citation and opens a book at its page', async () => {
+    stubApi(() => ({ body: { ...passage, kind: 'book', path: 'Concurrency in Go.pdf', title: 'Concurrency in Go', locator: 'с. 189 (PDF 203)', page: 203, anchor: undefined } }))
     const user = userEvent.setup()
     const writeText = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue()
     renderReader()
@@ -48,6 +48,13 @@ describe('ReaderPage', () => {
     await user.click(await screen.findByRole('button', { name: 'Скопировать цитату' }))
     expect(writeText).toHaveBeenCalledWith('Concurrency in Go, с. 189 (PDF 203)')
     expect(await screen.findByRole('button', { name: 'Скопировано' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Открыть оригинал' })).toHaveAttribute('href', '/books/Concurrency%20in%20Go.pdf#page=203')
+  })
+
+  it('offers no original for a note', async () => {
+    stubApi(() => ({ body: { ...passage, kind: 'vault', path: 'note.md', anchor: undefined } }))
+    renderReader()
+    await screen.findByRole('heading', { name: passage.title })
     expect(screen.queryByRole('link', { name: 'Открыть оригинал' })).toBeNull()
   })
 

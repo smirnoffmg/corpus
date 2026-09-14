@@ -38,16 +38,21 @@ describe('groupManuals', () => {
 
 describe('originalUrl', () => {
   it('links a manual section to its page and anchor', () => {
-    expect(originalUrl('docs', 'scikit-learn/modules/svm.html', 'multi-class classification')).toBe(
+    expect(originalUrl({ kind: 'docs', path: 'scikit-learn/modules/svm.html', anchor: 'multi-class classification' })).toBe(
       '/docs/scikit-learn/modules/svm.html#multi-class%20classification',
     )
   })
   it('escapes each path segment but keeps the slashes', () => {
-    expect(originalUrl('docs', 'my manual/a#b.html')).toBe('/docs/my%20manual/a%23b.html')
+    expect(originalUrl({ kind: 'docs', path: 'my manual/a#b.html' })).toBe('/docs/my%20manual/a%23b.html')
   })
-  it('has no original for books and notes', () => {
-    expect(originalUrl('book', 'Concurrency in Go.pdf')).toBeNull()
-    expect(originalUrl('vault', 'note.md')).toBeNull()
+  it('opens a book at the PDF page of the passage', () => {
+    expect(originalUrl({ kind: 'book', path: 'uploads/Concurrency in Go.pdf', page: 203 })).toBe(
+      '/books/uploads/Concurrency%20in%20Go.pdf#page=203',
+    )
+    expect(originalUrl({ kind: 'book', path: 'a.pdf' })).toBe('/books/a.pdf')
+  })
+  it('has no original for a note, which lives in Obsidian', () => {
+    expect(originalUrl({ kind: 'vault', path: 'note.md' })).toBeNull()
   })
 })
 

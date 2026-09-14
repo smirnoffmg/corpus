@@ -36,12 +36,27 @@ export function groupManuals(pages: SourceStatus[]): Manual[] {
   return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name))
 }
 
-// originalUrl is where nginx serves a manual's own page, with its styles and
-// images, scrolled to the section a hit came from.
-export function originalUrl(kind: Kind, path: string, anchor?: string): string | null {
-  if (kind !== 'docs') return null
-  const href = '/docs/' + path.split('/').map(encodeURIComponent).join('/')
-  return anchor ? `${href}#${encodeURIComponent(anchor)}` : href
+export interface Place {
+  kind: Kind
+  path: string
+  anchor?: string
+  page?: number
+}
+
+// originalUrl is where nginx serves the source itself: a manual's own page,
+// with its styles and images, scrolled to the section; a book's PDF, opened by
+// the browser's viewer at the page (#page= is the PDF open parameter Chrome
+// and Firefox honour). A note has none — it lives in Obsidian.
+export function originalUrl({ kind, path, anchor, page }: Place): string | null {
+  const escaped = path.split('/').map(encodeURIComponent).join('/')
+  switch (kind) {
+    case 'docs':
+      return anchor ? `/docs/${escaped}#${encodeURIComponent(anchor)}` : `/docs/${escaped}`
+    case 'book':
+      return page ? `/books/${escaped}#page=${page}` : `/books/${escaped}`
+    default:
+      return null
+  }
 }
 
 const withoutVector: [string, string, string] = ['фрагмент без вектора', 'фрагмента без вектора', 'фрагментов без вектора']

@@ -85,6 +85,7 @@ type Passage struct {
 	Path     string `json:"path"`
 	Locator  string `json:"locator"`
 	Anchor   string `json:"anchor,omitempty"`
+	Page     int    `json:"page,omitempty"` // PDF page, to open the file at the passage
 	Body     string `json:"body"`
 	Previous string `json:"previous,omitempty"`
 	Next     string `json:"next,omitempty"`
