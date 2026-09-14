@@ -23,6 +23,14 @@ describe('progress', () => {
 })
 
 describe('groupManuals', () => {
+  it('opens a manual at its index page, or at its shallowest page without one', () => {
+    const [m] = groupManuals([
+      source({ path: 'numpy/reference/generated/numpy.array.html' }),
+      source({ path: 'numpy/user/basics.html' }),
+    ])
+    expect(m.home).toBe('numpy/user/basics.html')
+  })
+
   it('sums the pages of each manual under its directory name', () => {
     const groups = groupManuals([
       source({ path: 'nltk/index.html', chunks: 3, embedded: 3 }),
@@ -30,8 +38,8 @@ describe('groupManuals', () => {
       source({ path: 'scikit-learn/modules/svm.html', chunks: 2, embedded: 0, indexed_at: '2026-09-14T11:00:00Z' }),
     ])
     expect(groups).toEqual([
-      { name: 'nltk', pages: 2, chunks: 8, embedded: 4, quarantined: 1, indexed_at: '2026-09-14T10:00:00Z' },
-      { name: 'scikit-learn', pages: 1, chunks: 2, embedded: 0, quarantined: 0, indexed_at: '2026-09-14T11:00:00Z' },
+      { name: 'nltk', home: 'nltk/index.html', pages: 2, chunks: 8, embedded: 4, quarantined: 1, indexed_at: '2026-09-14T10:00:00Z' },
+      { name: 'scikit-learn', home: 'scikit-learn/modules/svm.html', pages: 1, chunks: 2, embedded: 0, quarantined: 0, indexed_at: '2026-09-14T11:00:00Z' },
     ])
   })
 })

@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router'
 import { describe, expect, it, vi } from 'vitest'
 import type { SourceStatus } from '../api'
 import { stubApi } from '../test/fetch'
+import { VaultContext } from '../vault'
 import { LibraryPage } from './LibraryPage'
 
 const book = (over: Partial<SourceStatus> = {}): SourceStatus => ({
@@ -49,6 +50,7 @@ describe('LibraryPage', () => {
     const rows = await screen.findAllByRole('row')
     expect(rows).toHaveLength(3)
     expect(within(rows[1]).getByText('Готово')).toBeInTheDocument()
+    expect(within(rows[1]).getByRole('link', { name: 'Concurrency in Go' })).toHaveAttribute('href', '/books/Concurrency%20in%20Go.pdf')
     expect(within(rows[2]).getByText('Векторизация 40%')).toBeInTheDocument()
   })
 
@@ -62,9 +64,23 @@ describe('LibraryPage', () => {
     const rows = await screen.findAllByRole('row')
     expect(calls[0].searchParams.get('kind')).toBe('docs')
     expect(rows).toHaveLength(2)
-    expect(within(rows[1]).getByText('nltk')).toBeInTheDocument()
+    expect(within(rows[1]).getByRole('link', { name: 'nltk' })).toHaveAttribute('href', '/docs/nltk/index.html')
     expect(within(rows[1]).getByText('2 страницы')).toBeInTheDocument()
     expect(within(rows[1]).getByText('1 фрагмент без вектора')).toBeInTheDocument()
+  })
+
+  it('links a note to Obsidian once the vault is known', async () => {
+    stubApi(() => ({ body: { sources: [{ ...book(), kind: 'vault', path: 'Daily/2026-09-14.md', title: '2026-09-14' }] } }))
+    render(
+      <VaultContext value="obsidian">
+        <MemoryRouter initialEntries={['/library?kind=vault']}>
+          <LibraryPage />
+        </MemoryRouter>
+      </VaultContext>,
+    )
+    const link = await screen.findByRole('link', { name: '2026-09-14' })
+    expect(link).toHaveAttribute('href', 'obsidian://open?vault=obsidian&file=Daily%2F2026-09-14')
+    expect(link).not.toHaveAttribute('target')
   })
 
   it('narrows the list by title', async () => {

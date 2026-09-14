@@ -625,3 +625,14 @@ td:last-child {
 .state-errors .meter::after {
   background: var(--problem);
 }
+
+/* A column of underlined titles reads as noise; the underline marks the one
+   under the pointer. */
+td a {
+  text-decoration: none;
+}
+
+td a:hover,
+td a:focus-visible {
+  text-decoration: underline;
+}

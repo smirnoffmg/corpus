@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { sources, type Kind, type SourceStatus } from '../api'
+import { OriginalLink } from '../components/OriginalLink'
 import { UploadPanel } from '../components/UploadPanel'
-import { groupManuals, progress, stateLabel } from '../library'
+import { groupManuals, originalUrl, progress, stateLabel } from '../library'
+import { VaultContext } from '../vault'
 import { plural } from '../text'
 
 const tabs: { kind: Kind; label: string }[] = [
@@ -18,20 +20,22 @@ const shownRows = 300
 interface Row {
   key: string
   title: string
+  href: string | null
   detail: string
   counts: { chunks: number; embedded: number; quarantined: number }
 }
 
-function rowsOf(kind: Kind, list: SourceStatus[]): Row[] {
+function rowsOf(kind: Kind, list: SourceStatus[], vault?: string): Row[] {
   if (kind === 'docs') {
     return groupManuals(list).map((m) => ({
       key: m.name,
       title: m.name,
+      href: originalUrl({ kind, path: m.home }),
       detail: `${m.pages} ${plural(m.pages, ['страница', 'страницы', 'страниц'])}`,
       counts: m,
     }))
   }
-  return list.map((s) => ({ key: s.path, title: s.title, detail: s.path, counts: s }))
+  return list.map((s) => ({ key: s.path, title: s.title, href: originalUrl(s, vault), detail: s.path, counts: s }))
 }
 
 export function LibraryPage({ pollMs = 5000 }: { pollMs?: number }) {
@@ -40,6 +44,7 @@ export function LibraryPage({ pollMs = 5000 }: { pollMs?: number }) {
   const [loaded, setLoaded] = useState<{ kind: Kind; list?: SourceStatus[]; error?: string }>()
   const [generation, setGeneration] = useState(0)
   const [filter, setFilter] = useState('')
+  const vault = useContext(VaultContext)
 
   useEffect(() => {
     const request = new AbortController()
@@ -55,10 +60,10 @@ export function LibraryPage({ pollMs = 5000 }: { pollMs?: number }) {
 
   const current = loaded?.kind === kind ? loaded : undefined
   const rows = useMemo(() => {
-    const all = current?.list ? rowsOf(kind, current.list) : []
+    const all = current?.list ? rowsOf(kind, current.list, vault) : []
     const needle = filter.trim().toLocaleLowerCase('ru')
     return needle ? all.filter((r) => r.title.toLocaleLowerCase('ru').includes(needle)) : all
-  }, [current, kind, filter])
+  }, [current, kind, filter, vault])
 
   return (
     <div className="library">
@@ -103,7 +108,15 @@ export function LibraryPage({ pollMs = 5000 }: { pollMs?: number }) {
                 const { state, fraction } = progress(r.counts)
                 return (
                   <tr key={r.key} className={`state-${state}`}>
-                    <td>{r.title}</td>
+                    <td>
+                      {r.href ? (
+                        <OriginalLink kind={kind} href={r.href}>
+                          {r.title}
+                        </OriginalLink>
+                      ) : (
+                        r.title
+                      )}
+                    </td>
                     <td className="detail">{r.detail}</td>
                     <td>
                       <span className="meter" style={{ '--fill': fraction } as React.CSSProperties} aria-hidden="true" />

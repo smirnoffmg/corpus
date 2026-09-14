@@ -15,6 +15,7 @@ export function progress({ chunks, embedded, quarantined }: Counts): { state: St
 
 export interface Manual extends Counts {
   name: string
+  home: string // the page a manual opens at
   pages: number
   indexed_at: string
 }
@@ -25,7 +26,8 @@ export function groupManuals(pages: SourceStatus[]): Manual[] {
   const byName = new Map<string, Manual>()
   for (const p of pages) {
     const name = p.path.split('/')[0]
-    const m = byName.get(name) ?? { name, pages: 0, chunks: 0, embedded: 0, quarantined: 0, indexed_at: p.indexed_at }
+    const m = byName.get(name) ?? { name, home: p.path, pages: 0, chunks: 0, embedded: 0, quarantined: 0, indexed_at: p.indexed_at }
+    if (homelier(p.path, m.home, name)) m.home = p.path
     m.pages++
     m.chunks += p.chunks
     m.embedded += p.embedded
@@ -42,6 +44,17 @@ export interface Place {
   locator?: string
   anchor?: string
   page?: number
+}
+
+// homelier says whether a page is a better front door to its manual than the
+// current one: the manual's own index.html, failing that the shallowest page —
+// nginx will not list a directory, so the manual has to open at a real page.
+function homelier(candidate: string, current: string, manual: string): boolean {
+  const index = `${manual}/index.html`
+  if (current === index) return false
+  if (candidate === index) return true
+  const depth = (path: string) => path.split('/').length
+  return depth(candidate) < depth(current) || (depth(candidate) === depth(current) && candidate < current)
 }
 
 // originalUrl is where nginx serves the source itself: a manual's own page,
