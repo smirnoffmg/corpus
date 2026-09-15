@@ -218,3 +218,25 @@ func TestFailuresSayWhetherTheEmbedderWasUnavailable(t *testing.T) {
 		t.Errorf("no connection is unavailable, got %v", err)
 	}
 }
+
+// ollama unloads a model after five idle minutes, and loading bge-m3 back took
+// 2.8s of a search's 3s budget: the first search after a pause lost its vector
+// leg to a timeout.
+func TestAsksOllamaToKeepTheModelLoaded(t *testing.T) {
+	var keepAlive atomic.Value
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		got, _ := body["keep_alive"].(string)
+		keepAlive.Store(got)
+		_ = json.NewEncoder(w).Encode(map[string]any{"embeddings": [][]float32{{0.1}}})
+	}))
+	t.Cleanup(srv.Close)
+
+	if _, err := embed.New(srv.URL, "bge-m3", fast()).Embed(context.Background(), []string{"текст"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := keepAlive.Load().(string); got == "" {
+		t.Error("keep_alive is not sent, so ollama unloads the model after its five-minute default")
+	}
+}

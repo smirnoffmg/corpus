@@ -50,9 +50,16 @@ func New(baseURL, model string, opts ...Option) *Client {
 	return c
 }
 
+// keepAlive holds the model in memory between requests. ollama's default drops
+// it after five idle minutes, and reloading bge-m3 took 2.8s — nearly all of a
+// search's 3s budget — so the first search after a pause lost its vector leg.
+// An hour spans the pauses of a working session and the indexer's passes.
+const keepAlive = "1h"
+
 type request struct {
-	Model string   `json:"model"`
-	Input []string `json:"input"`
+	Model     string   `json:"model"`
+	Input     []string `json:"input"`
+	KeepAlive string   `json:"keep_alive"`
 }
 
 type response struct {
@@ -157,7 +164,7 @@ func (c *Client) embedRetrying(ctx context.Context, inputs []string) ([][]float3
 }
 
 func (c *Client) embedOnce(ctx context.Context, inputs []string) ([][]float32, error) {
-	body, err := json.Marshal(request{Model: c.model, Input: inputs})
+	body, err := json.Marshal(request{Model: c.model, Input: inputs, KeepAlive: keepAlive})
 	if err != nil {
 		return nil, err
 	}

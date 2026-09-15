@@ -60,12 +60,14 @@ type fakeEmbedder struct {
 	calls int
 	err   error
 	hang  bool // wait for the caller to give up, as a hung ollama does
+	// slowFirst calls wait for the caller to give up, as a cold model does.
+	slowFirst int
 }
 
 func (f *fakeEmbedder) Embed(ctx context.Context, inputs []string) ([][]float32, error) {
 	f.mu.Lock()
 	f.calls++
-	hang, err := f.hang, f.err
+	hang, err := f.hang || f.calls <= f.slowFirst, f.err
 	f.mu.Unlock()
 	if hang {
 		<-ctx.Done()

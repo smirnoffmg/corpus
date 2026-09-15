@@ -64,6 +64,7 @@ type Service struct {
 	now            func() time.Time
 	mu             sync.Mutex
 	skipUntil      time.Time
+	timeouts       int          // query embeddings timed out in a row
 	withoutVectors atomic.Int64 // hybrid searches answered by the text leg alone
 }
 
@@ -111,7 +112,22 @@ type searchInput struct {
 }
 
 type searchOutput struct {
-	Hits []corpus.Hit `json:"hits"`
+	Hits   []corpus.Hit `json:"hits"`
+	Notice string       `json:"notice,omitempty" jsonschema:"set when the hits did not come from the search asked for"`
+}
+
+// textAloneNotice is what a hybrid search says when it ran without its vector
+// leg: its hits look like any other, and an empty or odd list read as the
+// library holding nothing on the subject.
+const textAloneNotice = "The embedder is unavailable, so these hits come from 'fts' alone: words joined with AND, one language only. " +
+	"A thin or empty list says nothing about the library; retry in a minute, or search the one term in each language."
+
+func outputOf(hits []corpus.Hit, tr *trace) searchOutput {
+	out := searchOutput{Hits: hits}
+	if tr.vector == "failed" || tr.vector == "skipped" {
+		out.Notice = textAloneNotice
+	}
+	return out
 }
 
 type readInput struct {
@@ -120,6 +136,13 @@ type readInput struct {
 }
 
 func (s *Service) Search(ctx context.Context, q corpus.Query) ([]corpus.Hit, error) {
+	hits, _, err := s.searchTraced(ctx, q)
+	return hits, err
+}
+
+// searchTraced is Search that also tells what the search did, so a reply can
+// say it ran on text alone.
+func (s *Service) searchTraced(ctx context.Context, q corpus.Query) ([]corpus.Hit, *trace, error) {
 	start := time.Now()
 	tr := &trace{vector: "unused"}
 	mode := q.Mode
@@ -130,7 +153,7 @@ func (s *Service) Search(ctx context.Context, q corpus.Query) ([]corpus.Hit, err
 	logged := q
 	logged.Limit = clampLimit(q.Limit)
 	logSearch(ctx, logged, mode, len(hits), tr, time.Since(start), err)
-	return hits, err
+	return hits, tr, err
 }
 
 func (s *Service) search(ctx context.Context, q corpus.Query, tr *trace) ([]corpus.Hit, error) {
@@ -265,7 +288,7 @@ func (s *Service) MCP() *mcp.Server {
 			"'fts' also joins your words with AND: a question phrased as a sentence usually returns nothing, while the one term you actually want returns plenty." +
 			sourceText,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in searchInput) (*mcp.CallToolResult, searchOutput, error) {
-		hits, err := s.Search(ctx, corpus.Query{
+		hits, tr, err := s.searchTraced(ctx, corpus.Query{
 			Text: in.Query, Kind: in.Kind, Mode: in.Mode,
 			Limit: in.Limit, PerSource: in.PerSource,
 			TitleBoost: defaultTitleBoost,
@@ -273,7 +296,7 @@ func (s *Service) MCP() *mcp.Server {
 		if err != nil {
 			return nil, searchOutput{}, err
 		}
-		return nil, searchOutput{Hits: hits}, nil
+		return nil, outputOf(hits, tr), nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -303,7 +326,7 @@ func (s *Service) Handler() http.Handler {
 	// far less ceremony than an MCP handshake.
 	mux.HandleFunc("GET /search", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		hits, err := s.Search(r.Context(), queryFromURL(q))
+		hits, tr, err := s.searchTraced(r.Context(), queryFromURL(q))
 		if err != nil {
 			code := http.StatusInternalServerError
 			if isEmbedderDown(err) {
@@ -312,7 +335,7 @@ func (s *Service) Handler() http.Handler {
 			http.Error(w, err.Error(), code)
 			return
 		}
-		writeJSON(w, searchOutput{Hits: hits})
+		writeJSON(w, outputOf(hits, tr))
 	})
 
 	mux.HandleFunc("GET /compare", func(w http.ResponseWriter, r *http.Request) {

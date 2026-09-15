@@ -21,6 +21,12 @@ const (
 	defaultQueryTimeout  = 3 * time.Second
 	defaultStatusTimeout = 2 * time.Second
 	defaultCooldown      = 30 * time.Second
+	// A refused connection means ollama is not there, and one is enough. A
+	// timeout may be a cold model loading while the requests behind it succeed,
+	// so it takes timeouts in a row — "a lower threshold for 'timeout calling
+	// remote system' failures than 'connection refused' errors" (Release It!,
+	// с. 117), inverted here because a timeout is the ambiguous one.
+	timeoutsToTrip = 2
 )
 
 var errEmbedderUnavailable = errors.New("embedder unavailable: search by meaning is off, try mode=fts")
@@ -64,11 +70,27 @@ func (s *Service) embedQuery(ctx context.Context, text string, tr *trace) ([]flo
 	tr.vectorTook = time.Since(start)
 	if err != nil {
 		tr.vector = "failed"
-		s.trip(ctx, err)
+		s.fail(ctx, err, errors.Is(ctx.Err(), context.DeadlineExceeded))
 		return nil, fmt.Errorf("%w (%w)", errEmbedderUnavailable, err)
 	}
 	tr.vector = "ok"
+	s.mu.Lock()
+	s.timeouts = 0
+	s.mu.Unlock()
 	return vectors[0], nil
+}
+
+// fail counts a failed query embedding against the breaker.
+func (s *Service) fail(ctx context.Context, err error, timedOut bool) {
+	s.mu.Lock()
+	if timedOut {
+		s.timeouts++
+	}
+	open := !timedOut || s.timeouts >= timeoutsToTrip
+	s.mu.Unlock()
+	if open {
+		s.trip(ctx, err)
+	}
 }
 
 func (s *Service) skipping() bool {
@@ -83,6 +105,7 @@ func (s *Service) skipping() bool {
 func (s *Service) trip(ctx context.Context, err error) {
 	s.mu.Lock()
 	s.skipUntil = s.now().Add(s.cooldown)
+	s.timeouts = 0
 	s.mu.Unlock()
 	slog.WarnContext(ctx, "embedder unavailable, searching text alone for a while",
 		"cooldown", s.cooldown.String(), "err", err)
@@ -92,6 +115,7 @@ func (s *Service) reset() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.skipUntil = time.Time{}
+	s.timeouts = 0
 }
 
 // probeEmbedder is /status asking the embedder directly, cooldown or not, so a

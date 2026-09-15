@@ -191,3 +191,72 @@ func TestSearchByMeaningWithoutAnEmbedderIsUnavailableNotBroken(t *testing.T) {
 		}
 	}
 }
+
+// ollama loads a model on the first request after it idled, and that request
+// can outlast the query timeout while the ones behind it succeed. Tripping on
+// one timeout turned search by meaning off for thirty seconds after every
+// pause. A timeout counts towards the breaker; only timeouts in a row trip it
+// (Nygard, Release It!, с. 116–117).
+func TestOneTimeoutDoesNotTurnSearchByMeaningOff(t *testing.T) {
+	embedder := &fakeEmbedder{slowFirst: 1}
+	svc := api.New(&fakeStore{text: []corpus.Hit{{ID: 1}}}, embedder, api.WithQueryTimeout(20*time.Millisecond))
+
+	for range 2 {
+		if _, err := svc.Search(context.Background(), corpus.Query{Text: "q"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := embedder.count(); got != 2 {
+		t.Errorf("embedder called %d times, want the search after one timeout to try it", got)
+	}
+}
+
+func TestTimeoutsInARowStillTurnItOff(t *testing.T) {
+	embedder := &fakeEmbedder{hang: true}
+	svc := api.New(&fakeStore{text: []corpus.Hit{{ID: 1}}}, embedder, api.WithQueryTimeout(20*time.Millisecond))
+
+	for range 4 {
+		if _, err := svc.Search(context.Background(), corpus.Query{Text: "q"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := embedder.count(); got != 2 {
+		t.Errorf("embedder called %d times against a hung ollama, want 2 before the breaker opens", got)
+	}
+}
+
+func TestAnAnswerBetweenTimeoutsKeepsTheBreakerClosed(t *testing.T) {
+	embedder := &fakeEmbedder{}
+	svc := api.New(&fakeStore{text: []corpus.Hit{{ID: 1}}}, embedder, api.WithQueryTimeout(20*time.Millisecond))
+	setHang := func(hang bool) {
+		embedder.mu.Lock()
+		embedder.hang = hang
+		embedder.mu.Unlock()
+	}
+
+	for _, hang := range []bool{true, false, true, false} {
+		setHang(hang)
+		if _, err := svc.Search(context.Background(), corpus.Query{Text: "q"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := embedder.count(); got != 4 {
+		t.Errorf("embedder called %d times, want every search to try it", got)
+	}
+}
+
+// The plain HTTP search is the fallback when MCP is not at hand, and misleads
+// in the same way when it quietly answers from text alone.
+func TestHTTPSearchSaysWhenItRanOnTextAlone(t *testing.T) {
+	srv := httptest.NewServer(api.New(&fakeStore{text: []corpus.Hit{{ID: 1}}}, &fakeEmbedder{err: errors.New("connection refused")}).Handler())
+	defer srv.Close()
+
+	var body struct {
+		Hits   []corpus.Hit `json:"hits"`
+		Notice string       `json:"notice"`
+	}
+	get(t, srv.URL+"/search?q=x", &body)
+	if len(body.Hits) != 1 || body.Notice == "" {
+		t.Errorf("hits = %d, notice = %q; want the text hit and a notice", len(body.Hits), body.Notice)
+	}
+}
