@@ -39,6 +39,32 @@ func TestDOIAsksForCSLJSONAndDropsRegistryNoise(t *testing.T) {
 	}
 }
 
+// doi.org answers in CSL-JSON, but with the registry's own type names; a
+// "journal-article" is no type citeproc knows, and would be cited as a book.
+func TestDOITranslatesRegistryTypesToCSL(t *testing.T) {
+	for registry, want := range map[string]string{
+		"journal-article":     "article-journal",
+		"proceedings-article": "paper-conference",
+		"book-chapter":        "chapter",
+		"posted-content":      "article",
+		"dissertation":        "thesis",
+		"monograph":           "book",
+		"article":             "article",
+		"paper-conference":    "paper-conference",
+	} {
+		l := lookupAgainst(t, func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(`{"type":"` + registry + `","title":"T"}`))
+		})
+		record, err := l.DOI(context.Background(), "10.1/x")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if record["type"] != want {
+			t.Errorf("%s became %v, want %s", registry, record["type"], want)
+		}
+	}
+}
+
 func TestISBNMapsAnOpenLibraryBook(t *testing.T) {
 	l := lookupAgainst(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("bibkeys") != "ISBN:9781449373320" {

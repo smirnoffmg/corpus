@@ -49,7 +49,28 @@ func (l *Lookup) DOI(ctx context.Context, doi string) (corpus.CSL, error) {
 	for _, noise := range []string{"indexed", "reference-count", "references-count", "is-referenced-by-count", "license", "link", "content-domain", "deposited", "score", "resource", "relation", "member", "prefix", "source", "reference", "subject", "funder", "assertion", "update-policy", "created", "id"} {
 		delete(record, noise)
 	}
+	if kind, ok := record["type"].(string); ok {
+		if csl, known := registryTypes[kind]; known {
+			record["type"] = csl
+		}
+	}
 	return record, nil
+}
+
+// registryTypes maps the type names Crossref and DataCite put into their
+// CSL-JSON onto CSL's own; names already in CSL pass through.
+var registryTypes = map[string]string{
+	"journal-article":     "article-journal",
+	"proceedings-article": "paper-conference",
+	"book-chapter":        "chapter",
+	"book-section":        "chapter",
+	"reference-entry":     "entry-encyclopedia",
+	"posted-content":      "article",
+	"dissertation":        "thesis",
+	"monograph":           "book",
+	"edited-book":         "book",
+	"reference-book":      "book",
+	"book-set":            "book",
 }
 
 type openLibraryBook struct {
