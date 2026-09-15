@@ -12,9 +12,16 @@ const book = (over: Partial<SourceStatus> = {}): SourceStatus => ({
   chunks: 240, embedded: 240, quarantined: 0, description: '', ...over,
 })
 
+type Answer = { status: number; text: string }
+
 class FakeXHR {
   static last: FakeXHR
-  static answer: { status: number; text: string } = { status: 201, text: '' }
+  static answer: Answer = { status: 201, text: '' }
+  // Per file name, for a batch whose files the server answers differently.
+  static answers: Record<string, Answer> = {}
+  static sent: string[] = []
+  static active = 0
+  static maxActive = 0
   upload = { onprogress: null as ((e: ProgressEvent) => void) | null }
   onload: (() => void) | null = null
   onerror: (() => void) | null = null
@@ -22,13 +29,25 @@ class FakeXHR {
   responseText = ''
   url = ''
   constructor() { FakeXHR.last = this }
+  static reset() {
+    FakeXHR.answers = {}
+    FakeXHR.sent = []
+    FakeXHR.active = 0
+    FakeXHR.maxActive = 0
+  }
   open(_method: string, url: string) { this.url = url }
-  send() {
-    queueMicrotask(() => {
-      this.status = FakeXHR.answer.status
-      this.responseText = FakeXHR.answer.text
+  send(body: FormData) {
+    const name = (body.get('file') as File).name
+    FakeXHR.sent.push(`${name} -> ${this.url}`)
+    FakeXHR.active++
+    FakeXHR.maxActive = Math.max(FakeXHR.maxActive, FakeXHR.active)
+    setTimeout(() => {
+      const answer = FakeXHR.answers[name] ?? FakeXHR.answer
+      this.status = answer.status
+      this.responseText = answer.text
+      FakeXHR.active--
       this.onload?.()
-    })
+    }, 5)
   }
 }
 
@@ -110,8 +129,8 @@ describe('LibraryPage', () => {
     renderLibrary()
     const user = userEvent.setup()
 
-    await user.upload(screen.getByLabelText('Выбрать файл'), new File(['PK'], 'NLTK site.zip', { type: 'application/zip' }))
-    const name = screen.getByRole('textbox', { name: 'Название мануала' })
+    await user.upload(screen.getByLabelText('Выбрать файлы'), new File(['PK'], 'NLTK site.zip', { type: 'application/zip' }))
+    const name = screen.getByRole('textbox', { name: 'Название мануала для «NLTK site.zip»' })
     expect(name).toHaveValue('NLTK-site')
     await user.clear(name)
     await user.type(name, 'nltk')
@@ -129,8 +148,8 @@ describe('LibraryPage', () => {
     renderLibrary()
     const user = userEvent.setup()
 
-    await user.upload(screen.getByLabelText('Выбрать файл'), new File(['%PDF-'], 'Клеппман.pdf', { type: 'application/pdf' }))
-    expect(screen.queryByRole('textbox', { name: 'Название мануала' })).toBeNull()
+    await user.upload(screen.getByLabelText('Выбрать файлы'), new File(['%PDF-'], 'Клеппман.pdf', { type: 'application/pdf' }))
+    expect(screen.queryByRole('textbox', { name: /Название мануала/ })).toBeNull()
     await user.click(screen.getByRole('button', { name: 'Загрузить' }))
 
     expect(FakeXHR.last.url).toBe('/api/upload?kind=book')
@@ -145,7 +164,7 @@ describe('LibraryPage', () => {
     renderLibrary()
     const user = userEvent.setup()
 
-    await user.upload(screen.getByLabelText('Выбрать файл'), new File(['%PDF-'], 'a.pdf'))
+    await user.upload(screen.getByLabelText('Выбрать файлы'), new File(['%PDF-'], 'a.pdf'))
     await user.click(screen.getByRole('button', { name: 'Загрузить' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('Такой файл уже есть в библиотеке')
   })
@@ -155,19 +174,103 @@ describe('LibraryPage', () => {
     renderLibrary()
     const user = userEvent.setup({ applyAccept: false })
 
-    await user.upload(screen.getByLabelText('Выбрать файл'), new File(['x'], 'book.epub'))
-    expect(screen.getByRole('alert')).toHaveTextContent('.pdf')
+    await user.upload(screen.getByLabelText('Выбрать файлы'), new File(['x'], 'book.epub'))
+    expect(screen.getByText(/book\.epub/).closest('li')).toHaveTextContent('.pdf')
     expect(screen.getByRole('button', { name: 'Загрузить' })).toBeDisabled()
   })
 
-  it('takes a file dropped onto the upload area', async () => {
+  it('takes several files dropped onto the upload area at once', async () => {
     stubApi(() => ({ body: { sources: [] } }))
     renderLibrary()
     const zone = screen.getByText(/Перетащите сюда/).closest('div')!
-    const file = new File(['%PDF-'], 'dropped.pdf')
+    const files = [new File(['%PDF-'], 'first.pdf'), new File(['%PDF-'], 'second.pdf')]
     await act(async () => {
-      zone.dispatchEvent(Object.assign(new Event('drop', { bubbles: true }), { dataTransfer: { files: [file] } }))
+      zone.dispatchEvent(Object.assign(new Event('drop', { bubbles: true }), { dataTransfer: { files } }))
     })
-    expect(screen.getByText('dropped.pdf')).toBeInTheDocument()
+    const queue = screen.getByRole('region', { name: 'Очередь загрузки' })
+    expect(within(queue).getByText('first.pdf')).toBeInTheDocument()
+    expect(within(queue).getByText('second.pdf')).toBeInTheDocument()
+  })
+
+  // A shelf of books goes up in one go. One at a time, so a slow disk or a big
+  // manual is not multiplied, and a refusal stops nothing but its own file.
+  it('uploads a batch one file after another, and a refused file stops only itself', async () => {
+    vi.stubGlobal('XMLHttpRequest', FakeXHR)
+    FakeXHR.reset()
+    FakeXHR.answers = {
+      'a.pdf': { status: 201, text: '{"kind":"book","path":"uploads/a.pdf"}' },
+      'b.pdf': { status: 409, text: 'already in the library: uploads/b.pdf' },
+      'site.zip': { status: 201, text: '{"kind":"docs","path":"site"}' },
+    }
+    stubApi(() => ({ body: { sources: [] } }))
+    renderLibrary()
+    const user = userEvent.setup()
+
+    await user.upload(screen.getByLabelText('Выбрать файлы'), [
+      new File(['%PDF-'], 'a.pdf'), new File(['%PDF-'], 'b.pdf'), new File(['PK'], 'site.zip'),
+    ])
+    expect(screen.getByText('3 файла')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Загрузить' }))
+
+    const recent = await screen.findByRole('region', { name: 'Загрузки' })
+    expect(await within(recent).findByText('site.zip')).toBeInTheDocument()
+    expect(within(recent).getByText('a.pdf')).toBeInTheDocument()
+    expect(FakeXHR.sent).toEqual([
+      'a.pdf -> /api/upload?kind=book',
+      'b.pdf -> /api/upload?kind=book',
+      'site.zip -> /api/upload?kind=docs&manual=site',
+    ])
+    expect(FakeXHR.maxActive).toBe(1)
+
+    const queue = screen.getByRole('region', { name: 'Очередь загрузки' })
+    const refused = within(queue).getByText('b.pdf').closest('li')!
+    expect(refused).toHaveTextContent('Такой файл уже есть в библиотеке')
+    expect(within(queue).queryByText('a.pdf')).toBeNull()
+  })
+
+  it('adds files chosen later to the queue, and a file can be taken out before sending', async () => {
+    vi.stubGlobal('XMLHttpRequest', FakeXHR)
+    FakeXHR.reset()
+    FakeXHR.answer = { status: 201, text: '{"kind":"book","path":"uploads/kept.pdf"}' }
+    stubApi(() => ({ body: { sources: [] } }))
+    renderLibrary()
+    const user = userEvent.setup()
+
+    await user.upload(screen.getByLabelText('Выбрать файлы'), new File(['%PDF-'], 'kept.pdf'))
+    await user.upload(screen.getByLabelText('Выбрать файлы'), [new File(['%PDF-'], 'dropped.pdf'), new File(['%PDF-'], 'kept.pdf')])
+    const queue = screen.getByRole('region', { name: 'Очередь загрузки' })
+    expect(within(queue).getAllByRole('listitem')).toHaveLength(2)
+
+    await user.click(within(queue).getByRole('button', { name: 'Убрать «dropped.pdf»' }))
+    await user.click(screen.getByRole('button', { name: 'Загрузить' }))
+    await screen.findByRole('region', { name: 'Загрузки' })
+    expect(FakeXHR.sent).toEqual(['kept.pdf -> /api/upload?kind=book'])
+  })
+
+  it('sends the files it can index and leaves the rest listed with the reason', async () => {
+    vi.stubGlobal('XMLHttpRequest', FakeXHR)
+    FakeXHR.reset()
+    FakeXHR.answer = { status: 201, text: '{"kind":"book","path":"uploads/good.pdf"}' }
+    stubApi(() => ({ body: { sources: [] } }))
+    renderLibrary()
+    const user = userEvent.setup({ applyAccept: false })
+
+    await user.upload(screen.getByLabelText('Выбрать файлы'), [new File(['x'], 'novel.epub'), new File(['%PDF-'], 'good.pdf')])
+    expect(screen.getByRole('button', { name: 'Загрузить' })).toBeEnabled()
+    await user.click(screen.getByRole('button', { name: 'Загрузить' }))
+
+    await screen.findByRole('region', { name: 'Загрузки' })
+    expect(FakeXHR.sent).toEqual(['good.pdf -> /api/upload?kind=book'])
+    expect(screen.getByText('novel.epub').closest('li')).toHaveTextContent('не подойдёт')
+  })
+
+  it('will not send a manual without a name', async () => {
+    stubApi(() => ({ body: { sources: [] } }))
+    renderLibrary()
+    const user = userEvent.setup()
+
+    await user.upload(screen.getByLabelText('Выбрать файлы'), new File(['PK'], 'Документация.zip'))
+    expect(screen.getByRole('textbox', { name: 'Название мануала для «Документация.zip»' })).toHaveValue('')
+    expect(screen.getByRole('button', { name: 'Загрузить' })).toBeDisabled()
   })
 })

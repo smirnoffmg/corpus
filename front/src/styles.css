@@ -806,3 +806,64 @@ td.description-draft a {
   color: var(--muted);
   font-size: 0.8rem;
 }
+
+/* Upload queue */
+
+.queue ul {
+  list-style: none;
+  margin: 1rem 0 0;
+  padding: 0;
+}
+
+.queued {
+  display: grid;
+  gap: 0.35rem;
+  padding-block: 0.6rem;
+  border-top: 1px solid var(--rule);
+}
+
+.queued-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.queued-name {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.queued-kind {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.queued-remove {
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+  cursor: pointer;
+}
+
+.queued-remove:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.queued .field {
+  margin-top: 0;
+}
+
+.queued .problem {
+  margin: 0;
+}
+
+.queued-unsuitable .queued-name {
+  color: var(--muted);
+  font-weight: 400;
+}
