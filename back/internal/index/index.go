@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -41,6 +42,8 @@ type Store interface {
 	Quarantined(ctx context.Context) (int64, error)
 	PendingEmbeddings(ctx context.Context, limit int) ([]corpus.Pending, error)
 	CountAttempt(ctx context.Context, keys []string) error
+	UncountAttempt(ctx context.Context, keys []string) error
+	RecordFailure(ctx context.Context, keys []string, reason string) error
 	SaveEmbeddings(ctx context.Context, keys []string, vectors [][]float32) error
 	PruneEmbeddings(ctx context.Context) (int64, error)
 	UndescribedBooks(ctx context.Context) ([]corpus.Undescribed, error)
@@ -363,6 +366,59 @@ func docsManuals(root string) []string {
 	return out
 }
 
+// unavailable is how an embedder marks a failure that says nothing about the
+// input — no connection, a busy or restarting ollama — as opposed to a text the
+// model refuses.
+type unavailable interface{ Unavailable() bool }
+
+func isUnavailable(err error) bool {
+	var u unavailable
+	return errors.As(err, &u) && u.Unavailable()
+}
+
+// embedBatch embeds and saves one batch, and reports how many vectors it saved.
+//
+// The attempt is recorded before the call, so a crash or a timeout counts too;
+// otherwise a text that kills the process is retried forever. Two failures are
+// not the texts' fault and are handled apart:
+//   - the embedder is unavailable: the attempt is taken back and the pass
+//     stops, since three passes with ollama off would quarantine good texts;
+//   - the model refuses the batch: it is retried text by text, so only the
+//     refused text is counted and records why — the invalid message channel's
+//     rule that the error travels with the message (EIP, с. 144) — and the rest
+//     of its batch still gets vectors.
+func (ix *Indexer) embedBatch(ctx context.Context, keys, bodies []string) (int, error) {
+	if err := ix.store.CountAttempt(ctx, keys); err != nil {
+		return 0, err
+	}
+	vectors, err := ix.embedder.Embed(ctx, bodies)
+	if err == nil {
+		return len(keys), ix.store.SaveEmbeddings(ctx, keys, vectors)
+	}
+	if ctx.Err() != nil {
+		return 0, err
+	}
+	if isUnavailable(err) {
+		return 0, errors.Join(err, ix.store.UncountAttempt(ctx, keys))
+	}
+	if len(keys) == 1 {
+		slog.WarnContext(ctx, "embedder refused a text", "key", keys[0], "err", err)
+		return 0, ix.store.RecordFailure(ctx, keys, err.Error())
+	}
+	if err := ix.store.UncountAttempt(ctx, keys); err != nil {
+		return 0, err
+	}
+	saved := 0
+	for i := range keys {
+		n, err := ix.embedBatch(ctx, keys[i:i+1], bodies[i:i+1])
+		saved += n
+		if err != nil {
+			return saved, err
+		}
+	}
+	return saved, nil
+}
+
 // Embed fills in embeddings for chunks that have none.
 func (ix *Indexer) Embed(ctx context.Context) error {
 	_, err := ix.embed(ctx, nil)
@@ -407,20 +463,12 @@ func (ix *Indexer) embed(ctx context.Context, wake <-chan struct{}) (interrupted
 			bodies[i], keys[i] = c.Body, c.Key
 		}
 
-		// The attempt is recorded before the call, so a crash or a timeout counts
-		// too; otherwise a chunk that kills the process is retried forever.
-		if attemptErr := ix.store.CountAttempt(ctx, keys); attemptErr != nil {
-			return false, attemptErr
-		}
-		vectors, err := ix.embedder.Embed(ctx, bodies)
+		saved, err := ix.embedBatch(ctx, keys, bodies)
 		if err != nil {
 			return false, err
 		}
-		if err := ix.store.SaveEmbeddings(ctx, keys, vectors); err != nil {
-			return false, err
-		}
 
-		done += len(chunks)
+		done += saved
 		if done%(ix.opts.Batch*20) == 0 {
 			rate := float64(done) / time.Since(start).Seconds()
 			left := time.Duration(float64(int(pending)-done)/rate) * time.Second

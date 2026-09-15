@@ -291,3 +291,32 @@ func TestSavingAnEmbeddingRecordsWhenItHappened(t *testing.T) {
 	require.NotNil(t, after, "saving a vector must record when")
 	require.False(t, after.UTC().Before(start.Add(-time.Second)), "stamped in the past: %s", after)
 }
+
+func TestAFailureIsRecordedAndAnAttemptCanBeTakenBack(t *testing.T) {
+	st, pool, ctx := open(t)
+	require.NoError(t, st.Replace(ctx, book("__test__/fail.pdf", "Книга", "h1"), pages("отказ")))
+	pending, err := st.PendingEmbeddings(ctx, 10)
+	require.NoError(t, err)
+	keys := []string{pending[0].Key}
+
+	require.NoError(t, st.CountAttempt(ctx, keys))
+	require.NoError(t, st.CountAttempt(ctx, keys))
+	require.NoError(t, st.UncountAttempt(ctx, keys))
+	require.NoError(t, st.RecordFailure(ctx, keys, "ollama 400 Bad Request"))
+
+	var attempts int
+	var reason *string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT attempts, last_error FROM embeddings WHERE hash = $1`, keys[0]).Scan(&attempts, &reason))
+	require.Equal(t, 1, attempts)
+	require.NotNil(t, reason)
+	require.Equal(t, "ollama 400 Bad Request", *reason)
+
+	require.NoError(t, st.UncountAttempt(ctx, keys))
+	require.NoError(t, st.UncountAttempt(ctx, keys))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT attempts FROM embeddings WHERE hash = $1`, keys[0]).Scan(&attempts))
+	require.Zero(t, attempts, "attempts do not go below zero")
+
+	require.NoError(t, st.SaveEmbeddings(ctx, keys, [][]float32{unit(0)}))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT last_error FROM embeddings WHERE hash = $1`, keys[0]).Scan(&reason))
+	require.Nil(t, reason, "a vector clears the failure it overcame")
+}

@@ -69,6 +69,10 @@ type transient struct{ err error }
 func (t transient) Error() string { return t.err.Error() }
 func (t transient) Unwrap() error { return t.err }
 
+// Unavailable tells a caller that the failure says nothing about the input:
+// the indexer takes the attempt back instead of counting it against the text.
+func (t transient) Unavailable() bool { return true }
+
 // errContextOverflow is ollama refusing an input that tokenizes past the
 // model's context. Its truncate option does not help: ollama 0.32 returns the
 // error with truncate set, and with num_ctx raised to the model's full 8192.

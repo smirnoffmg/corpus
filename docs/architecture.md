@@ -169,6 +169,14 @@ p. 143) exists to prevent. Attempts are counted before the call, so a crash
 counts too, and a chunk is set aside after three. `indexer --requeue` puts
 quarantined chunks back when the cause has been dealt with.
 
+Not every failure is the text's fault. When ollama is off, restarting or busy
+the attempt is taken back and the pass stops — three passes with a laptop on
+battery used to quarantine perfectly good texts. When the model refuses a
+batch, the batch is retried text by text: the rest of it gets its vectors, and
+only the refused text is counted and keeps the reason in
+`embeddings.last_error`, since the error has to travel with the message (EIP,
+p. 144).
+
 An attempt now covers up to four calls: the embed client retries a busy or
 restarting ollama with a doubling delay, and does not retry a missing model —
 "we only retry if there is a true busy signal … if we've dialed the wrong number

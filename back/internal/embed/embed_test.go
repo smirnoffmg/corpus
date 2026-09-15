@@ -3,6 +3,7 @@ package embed_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -184,5 +185,36 @@ func TestAnInputThatCannotBeShortenedToFitFails(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "context length") {
 		t.Errorf("error hides the cause: %v", err)
+	}
+}
+
+// The indexer takes an attempt back when the embedder was simply not there, and
+// counts it against the text when the model refused it; the client is what
+// tells the two apart.
+func TestFailuresSayWhetherTheEmbedderWasUnavailable(t *testing.T) {
+	type unavailable interface{ Unavailable() bool }
+	cases := map[string]struct {
+		status int
+		want   bool
+	}{
+		"busy after every retry": {http.StatusServiceUnavailable, true},
+		"missing model":          {http.StatusNotFound, false},
+		"refused input":          {http.StatusBadRequest, false},
+	}
+	for label, c := range cases {
+		t.Run(label, func(t *testing.T) {
+			srv, _ := server(t, c.status, 99)
+			_, err := embed.New(srv.URL, "bge-m3", fast()).Embed(context.Background(), []string{"текст"})
+			var u unavailable
+			if got := errors.As(err, &u) && u.Unavailable(); got != c.want {
+				t.Errorf("unavailable = %v for %v, want %v", got, err, c.want)
+			}
+		})
+	}
+
+	_, err := embed.New("http://127.0.0.1:1", "bge-m3", embed.WithRetry(1, 0)).Embed(context.Background(), []string{"текст"})
+	var u unavailable
+	if !errors.As(err, &u) || !u.Unavailable() {
+		t.Errorf("no connection is unavailable, got %v", err)
 	}
 }

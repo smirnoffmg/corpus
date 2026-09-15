@@ -32,6 +32,8 @@ type recordingStore struct {
 	unchanged bool
 	pending   []corpus.Pending
 	attempted []string
+	attempts  map[string]int
+	failures  map[string]string
 	embedded  []string
 	prunes    int
 	stats     int
@@ -43,6 +45,8 @@ func newStore() *recordingStore {
 	return &recordingStore{
 		replaced: map[string]int{},
 		sources:  map[string]corpus.Source{},
+		attempts: map[string]int{},
+		failures: map[string]string{},
 		drafts:   map[string]corpus.CSL{},
 		chunks:   map[string][]corpus.Chunk{},
 		titles:   map[string]string{},
@@ -145,6 +149,27 @@ func (s *recordingStore) CountAttempt(_ context.Context, keys []string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.attempted = append(s.attempted, keys...)
+	for _, k := range keys {
+		s.attempts[k]++
+	}
+	return nil
+}
+
+func (s *recordingStore) UncountAttempt(_ context.Context, keys []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, k := range keys {
+		s.attempts[k]--
+	}
+	return nil
+}
+
+func (s *recordingStore) RecordFailure(_ context.Context, keys []string, reason string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, k := range keys {
+		s.failures[k] = reason
+	}
 	return nil
 }
 
@@ -205,12 +230,21 @@ func (nopEmbedder) Embed(context.Context, []string) ([][]float32, error) { retur
 
 // countingEmbedder answers with one vector per body, and can be told to fail.
 type countingEmbedder struct {
-	mu     sync.Mutex
-	calls  int
-	sizes  []int
-	broken error
-	onCall func(calls int)
+	mu          sync.Mutex
+	calls       int
+	sizes       []int
+	broken      error
+	onCall      func(calls int)
+	poison      string // a body the model refuses, failing any batch holding it
+	unavailable bool   // ollama away: no connection
 }
+
+// unavailableError is how the embed client marks a failure that says nothing
+// about the input: ollama is off, restarting or busy.
+type unavailableError struct{}
+
+func (unavailableError) Error() string     { return "connection refused" }
+func (unavailableError) Unavailable() bool { return true }
 
 func (e *countingEmbedder) Embed(_ context.Context, bodies []string) ([][]float32, error) {
 	e.mu.Lock()
@@ -219,6 +253,14 @@ func (e *countingEmbedder) Embed(_ context.Context, bodies []string) ([][]float3
 	e.sizes = append(e.sizes, len(bodies))
 	if e.onCall != nil {
 		e.onCall(e.calls)
+	}
+	if e.unavailable {
+		return nil, unavailableError{}
+	}
+	for _, b := range bodies {
+		if e.poison != "" && b == e.poison {
+			return nil, errors.New("ollama 400 Bad Request: unsupported input")
+		}
 	}
 	if e.broken != nil {
 		return nil, e.broken
@@ -409,22 +451,73 @@ func TestEmbedDrainsTheQueueInBatches(t *testing.T) {
 
 // The attempt is recorded before the embedder is called, so a chunk that kills
 // the process still counts against its retries instead of being tried forever.
-func TestEmbedCountsTheAttemptBeforeTheCallThatMayFail(t *testing.T) {
+// The attempt is recorded before the embedder is called, so a text that kills
+// the process still counts against its retries instead of being tried forever.
+func TestEmbedCountsTheAttemptBeforeTheCall(t *testing.T) {
 	store := newStore()
 	store.pending = queued(2)
-	embedder := &countingEmbedder{broken: errors.New("ollama is down")}
+	var during int
+	embedder := &countingEmbedder{onCall: func(int) { during = store.attempts["hash-1"] }}
 
 	ix := index.New(store, embedder, index.Options{Batch: 2})
-	err := ix.Embed(t.Context())
-
-	if err == nil {
-		t.Fatal("a failing embedder must stop the pass")
+	if err := ix.Embed(t.Context()); err != nil {
+		t.Fatal(err)
 	}
-	if len(store.attempted) != 2 {
-		t.Errorf("attempts recorded = %d, want 2", len(store.attempted))
+	if during != 1 {
+		t.Errorf("attempts while the call ran = %d, want 1", during)
+	}
+}
+
+// ollama off or restarting says nothing about the texts. Counting those tries
+// quarantined perfectly good texts after three passes of a laptop on battery.
+func TestAnUnavailableEmbedderStopsThePassWithoutSpendingAttempts(t *testing.T) {
+	store := newStore()
+	store.pending = queued(2)
+	ix := index.New(store, &countingEmbedder{unavailable: true}, index.Options{Batch: 2})
+
+	if err := ix.Embed(t.Context()); err == nil {
+		t.Fatal("an unavailable embedder must stop the pass")
+	}
+	for key, n := range store.attempts {
+		if n != 0 {
+			t.Errorf("%s: %d attempts left counted, want 0", key, n)
+		}
 	}
 	if len(store.embedded) != 0 {
-		t.Errorf("nothing should have been saved, got %d", len(store.embedded))
+		t.Errorf("saved %d vectors without an embedder", len(store.embedded))
+	}
+}
+
+// One text the model refuses failed its whole batch, and three passes put the
+// batch in quarantine. The batch is retried text by text: the rest get their
+// vectors, and only the refused text is counted and records why.
+func TestOneRefusedTextDoesNotTakeItsBatchDown(t *testing.T) {
+	store := newStore()
+	store.pending = queued(4)
+	embedder := &countingEmbedder{poison: "кусок 3"}
+	ix := index.New(store, embedder, index.Options{Batch: 4})
+
+	if err := ix.Embed(t.Context()); err != nil {
+		t.Fatalf("a refused text failed the pass: %v", err)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if len(store.embedded) != 3 {
+		t.Errorf("embedded %v, want the three texts that are fine", store.embedded)
+	}
+	for _, key := range []string{"hash-1", "hash-2", "hash-4"} {
+		if store.attempts[key] != 1 {
+			t.Errorf("%s: %d attempts, want 1", key, store.attempts[key])
+		}
+	}
+	if store.attempts["hash-3"] != 1 {
+		t.Errorf("the refused text has %d attempts, want 1", store.attempts["hash-3"])
+	}
+	if !strings.Contains(store.failures["hash-3"], "400") {
+		t.Errorf("failure recorded for the refused text = %q, want the embedder's answer", store.failures["hash-3"])
+	}
+	if len(store.failures) != 1 {
+		t.Errorf("failures recorded for %v, want only the refused text", store.failures)
 	}
 }
 

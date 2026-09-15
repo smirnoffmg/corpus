@@ -168,6 +168,20 @@ func (s *Store) CountAttempt(ctx context.Context, keys []string) error {
 	return err
 }
 
+// UncountAttempt takes back an attempt that said nothing about the text: the
+// embedder was not there to ask.
+func (s *Store) UncountAttempt(ctx context.Context, keys []string) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE embeddings SET attempts = greatest(attempts - 1, 0) WHERE hash = ANY($1)`, keys)
+	return err
+}
+
+// RecordFailure keeps the embedder's reason with the text it refused.
+func (s *Store) RecordFailure(ctx context.Context, keys []string, reason string) error {
+	_, err := s.pool.Exec(ctx, `UPDATE embeddings SET last_error = $2 WHERE hash = ANY($1)`, keys, reason)
+	return err
+}
+
 func (s *Store) SaveEmbeddings(ctx context.Context, keys []string, vectors [][]float32) error {
 	if len(keys) != len(vectors) {
 		return fmt.Errorf("%d keys for %d vectors", len(keys), len(vectors))
@@ -179,7 +193,7 @@ func (s *Store) SaveEmbeddings(ctx context.Context, keys []string, vectors [][]f
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO embeddings (hash, embedding, embedded_at)
 		SELECT k, v::vector, now() FROM unnest($1::text[], $2::text[]) AS data(k, v)
-		ON CONFLICT (hash) DO UPDATE SET embedding = EXCLUDED.embedding, embedded_at = now()`,
+		ON CONFLICT (hash) DO UPDATE SET embedding = EXCLUDED.embedding, embedded_at = now(), last_error = NULL`,
 		keys, literals)
 	return err
 }
