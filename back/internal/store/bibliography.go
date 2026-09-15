@@ -156,3 +156,84 @@ func (s *Store) SaveStyle(ctx context.Context, id, title, xml string) error {
 		ON CONFLICT (id) DO UPDATE SET title = EXCLUDED.title, xml = EXCLUDED.xml, added_at = now()`, id, title, xml)
 	return err
 }
+
+// bibliographyLock is the advisory lock every export of the bibliography takes.
+// mcpd and the indexer both export; without it, one could read the table, the
+// other write a newer snapshot, and the first then overwrite it with its older
+// one.
+const bibliographyLock = 0x636f727075730001 // "corpus" and 1
+
+// WithBibliography runs fn on every description and added style, read under the
+// export lock, which is held until fn returns.
+func (s *Store) WithBibliography(ctx context.Context, fn func([]corpus.Reference, []corpus.StyleXML) error) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, lockErr := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, int64(bibliographyLock)); lockErr != nil {
+		return lockErr
+	}
+	rows, err := tx.Query(ctx, `SELECT `+referenceColumns+` FROM bibliography`)
+	if err != nil {
+		return err
+	}
+	refs, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (corpus.Reference, error) { return scanReference(row) })
+	if err != nil {
+		return err
+	}
+	rows, err = tx.Query(ctx, `SELECT id, title, xml FROM csl_styles`)
+	if err != nil {
+		return err
+	}
+	styles, err := pgx.CollectRows(rows, pgx.RowToStructByPos[corpus.StyleXML])
+	if err != nil {
+		return err
+	}
+	if err := fn(refs, styles); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// ImportReferences applies descriptions from the bibliography file: one the
+// table lacks, or holds in an older version, is written as the file has it,
+// citation key and time included. One whose citation key another description
+// already uses is skipped, since applying it would fail the whole import.
+func (s *Store) ImportReferences(ctx context.Context, refs []corpus.Reference) (int64, error) {
+	var n int64
+	for _, r := range refs {
+		tag, err := s.pool.Exec(ctx, `
+			INSERT INTO bibliography (key, citekey, csl, status, updated_at)
+			SELECT $1, $2, $3, $4, $5
+			WHERE NOT EXISTS (SELECT 1 FROM bibliography WHERE citekey = $2 AND key <> $1)
+			ON CONFLICT (key) DO UPDATE
+			    SET citekey = EXCLUDED.citekey, csl = EXCLUDED.csl,
+			        status = EXCLUDED.status, updated_at = EXCLUDED.updated_at
+			    WHERE bibliography.updated_at < EXCLUDED.updated_at`,
+			r.Key, r.CiteKey, r.CSL, r.Status, r.UpdatedAt)
+		if err != nil {
+			return n, fmt.Errorf("import %s: %w", r.CiteKey, err)
+		}
+		n += tag.RowsAffected()
+	}
+	return n, nil
+}
+
+// ImportStyles applies added styles from the bibliography's style files.
+func (s *Store) ImportStyles(ctx context.Context, styles []corpus.StyleXML) (int64, error) {
+	var n int64
+	for _, st := range styles {
+		tag, err := s.pool.Exec(ctx, `
+			INSERT INTO csl_styles (id, title, xml) VALUES ($1, $2, $3)
+			ON CONFLICT (id) DO UPDATE SET title = EXCLUDED.title, xml = EXCLUDED.xml
+			    WHERE csl_styles.xml <> EXCLUDED.xml OR csl_styles.title <> EXCLUDED.title`,
+			st.ID, st.Title, st.XML)
+		if err != nil {
+			return n, err
+		}
+		n += tag.RowsAffected()
+	}
+	return n, nil
+}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 
 	"github.com/smirnoffmg/corpus/internal/cite"
@@ -33,6 +34,24 @@ type Lookup interface {
 // be nil, and then only the network-bound parts answer as unavailable.
 func WithBibliography(b Bibliography, lookup Lookup) Option {
 	return func(s *Service) { s.bibliography, s.lookup = b, lookup }
+}
+
+// WithBibliographyExport is called after every change to the bibliography, to
+// write it to the file that is its system of record.
+func WithBibliographyExport(export func(context.Context) error) Option {
+	return func(s *Service) { s.exportBibliography = export }
+}
+
+// exported writes the bibliography out after a change. The change is already
+// in the table, which is what the request asked for; a file that could not be
+// written is logged loudly rather than reported as a failed save.
+func (s *Service) exported(ctx context.Context) {
+	if s.exportBibliography == nil {
+		return
+	}
+	if err := s.exportBibliography(ctx); err != nil {
+		slog.ErrorContext(ctx, "writing the bibliography file", "err", err)
+	}
 }
 
 // errNoBibliography keeps a mis-wired server from answering 404 as if every
@@ -111,6 +130,7 @@ func (s *Service) putReference(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	s.exported(r.Context())
 	writeJSON(w, ref)
 }
 
@@ -244,6 +264,7 @@ func (s *Service) saveStyle(w http.ResponseWriter, r *http.Request, id, title, x
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	s.exported(r.Context())
 	w.WriteHeader(http.StatusCreated)
 	writeJSON(w, corpus.Style{ID: id, Title: title})
 }

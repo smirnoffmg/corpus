@@ -99,6 +99,13 @@ type Style struct {
 	Title string `json:"title"`
 }
 
+// StyleXML is an added citation style with its CSL source.
+type StyleXML struct {
+	ID    string
+	Title string
+	XML   string
+}
+
 // Undescribed is a book without a bibliographic description, with the text
 // of its opening pages (the copyright page) and closing ones (the imprint of a
 // Russian book, and the references of any book).

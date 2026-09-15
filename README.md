@@ -52,8 +52,10 @@ them. See [architecture](docs/architecture.md).
 
 The library is one directory, `LIBRARY_DIR` (by default `~/.corpus/data`):
 `books/` for PDFs and `manuals/` for [reference manuals](docs/manuals.md).
-Uploads from the UI land there too, so it is the one place to back up besides
-the vault, which stays wherever Obsidian keeps it.
+Uploads from the UI land there too, and so do the bibliographic descriptions
+(`bibliography/`), so it is the one place to back up besides the vault, which
+stays wherever Obsidian keeps it. Everything in the database is rebuilt from
+these two.
 
 The indexer re-scans every 15 minutes and skips files whose SHA-256 is unchanged,
 so the vault stays current while obsidian-git commits into it.

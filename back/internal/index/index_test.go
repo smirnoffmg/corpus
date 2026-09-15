@@ -835,3 +835,46 @@ func TestAPassPrunesVectorsNoChunkUses(t *testing.T) {
 		t.Errorf("pruned %d times in a pass, want 1", store.prunes)
 	}
 }
+
+type fakeBibliography struct {
+	mu    sync.Mutex
+	calls []string
+}
+
+func (f *fakeBibliography) Import(context.Context) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, "import")
+	return 0, nil
+}
+
+func (f *fakeBibliography) Export(context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, "export")
+	return nil
+}
+
+// The file is applied before the pass drafts anything — a description restored
+// from it must win over a fresh draft — and written after, so new drafts reach
+// the file too.
+func TestAPassImportsTheBibliographyFirstAndExportsItLast(t *testing.T) {
+	notes, books := vault(t, 1)
+	store := newStore()
+	bib := &fakeBibliography{}
+	store.onStats = func(int) {
+		bib.mu.Lock()
+		defer bib.mu.Unlock()
+		bib.calls = append(bib.calls, "stats")
+	}
+
+	ix := index.New(store, nopEmbedder{}, index.Options{Books: books, Vault: notes, Bibliography: bib})
+	if err := ix.Index(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	bib.mu.Lock()
+	defer bib.mu.Unlock()
+	if strings.Join(bib.calls, ",") != "import,export,stats" {
+		t.Errorf("calls = %v, want import, then export after drafting, before the pass ends", bib.calls)
+	}
+}

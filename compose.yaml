@@ -46,6 +46,9 @@ services:
       - ${LIBRARY_DIR:-${HOME}/.corpus/data}/books:/data/books:ro
       - ${LIBRARY_DIR:-${HOME}/.corpus/data}/manuals:/data/docs:ro
       - ${VAULT_DIR:?set VAULT_DIR in .env}:/data/vault:ro
+      # The bibliography's system of record: imported each pass, written after
+      # drafting. Read-write, unlike the library itself.
+      - ${LIBRARY_DIR:-${HOME}/.corpus/data}/bibliography:/data/bibliography
     depends_on:
       db:
         condition: service_healthy
@@ -77,6 +80,7 @@ services:
     volumes:
       - ${LIBRARY_DIR:-${HOME}/.corpus/data}/books:/data/books
       - ${LIBRARY_DIR:-${HOME}/.corpus/data}/manuals:/data/docs
+      - ${LIBRARY_DIR:-${HOME}/.corpus/data}/bibliography:/data/bibliography
     ports:
       - "127.0.0.1:8080:8080"
     healthcheck:

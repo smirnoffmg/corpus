@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -115,4 +116,69 @@ func TestStylesAreStoredAndReplaced(t *testing.T) {
 	require.Equal(t, "<style v='2'/>", xml)
 	_, err = st.StyleXML(ctx, "absent")
 	require.ErrorIs(t, err, store.ErrNoReference)
+}
+
+func TestImportTakesAFileDescriptionOnlyWhenItIsNewer(t *testing.T) {
+	st, _, ctx := open(t)
+	existing, err := st.SaveReference(ctx, "h1", corpus.CSL{"title": "in the database", "author": []any{map[string]any{"family": "Knuth"}}}, "checked")
+	require.NoError(t, err)
+
+	older := corpus.Reference{Key: "h1", CiteKey: "knuth", CSL: corpus.CSL{"title": "older file"}, Status: "draft", UpdatedAt: existing.UpdatedAt.Add(-time.Hour)}
+	restored := corpus.Reference{Key: "h2", CiteKey: "lost2020", CSL: corpus.CSL{"title": "restored"}, Status: "checked", UpdatedAt: existing.UpdatedAt}
+	n, err := st.ImportReferences(ctx, []corpus.Reference{older, restored})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, n)
+
+	got, err := st.Reference(ctx, "h1")
+	require.NoError(t, err)
+	require.Equal(t, "in the database", got.CSL["title"])
+	back, err := st.Reference(ctx, "h2")
+	require.NoError(t, err)
+	require.Equal(t, "lost2020", back.CiteKey, "a restored description keeps the key papers cite")
+	require.True(t, back.UpdatedAt.Equal(existing.UpdatedAt), "and its own time")
+
+	newer := corpus.Reference{Key: "h1", CiteKey: "knuth", CSL: corpus.CSL{"title": "edited by hand"}, Status: "checked", UpdatedAt: existing.UpdatedAt.Add(time.Hour)}
+	n, err = st.ImportReferences(ctx, []corpus.Reference{newer})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, n)
+	got, err = st.Reference(ctx, "h1")
+	require.NoError(t, err)
+	require.Equal(t, "edited by hand", got.CSL["title"])
+}
+
+// A citation key another description already uses would break the table's
+// uniqueness and the whole import with it; that one entry is skipped instead.
+func TestImportSkipsADescriptionWhoseCitekeyIsTaken(t *testing.T) {
+	st, _, ctx := open(t)
+	_, err := st.SaveReference(ctx, "h1", corpus.CSL{"author": []any{map[string]any{"family": "Knuth"}}}, "checked")
+	require.NoError(t, err)
+
+	n, err := st.ImportReferences(ctx, []corpus.Reference{
+		{Key: "h2", CiteKey: "knuth", CSL: corpus.CSL{"title": "clash"}, Status: "draft", UpdatedAt: time.Now()},
+		{Key: "h3", CiteKey: "fine2021", CSL: corpus.CSL{"title": "fine"}, Status: "draft", UpdatedAt: time.Now()},
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, n)
+	_, err = st.Reference(ctx, "h2")
+	require.ErrorIs(t, err, store.ErrNoReference)
+}
+
+func TestTheBibliographySnapshotHoldsEveryDescriptionAndStyle(t *testing.T) {
+	st, _, ctx := open(t)
+	_, err := st.SaveReference(ctx, "h1", corpus.CSL{"title": "A"}, "draft")
+	require.NoError(t, err)
+	require.NoError(t, st.SaveStyle(ctx, "nature", "Nature", "<style/>"))
+
+	n, err := st.ImportStyles(ctx, []corpus.StyleXML{{ID: "nature", Title: "Nature", XML: "<style/>"}, {ID: "cell", Title: "Cell", XML: "<style c/>"}})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, n, "an identical style is not an import")
+
+	var refs []corpus.Reference
+	var styles []corpus.StyleXML
+	require.NoError(t, st.WithBibliography(ctx, func(r []corpus.Reference, s []corpus.StyleXML) error {
+		refs, styles = r, s
+		return nil
+	}))
+	require.Len(t, refs, 1)
+	require.Len(t, styles, 2)
 }

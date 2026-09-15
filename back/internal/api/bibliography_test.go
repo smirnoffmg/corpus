@@ -258,3 +258,42 @@ func TestBibliographyWithoutAStoreIsUnavailable(t *testing.T) {
 		t.Errorf("status = %d, want 503", code)
 	}
 }
+
+// A description is saved to the table and then to the file that is its system
+// of record. The table write is what the request is about; a file that could
+// not be written is logged, not turned into a failed save.
+func TestSavingADescriptionOrStyleExportsTheBibliography(t *testing.T) {
+	exports := 0
+	fail := false
+	export := func(context.Context) error {
+		exports++
+		if fail {
+			return errors.New("disk full")
+		}
+		return nil
+	}
+	srv := httptest.NewServer(api.New(&fakeStore{}, &fakeEmbedder{},
+		api.WithBibliography(newBibliography(), fakeLookup{}), api.WithBibliographyExport(export)).Handler())
+	defer srv.Close()
+
+	if code, _ := send(t, http.MethodPut, srv.URL+"/bibliography?kind=book&path=a.pdf", `{"csl":{"title":"T"},"status":"checked"}`); code != http.StatusOK {
+		t.Fatalf("PUT = %d", code)
+	}
+	if code, _ := send(t, http.MethodPost, srv.URL+"/styles", nature); code != http.StatusCreated {
+		t.Fatalf("POST /styles = %d", code)
+	}
+	if exports != 2 {
+		t.Errorf("exported %d times, want after each of the two changes", exports)
+	}
+
+	fail = true
+	if code, _ := send(t, http.MethodPut, srv.URL+"/bibliography?kind=book&path=a.pdf", `{"csl":{"title":"T2"},"status":"checked"}`); code != http.StatusOK {
+		t.Errorf("a failed export turned a saved description into status %d", code)
+	}
+	if code, _ := send(t, http.MethodPut, srv.URL+"/bibliography?kind=book&path=a.pdf", `{"status":"checked"}`); code != http.StatusBadRequest {
+		t.Errorf("status = %d", code)
+	}
+	if exports != 3 {
+		t.Errorf("exported %d times, want no export for a refused save", exports)
+	}
+}

@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/smirnoffmg/corpus/internal/bibfile"
 	"github.com/smirnoffmg/corpus/internal/embed"
 	"github.com/smirnoffmg/corpus/internal/extract"
 	"github.com/smirnoffmg/corpus/internal/index"
@@ -30,6 +31,7 @@ func run() error {
 		booksDir   = flag.String("books", "/data/books", "directory with PDF books")
 		vaultDir   = flag.String("vault", "/data/vault", "Obsidian vault root")
 		docsDir    = flag.String("docs", "/data/docs", "reference manuals, one directory of HTML per manual; empty skips them")
+		bibDir     = flag.String("bibliography", "/data/bibliography", "directory of the bibliography file, the descriptions' system of record; empty keeps them in the database alone")
 		interval   = flag.Duration("interval", 0, "reindex period; 0 means index once and exit")
 		ollama     = flag.String("ollama", "http://host.docker.internal:11434", "ollama base URL")
 		model      = flag.String("model", "bge-m3", "embedding model")
@@ -66,7 +68,12 @@ func run() error {
 		slog.InfoContext(ctx, "requeued quarantined chunks", "chunks", n)
 	}
 
+	var bibliography index.Bibliography
+	if *bibDir != "" {
+		bibliography = bibfile.New(st, *bibDir)
+	}
 	indexer := index.New(st, embed.New(*ollama, *model), index.Options{
+		Bibliography: bibliography,
 		Books:        *booksDir,
 		Vault:        *vaultDir,
 		Docs:         *docsDir,

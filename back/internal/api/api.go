@@ -53,8 +53,9 @@ type Service struct {
 	maxUpload int64
 	vault     string
 
-	bibliography Bibliography
-	lookup       Lookup
+	bibliography       Bibliography
+	lookup             Lookup
+	exportBibliography func(context.Context) error
 
 	queryTimeout   time.Duration
 	statusTimeout  time.Duration

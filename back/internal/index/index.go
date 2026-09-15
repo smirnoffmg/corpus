@@ -63,6 +63,15 @@ type Options struct {
 	BookSplitter extract.Splitter // how long a book page chunk may be
 	NoteSplitter extract.Splitter // how long a note chunk may be
 	DocsSplitter extract.Splitter // how long a manual section chunk may be
+	// Bibliography is the file the bibliographic descriptions are kept in;
+	// nil leaves them in the database alone.
+	Bibliography Bibliography
+}
+
+// Bibliography is the bibliography's system of record outside the database.
+type Bibliography interface {
+	Import(ctx context.Context) (int, error)
+	Export(ctx context.Context) error
 }
 
 type Indexer struct {
@@ -76,7 +85,9 @@ type Indexer struct {
 // purpose.
 func maxParallel() int { return min(runtime.NumCPU(), 8) }
 
-func New(store Store, embedder Embedder, opts Options) *Indexer {
+// New takes Options by value on purpose: it is called once per process, and a
+// copy keeps the caller's struct from changing under a running indexer.
+func New(store Store, embedder Embedder, opts Options) *Indexer { //nolint:gocritic // see above
 	if opts.Parallel <= 0 {
 		opts.Parallel = maxParallel()
 	}
@@ -109,6 +120,17 @@ func (ix *Indexer) Pass(ctx context.Context) error {
 func (ix *Indexer) Index(ctx context.Context) error {
 	start := time.Now()
 
+	// The file first: a description restored from it must be in the table
+	// before the pass drafts one for the same source. A failure costs this
+	// pass the import, not the index.
+	if ix.opts.Bibliography != nil {
+		if n, err := ix.opts.Bibliography.Import(ctx); err != nil {
+			slog.ErrorContext(ctx, "importing the bibliography file", "err", err)
+		} else if n > 0 {
+			slog.InfoContext(ctx, "bibliography file applied", "changed", n)
+		}
+	}
+
 	books, err := ix.indexKind(ctx, "book", ix.opts.Books, ".pdf", func(path string) ([]corpus.Chunk, error) {
 		return ix.opts.BookSplitter.PDF(ctx, path)
 	})
@@ -137,6 +159,11 @@ func (ix *Indexer) Index(ctx context.Context) error {
 	// failure here costs a draft, not the pass.
 	if draftErr := ix.draft(ctx, docsManuals(ix.opts.Docs)); draftErr != nil && ctx.Err() == nil {
 		slog.WarnContext(ctx, "drafting descriptions", "err", draftErr)
+	}
+	if ix.opts.Bibliography != nil {
+		if exportErr := ix.opts.Bibliography.Export(ctx); exportErr != nil {
+			slog.ErrorContext(ctx, "writing the bibliography file", "err", exportErr)
+		}
 	}
 
 	sources, chunks, err := ix.store.Stats(ctx)

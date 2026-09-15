@@ -30,15 +30,18 @@ cited in papers.
 Descriptions are the one thing in the database typed by hand, so they are
 filed by what the source *is* — a book's content hash, `manual:<name>` for a
 manual — without a foreign key. Renaming, moving, pruning or re-uploading a
-file leaves its description in place. A citation key, once given, never
-changes, since papers already cite it.
+file leaves its description in place. A draft's citation key follows its
+record; once the description is checked the key is fixed, since papers cite it.
 
-They are **not** rebuilt from the files if the database is lost. Export them
-before anything risky — `docker compose down -v`, restoring the volume:
-
-```sh
-curl -o corpus.json 'http://localhost:8080/bibliography/export?format=csl-json'
-```
+**Their system of record is a file, not the database.** Every change is written
+to `bibliography/references.json` in the library directory — pretty-printed,
+sorted by citation key, so a change reads as a diff — with added styles beside
+it in `bibliography/styles/*.csl`. The indexer applies the file on every pass:
+a description the table lacks, or holds in an older version, is taken from the
+file, citation key and time included. So a lost database volume costs nothing
+typed by hand, and the file can be edited, versioned or restored from a backup.
+Of a description changed on both sides, the newer wins; removing one from the
+file does not remove it from the table.
 
 ## Citing a passage
 

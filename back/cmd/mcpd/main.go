@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/smirnoffmg/corpus/internal/api"
+	"github.com/smirnoffmg/corpus/internal/bibfile"
 	"github.com/smirnoffmg/corpus/internal/cite"
 	"github.com/smirnoffmg/corpus/internal/embed"
 	"github.com/smirnoffmg/corpus/internal/store"
@@ -45,6 +46,7 @@ func run() error {
 	efSearch := flag.Int("ef-search", 0, "hnsw.ef_search; 0 leaves the pgvector default of 40")
 	books := flag.String("books", "/data/books", "book library that uploaded PDFs are saved into")
 	docs := flag.String("docs", "/data/docs", "manuals directory that uploaded ZIPs are unpacked into")
+	bibliography := flag.String("bibliography", "/data/bibliography", "directory of the bibliography file, the descriptions' system of record; empty keeps them in the database alone")
 	uploadMax := flag.Int64("upload-max", 300<<20, "largest upload accepted, in bytes")
 	allowedHosts := flag.String("allowed-hosts", "localhost,127.0.0.1,::1", "comma-separated host names requests may be addressed to; anything else is refused, against DNS rebinding")
 	// Inside the container the vault is /data/vault; its Obsidian name is the
@@ -74,6 +76,9 @@ func run() error {
 	}
 
 	opts := []api.Option{api.WithVault(*vaultName), api.WithBibliography(st, cite.NewLookup())}
+	if *bibliography != "" {
+		opts = append(opts, api.WithBibliographyExport(bibfile.New(st, *bibliography).Export))
+	}
 	// Uploads are an addition to search, not a condition of it: a server whose
 	// library directories are missing still answers queries.
 	if lib, err := upload.Open(*books, *docs, upload.Limits{}); err != nil {
