@@ -79,17 +79,35 @@ func folioCandidates(page string) []int {
 		if i >= edgeLines && i < len(lines)-edgeLines {
 			continue
 		}
-		fields := strings.Fields(line)
+		fields := strings.Fields(bareBracketed(line))
 		if len(fields) == 0 {
 			continue
 		}
-		for _, field := range []string{fields[0], fields[len(fields)-1]} {
+		ends := []string{fields[0]}
+		if len(fields) > 1 {
+			ends = append(ends, fields[len(fields)-1])
+		}
+		for _, field := range ends {
 			if n, err := strconv.Atoi(field); err == nil && n > 0 && n <= maxFolio {
 				out = append(out, n)
 			}
 		}
 	}
 	return out
+}
+
+// bareBracketed unwraps a line that is only a bracketed number, as Packt
+// prints its folios: "[ 327 ]". Brackets anywhere else — a citation mark
+// inside a sentence — stay, so their numbers are not taken for pages.
+func bareBracketed(line string) string {
+	if inner, ok := strings.CutPrefix(line, "["); ok {
+		if inner, ok = strings.CutSuffix(inner, "]"); ok {
+			if _, err := strconv.Atoi(strings.TrimSpace(inner)); err == nil {
+				return inner
+			}
+		}
+	}
+	return line
 }
 
 func containsInt(haystack []int, needle int) bool {

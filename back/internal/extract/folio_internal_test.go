@@ -84,3 +84,33 @@ func TestDetectFoliosSeesPastStampedHeaders(t *testing.T) {
 		t.Errorf("page 56 of the PDF printed number = %d, want 37", got)
 	}
 }
+
+// Packt prints the page number alone at the foot, in brackets: "[ 327 ]".
+func TestDetectFoliosReadsBracketedFolios(t *testing.T) {
+	pages := make([]string, 0, 45)
+	for i := range 5 {
+		pages = append(pages, fmt.Sprintf("Table of Contents\n\n[ %s ]\n", []string{"i", "ii", "iii", "iv", "v"}[i]))
+	}
+	for i := 1; i <= 40; i++ {
+		pages = append(pages, fmt.Sprintf("Chapter 18\n\nThe EAI Siebel Adapter business service\n\n[ %d ]\n", i))
+	}
+	folios := detectFolios(pages)
+	if got := folios[5]; got != 1 {
+		t.Errorf("first body page printed number = %d, want 1", got)
+	}
+	if got := folios[44]; got != 40 {
+		t.Errorf("last body page printed number = %d, want 40", got)
+	}
+}
+
+func TestFolioCandidatesReadBracketsOnlyAroundANumber(t *testing.T) {
+	if got := folioCandidates("[ 327 ]\n"); len(got) != 1 || got[0] != 327 {
+		t.Errorf("candidates = %v, want [327]", got)
+	}
+	if got := folioCandidates("[12]\n"); len(got) != 1 || got[0] != 12 {
+		t.Errorf("candidates = %v, want [12]", got)
+	}
+	if got := folioCandidates("see [ 3 ] and [ 4 ] above\n"); len(got) != 0 {
+		t.Errorf("candidates = %v, want none: citation marks inside a sentence are not folios", got)
+	}
+}
