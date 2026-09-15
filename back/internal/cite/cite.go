@@ -12,6 +12,8 @@ import (
 	"strings"
 	"unicode"
 
+	"golang.org/x/text/unicode/norm"
+
 	"github.com/smirnoffmg/corpus/internal/corpus"
 )
 
@@ -22,14 +24,27 @@ var translit = map[rune]string{
 	'э': "e", 'ю': "yu", 'я': "ya",
 }
 
+// Letters decomposition does not reduce to ASCII.
+var latinExtra = map[rune]string{'æ': "ae", 'ø': "o", 'ß': "ss", 'œ': "oe", 'ł': "l", 'đ': "d", 'þ': "th"}
+
 func slug(s string) string {
 	var b strings.Builder
 	for _, r := range strings.ToLower(s) {
 		switch {
 		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
 			b.WriteRune(r)
+		case translit[r] != "" || latinExtra[r] != "":
+			// Cyrillic is looked up whole: decomposed, й would lose its breve
+			// and read as и.
+			b.WriteString(translit[r] + latinExtra[r])
 		default:
-			b.WriteString(translit[r])
+			// Decomposed, "ö" is "o" and a combining mark; keeping the ASCII
+			// part keeps the letter, so Böhme is bohme, not bhme.
+			for _, part := range norm.NFD.String(string(r)) {
+				if part >= 'a' && part <= 'z' {
+					b.WriteRune(part)
+				}
+			}
 		}
 	}
 	return b.String()

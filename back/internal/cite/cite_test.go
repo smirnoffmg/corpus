@@ -17,6 +17,9 @@ func TestKeyBase(t *testing.T) {
 		{"first author and year", corpus.CSL{"author": []any{map[string]any{"family": "Kleppmann", "given": "Martin"}}, "issued": map[string]any{"date-parts": []any{[]any{2017.0}}}}, "kleppmann2017"},
 		{"cyrillic is transliterated", corpus.CSL{"author": []any{map[string]any{"family": "Клеппман"}}, "issued": map[string]any{"date-parts": []any{[]any{2018}}}}, "kleppman2018"},
 		{"no author falls back to the title", corpus.CSL{"title": "The Art of Computer Programming"}, "art"},
+		{"diacritics are dropped, not the letters", corpus.CSL{"author": []any{map[string]any{"family": "Böhme"}}, "issued": map[string]any{"date-parts": []any{[]any{2010}}}}, "bohme2010"},
+		{"й and ё keep their transliteration", corpus.CSL{"author": []any{map[string]any{"family": "Бойко-Королёв"}}}, "boykokorolev"},
+		{"a ligature and a cedilla", corpus.CSL{"author": []any{map[string]any{"family": "Façade-Ærø"}}}, "facadeaero"},
 		{"a literal author", corpus.CSL{"author": []any{map[string]any{"literal": "scikit-learn developers"}}}, "scikitlearn"},
 		{"nothing at all", corpus.CSL{}, "ref"},
 	}
