@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -46,12 +47,15 @@ func (s score) hit() float64 { return float64(s.found) / float64(s.queries) }
 
 func main() {
 	addr := flag.String("addr", "http://localhost:8080", "corpus server")
-	path := flag.String("queries", "eval/queries.json", "judged query set")
+	// The judged set is private: its answers are notes of the vault and pages of
+	// books in the library, so it lives beside the library, not in the
+	// repository. eval/example.json is a public set on freely available manuals.
+	path := flag.String("queries", defaultQueries(), "judged query set")
 	limit := flag.Int("limit", 10, "hits to request per query")
 	verbose := flag.Bool("v", false, "list the queries each mode misses")
 	norm := flag.Int("norm", 0, "ts_rank_cd length normalisation bit mask to measure")
 	boost := flag.Float64("title-boost", 0, "rank added when the source title matches the query; unset leaves the service default")
-	only := flag.String("kind", "", "measure only queries of this kind: book or vault")
+	only := flag.String("kind", "", "measure only queries of this kind: book, vault or docs")
 	flag.Parse()
 
 	// Sending title_boost unconditionally would measure a search the service
@@ -123,6 +127,14 @@ func main() {
 			}
 		}
 	}
+}
+
+func defaultQueries() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "eval/example.json"
+	}
+	return filepath.Join(home, ".corpus", "eval", "queries.json")
 }
 
 func report(mode, label string, s *score) {

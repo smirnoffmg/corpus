@@ -4,14 +4,31 @@ How retrieval quality is measured, and the decisions the numbers settled.
 
 ## Evaluation
 
-`back/eval/queries.json` holds judged queries: a question, and the pages that answer
-it. Ground truth was located by exact phrase in the text, never by this system's
+A judged set is a list of queries, each with the pages or notes that answer
+it. Ground truth is located by exact phrase in the text, never by this system's
 own ranking — a set built from the tool's own output would only measure its
 agreement with itself.
 
+**The set is private, and lives outside the repository.** Its answers are notes
+of one person's vault and pages of the books in one library, so it says what is
+in them, and nobody else could reproduce its numbers anyway. `cmd/eval` reads
+`~/.corpus/eval/queries.json` by default; the commit hook skips the evaluation
+when the file is absent. Every figure quoted below was measured on that set and
+that corpus.
+
+**`back/eval/example.json` is a public set** of 14 queries on the scikit-learn
+and NLTK manuals (see [manuals](manuals.md) for downloading them), so a fresh
+clone has something to measure, and the manuals are measured at all:
+
 ```sh
-go run ./cmd/eval -v
+cd back
+go run ./cmd/eval -v                               # the private set
+go run ./cmd/eval -queries eval/example.json -v    # the public one
 ```
+
+Paths in a judgement are matched as substrings of a hit's path, pages against
+the PDF page; a judgement without pages matches any chunk of the source, which
+is how notes and manual pages are judged.
 
 The queries are split between exact terminology and paraphrases — questions in
 the reader's own words, sometimes in the other language from the book — because

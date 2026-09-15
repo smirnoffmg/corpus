@@ -37,6 +37,7 @@ describe('CitationPanel', () => {
     expect(screen.getByText('\\autocite[189]{kleppman2018}')).toBeInTheDocument()
     expect(screen.getByText('[@kleppman2018, p. 189]')).toBeInTheDocument()
     expect(screen.getByText('Описание не проверено')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'citeproc-js' })).toBeInTheDocument()
     expect(await screen.findByRole('option', { name: 'Nature' })).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Скопировать: LaTeX' }))

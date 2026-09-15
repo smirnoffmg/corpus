@@ -121,6 +121,9 @@ export function CitationPanel({ passage }: { passage: Passage }) {
           </div>
         ))}
       </dl>
+      <p className="attribution">
+        Оформление: <a href="https://github.com/Juris-M/citeproc-js">citeproc-js</a> © Frank Bennett, CPAL 1.0
+      </p>
     </section>
   )
 }

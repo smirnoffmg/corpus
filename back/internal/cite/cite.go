@@ -208,6 +208,8 @@ func ParseAuthors(s string) []map[string]any {
 }
 
 var (
+	// "[SHELF] Title" or "Title (some-site.org)": tags a file picks up on its way
+	// to the library, not part of the title.
 	filenameTags = regexp.MustCompile(`^(?:\s*\[[^\]]*\])+\s*|\s*\([^()\s]+\.(?:org|com|net|io|ru)\)\s*$`)
 	// "[PROGRAMMING][Clean Code]": a shelf tag, then the title in brackets too.
 	bracketedOnly = regexp.MustCompile(`^(?:\[[^\]]*\])*\[([^\]]+)\]$`)

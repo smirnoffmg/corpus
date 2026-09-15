@@ -33,11 +33,22 @@ characters, and those are the defaults in code, with the numbers beside them.
 
 ## Run
 
+Needs Docker with Compose, and [ollama](https://ollama.com) running on the host
+with the model pulled (`ollama pull bge-m3`). It is built and used on macOS,
+where a containerised ollama cannot reach the GPU; elsewhere, point
+`--ollama` at wherever ollama runs.
+
 ```sh
 cp .env.example .env   # point VAULT_DIR at the vault; the library defaults to ~/.corpus/data
 docker compose up -d --build
 docker compose logs -f indexer
 ```
+
+**Keep it on 127.0.0.1.** There is no login: anyone who can reach the ports
+can read everything indexed and add to the library. Compose publishes them on
+127.0.0.1 only, and both servers refuse requests addressed to any other host
+name, which is what stops other web sites open in the browser from reaching
+them. See [architecture](docs/architecture.md).
 
 The library is one directory, `LIBRARY_DIR` (by default `~/.corpus/data`):
 `books/` for PDFs and `manuals/` for [reference manuals](docs/manuals.md).
@@ -135,3 +146,8 @@ The remaining quarter is fixed by renaming the file.
 - [Citing sources](docs/citing.md) — descriptions, ГОСТ/APA/IEEE, BibLaTeX and Pandoc export
 - [Working offline](docs/offline.md) — what to do before a flight
 - [Development](docs/development.md) — pre-commit checks, lint, races
+
+## License
+
+MIT — see [LICENSE](LICENSE). Citation styles, locales and the packages the
+build installs have licenses of their own: [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES.md).

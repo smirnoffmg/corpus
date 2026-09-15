@@ -800,3 +800,9 @@ td.description-draft a {
   padding-left: 0.9rem;
   border-left: 3px solid var(--docs);
 }
+
+.attribution {
+  margin: 0.6rem 0 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
