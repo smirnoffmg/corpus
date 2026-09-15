@@ -46,6 +46,7 @@ type Store interface {
 	RecordFailure(ctx context.Context, keys []string, reason string) error
 	SaveEmbeddings(ctx context.Context, keys []string, vectors [][]float32) error
 	PruneEmbeddings(ctx context.Context) (int64, error)
+	CleanTextIndex(ctx context.Context) (int64, error)
 	UndescribedBooks(ctx context.Context) ([]corpus.Undescribed, error)
 	EnsureDraft(ctx context.Context, key string, csl corpus.CSL) error
 }
@@ -146,6 +147,15 @@ func (ix *Indexer) Index(ctx context.Context) error {
 	docs, err := ix.indexKind(ctx, "docs", ix.opts.Docs, ".html", ix.opts.DocsSplitter.HTML)
 	if err != nil {
 		return err
+	}
+
+	// Rewritten chunks leave their lexemes in the text index's pending list,
+	// which searches scan until it is merged. Merging costs nothing when nothing
+	// changed, but a pass that found nothing new has no reason to ask.
+	if books+notes+docs > 0 {
+		if _, cleanErr := ix.store.CleanTextIndex(ctx); cleanErr != nil {
+			slog.WarnContext(ctx, "merging the text index's pending list", "err", cleanErr)
+		}
 	}
 
 	// Vectors are filed by text, so what changed or deleted files embedded is

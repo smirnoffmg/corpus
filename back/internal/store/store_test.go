@@ -241,3 +241,28 @@ func TestSchemaVersionsTellAnUnmigratedDatabase(t *testing.T) {
 	require.NoError(t, err)
 	require.Less(t, current, target)
 }
+
+// A bulk rewrite leaves its lexemes in the GIN index's pending list, which every
+// search then scans in full until it is merged (Рогов, PostgreSQL 18 изнутри,
+// с. 624–625). The indexer merges it after a pass that changed files.
+func TestCleaningTheTextIndexEmptiesItsPendingList(t *testing.T) {
+	st, pool, ctx := open(t)
+	chunks := make([]corpus.Chunk, 200)
+	for i := range chunks {
+		chunks[i] = corpus.Chunk{Ord: i + 1, Page: i + 1, Lang: "russian", Body: fmt.Sprintf("корпускрипт страница %d с разными словами %d", i, i*7)}
+	}
+	require.NoError(t, st.Replace(ctx, book("__test__/bulk.pdf", "Книга", "h1"), chunks))
+
+	_, err := st.CleanTextIndex(ctx)
+	require.NoError(t, err)
+
+	again, err := st.CleanTextIndex(ctx)
+	require.NoError(t, err)
+	require.Zero(t, again, "nothing is left pending after a clean")
+
+	var scale string
+	require.NoError(t, pool.QueryRow(ctx, `
+		SELECT coalesce((SELECT option_value FROM pg_options_to_table(reloptions) WHERE option_name = 'autovacuum_vacuum_scale_factor'), '')
+		FROM pg_class WHERE relname = 'chunks'`).Scan(&scale))
+	require.Equal(t, "0.05", scale)
+}

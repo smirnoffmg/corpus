@@ -334,6 +334,15 @@ func deref(p *string) string {
 	return *p
 }
 
+// CleanTextIndex merges the GIN index's pending list into the index proper and
+// reports how many pending pages it merged. A bulk rewrite leaves its lexemes
+// there, and every search scans the list in full until it is merged.
+func (s *Store) CleanTextIndex(ctx context.Context) (int64, error) {
+	var pages int64
+	err := s.pool.QueryRow(ctx, `SELECT gin_clean_pending_list('chunks_tsv_idx')`).Scan(&pages)
+	return pages, err
+}
+
 func (s *Store) Stats(ctx context.Context) (sources, chunks int64, err error) {
 	err = s.pool.QueryRow(ctx,
 		`SELECT (SELECT count(*) FROM sources), (SELECT count(*) FROM chunks)`).Scan(&sources, &chunks)

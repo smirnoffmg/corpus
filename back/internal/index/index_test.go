@@ -36,6 +36,7 @@ type recordingStore struct {
 	failures  map[string]string
 	embedded  []string
 	prunes    int
+	cleans    int
 	stats     int
 	drafts    map[string]corpus.CSL
 	onStats   func(calls int) // called with the lock held, once per finished Index
@@ -178,6 +179,13 @@ func (s *recordingStore) SaveEmbeddings(_ context.Context, keys []string, _ [][]
 	defer s.mu.Unlock()
 	s.embedded = append(s.embedded, keys...)
 	return nil
+}
+
+func (s *recordingStore) CleanTextIndex(context.Context) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cleans++
+	return 0, nil
 }
 
 func (s *recordingStore) PruneEmbeddings(context.Context) (int64, error) {
@@ -876,5 +884,23 @@ func TestAPassImportsTheBibliographyFirstAndExportsItLast(t *testing.T) {
 	defer bib.mu.Unlock()
 	if strings.Join(bib.calls, ",") != "import,export,stats" {
 		t.Errorf("calls = %v, want import, then export after drafting, before the pass ends", bib.calls)
+	}
+}
+
+func TestAPassThatChangedFilesCleansTheTextIndex(t *testing.T) {
+	notes, books := vault(t, 2)
+	store := newStore()
+	ix := index.New(store, nopEmbedder{}, index.Options{Books: books, Vault: notes})
+
+	if err := ix.Index(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := ix.Index(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if store.cleans != 1 {
+		t.Errorf("cleaned %d times, want once — after the pass that indexed the notes, not the one that found nothing new", store.cleans)
 	}
 }
