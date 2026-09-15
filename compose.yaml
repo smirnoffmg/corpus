@@ -1,3 +1,9 @@
+# Pinned, so that the database volume is corpus_pgdata whatever the clone's
+# directory is called: Compose otherwise names the project, and its volumes,
+# after the directory, and a clone under another name starts on an empty
+# database — without the bibliographic descriptions, which files cannot rebuild.
+name: corpus
+
 services:
   db:
     image: pgvector/pgvector:pg18
