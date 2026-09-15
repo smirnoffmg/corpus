@@ -208,9 +208,9 @@ func TestSearchMapsColumnsToTheRightFields(t *testing.T) {
 // return it at all — which is a different failure from a field being wrong.
 func find(t *testing.T, hits []corpus.Hit, path string) corpus.Hit {
 	t.Helper()
-	for _, h := range hits {
-		if h.Path == path {
-			return h
+	for i := range hits {
+		if hits[i].Path == path {
+			return hits[i]
 		}
 	}
 	require.FailNowf(t, "not found", "no hit for %s among %d hits", path, len(hits))

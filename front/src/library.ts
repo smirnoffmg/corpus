@@ -1,11 +1,14 @@
 import { plural } from './text'
 import type { Kind, SourceStatus } from './api'
 
-export type State = 'waiting' | 'embedding' | 'ready' | 'errors'
+export type State = 'waiting' | 'recognising' | 'embedding' | 'ready' | 'errors'
 
-type Counts = Pick<SourceStatus, 'chunks' | 'embedded' | 'quarantined'>
+export type Counts = Pick<SourceStatus, 'chunks' | 'embedded' | 'quarantined' | 'scan_pages' | 'scan_recognised' | 'scan_failed'>
 
-export function progress({ chunks, embedded, quarantined }: Counts): { state: State; fraction: number } {
+export function progress({ chunks, embedded, quarantined, scan_pages = 0, scan_recognised = 0, scan_failed }: Counts): { state: State; fraction: number } {
+  if (chunks === 0 && scan_pages > 0) {
+    return { state: scan_failed ? 'errors' : 'recognising', fraction: scan_recognised / scan_pages }
+  }
   if (chunks === 0) return { state: 'waiting', fraction: 0 }
   const fraction = embedded / chunks
   if (embedded === chunks) return { state: 'ready', fraction }
@@ -98,11 +101,14 @@ export function stateLabel(counts: Counts): string {
   switch (state) {
     case 'waiting':
       return 'Ждёт индексации'
+    case 'recognising':
+      return counts.scan_recognised ? `Распознаётся ${Math.floor(fraction * 100)}%` : 'Скан: ждёт распознавания'
     case 'embedding':
       return `Векторизация ${Math.floor(fraction * 100)}%`
     case 'ready':
       return 'Готово'
     case 'errors':
+      if (counts.chunks === 0) return 'Скан: распознать не удалось'
       return `${counts.quarantined} ${plural(counts.quarantined, withoutVector)}`
   }
 }

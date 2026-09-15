@@ -11,6 +11,7 @@ export interface Hit {
   page?: number
   rank: number
   snippet: string
+  ocr?: boolean
 }
 
 export interface Passage {
@@ -23,6 +24,7 @@ export interface Passage {
   body: string
   previous?: string
   next?: string
+  ocr?: boolean
 }
 
 export interface SourceStatus {
@@ -34,6 +36,13 @@ export interface SourceStatus {
   embedded: number
   quarantined: number
   description: '' | 'draft' | 'checked'
+  ocr?: boolean
+  // A scan not yet indexed: its pages, how many are recognised, and whether
+  // recognition was given up on.
+  scan_pages?: number
+  scan_recognised?: number
+  scan_failed?: boolean
+  scan_error?: string
 }
 
 export type CSLRecord = Record<string, unknown>

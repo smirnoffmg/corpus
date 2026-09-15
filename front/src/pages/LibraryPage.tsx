@@ -5,7 +5,8 @@ import { describeHref } from '../cite'
 import { OriginalLink } from '../components/OriginalLink'
 import { StylesPanel } from '../components/StylesPanel'
 import { UploadPanel } from '../components/UploadPanel'
-import { groupManuals, originalUrl, progress, stateLabel } from '../library'
+import { RecognisedBadge } from '../components/RecognisedBadge'
+import { groupManuals, originalUrl, progress, stateLabel, type Counts } from '../library'
 import { VaultContext } from '../vault'
 import { plural } from '../text'
 
@@ -27,7 +28,9 @@ interface Row {
   href: string | null
   describe: { path: string; status: SourceStatus['description'] } | null
   detail: string
-  counts: { chunks: number; embedded: number; quarantined: number }
+  counts: Counts
+  ocr?: boolean
+  problem?: string
 }
 
 function rowsOf(kind: Kind, list: SourceStatus[], vault?: string): Row[] {
@@ -41,7 +44,20 @@ function rowsOf(kind: Kind, list: SourceStatus[], vault?: string): Row[] {
       counts: m,
     }))
   }
-  return list.map((s) => ({ key: s.path, title: s.title, href: originalUrl(s, vault), describe: kind === 'book' ? { path: s.path, status: s.description } : null, detail: s.path, counts: s }))
+  return list.map((s) => {
+    // A scan not yet indexed has no source to hang a description on.
+    const scan = s.chunks === 0 && (s.scan_pages ?? 0) > 0
+    return {
+      key: s.path,
+      title: s.title,
+      href: originalUrl(s, vault),
+      describe: kind === 'book' && !scan ? { path: s.path, status: s.description } : null,
+      detail: s.path,
+      counts: s,
+      ocr: s.ocr,
+      problem: s.scan_error,
+    }
+  })
 }
 
 export function LibraryPage({ pollMs = 5000 }: { pollMs?: number }) {
@@ -137,8 +153,10 @@ export function LibraryPage({ pollMs = 5000 }: { pollMs?: number }) {
                     <td className="detail">{r.detail}</td>
                     <td>
                       <span className="meter" style={{ '--fill': fraction } as React.CSSProperties} aria-hidden="true" />
-                      <span>{stateLabel(r.counts)}</span>
+                      <span title={state === 'errors' ? r.problem : undefined}>{stateLabel(r.counts)}</span>
+                      {r.ocr && <RecognisedBadge />}
                     </td>
+                    {kind === 'book' && !r.describe && <td />}
                     {r.describe && (
                       <td className={`description-${r.describe.status || 'none'}`}>
                         <Link to={describeHref(kind, r.describe.path)} aria-label={`Описание: ${r.title}`}>

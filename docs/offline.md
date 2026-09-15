@@ -24,11 +24,16 @@ and the UI bundles its fonts. What does need the network is getting there.
    size of scikit-learn's takes hours. Leave the laptop plugged in on the
    evening before.
 
-4. **Look up descriptions while online.** Filling a description from a DOI or
+4. **Let scanned books finish recognising.** A book with no text layer is read
+   by OCR after everything else is embedded, at a few seconds a page — a
+   400-page scan is about half an hour on two cores. The library shows
+   «Распознаётся N%»; recognition needs no network, only battery.
+
+5. **Look up descriptions while online.** Filling a description from a DOI or
    ISBN and adding a journal's citation style need the network; editing
    descriptions and citing in any added style do not. See [citing](citing.md).
 
-5. **Bring the manuals you will need.** Downloading one is the part that needs
+6. **Bring the manuals you will need.** Downloading one is the part that needs
    the network — see [manuals](manuals.md). Uploading and indexing it does not.
 
 ## In the air

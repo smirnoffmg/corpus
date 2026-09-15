@@ -27,6 +27,17 @@ type Source struct {
 	Path  string
 	Title string
 	Hash  string
+	// Recognised marks text read from a scan by OCR rather than taken from the
+	// PDF's text layer: close, but a reading, and worth checking before quoting.
+	Recognised bool
+}
+
+// Scan is a PDF with no text layer, waiting for its pages to be recognised.
+type Scan struct {
+	Hash       string
+	Path       string
+	Pages      int
+	Recognised int
 }
 
 // Query is everything a search takes. As a struct rather than six positional
@@ -63,6 +74,7 @@ type Hit struct {
 	Path    string  `json:"path"`
 	Locator string  `json:"locator"`
 	Anchor  string  `json:"anchor,omitempty"` // section id in an HTML source
+	OCR     bool    `json:"ocr,omitempty"`    // text recognised from a scan
 	Page    int     `json:"page,omitempty"`
 	Rank    float32 `json:"rank"`
 	Snippet string  `json:"snippet"`
@@ -78,7 +90,13 @@ type SourceStatus struct {
 	Chunks      int64     `json:"chunks"`
 	Embedded    int64     `json:"embedded"`
 	Quarantined int64     `json:"quarantined"`
-	Description string    `json:"description"` // "", "draft" or "checked"
+	Description string    `json:"description"`   // "", "draft" or "checked"
+	OCR         bool      `json:"ocr,omitempty"` // built from recognised pages
+	// A scan still being recognised: it has pages and no chunks yet.
+	ScanPages      int    `json:"scan_pages,omitempty"`
+	ScanRecognised int    `json:"scan_recognised,omitempty"`
+	ScanFailed     bool   `json:"scan_failed,omitempty"`
+	ScanError      string `json:"scan_error,omitempty"`
 }
 
 // CSL is a bibliographic record in CSL-JSON, the format citeproc, Pandoc and
@@ -138,6 +156,7 @@ type Passage struct {
 	Path     string `json:"path"`
 	Locator  string `json:"locator"`
 	Anchor   string `json:"anchor,omitempty"`
+	OCR      bool   `json:"ocr,omitempty"`
 	Page     int    `json:"page,omitempty"` // PDF page, to open the file at the passage
 	Body     string `json:"body"`
 	Previous string `json:"previous,omitempty"`

@@ -4,6 +4,7 @@ import { search, type Hit, type Kind, type Mode, type Status } from '../api'
 import { Highlight } from '../components/Highlight'
 import { kindFilters, kindName, modes } from '../kinds'
 import { OriginalLink } from '../components/OriginalLink'
+import { RecognisedBadge } from '../components/RecognisedBadge'
 import { originalUrl } from '../library'
 import { VaultContext } from '../vault'
 import { plural } from '../text'
@@ -141,7 +142,10 @@ export function SearchPage({ status }: { status?: Status | null }) {
                 <Link to={`/read/${h.id}`} className="slip-title">
                   {h.title}
                 </Link>
-                <span className="slip-locator">{h.locator}</span>
+                <span className="slip-locator">
+                  {h.locator}
+                  {h.ocr && <RecognisedBadge />}
+                </span>
                 <span className="slip-kind">
                   {kindName[h.kind]}
                   {original && <OriginalLink kind={h.kind} href={original} className="slip-open" />}

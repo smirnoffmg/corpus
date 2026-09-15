@@ -75,6 +75,19 @@ describe('LibraryPage', () => {
     expect(within(rows[1]).getByRole('link', { name: 'Описание: Concurrency in Go' })).toHaveAttribute('href', '/describe?kind=book&path=Concurrency+in+Go.pdf')
   })
 
+  it('shows a scan being recognised, without a description to fill in yet', async () => {
+    stubApi((url) => (url.pathname === '/api/sources'
+      ? { body: { sources: [book({ path: 'bringhurst.pdf', title: 'bringhurst', chunks: 0, embedded: 0, scan_pages: 400, scan_recognised: 100 }), book({ ocr: true, path: 'nlp.pdf', title: 'NLP' })] } }
+      : undefined))
+    renderLibrary()
+
+    const scan = (await screen.findByText('bringhurst')).closest('tr')!
+    expect(within(scan).getByText('Распознаётся 25%')).toBeInTheDocument()
+    expect(within(scan).queryByRole('link', { name: /Описание/ })).toBeNull()
+    const recognised = screen.getByText('NLP').closest('tr')!
+    expect(within(recognised).getByText('Распознано')).toBeInTheDocument()
+  })
+
   it('shows a manual as one row with its pages summed', async () => {
     const calls = stubApi(() => ({ body: { sources: [
       { ...book(), kind: 'docs', path: 'nltk/index.html', title: 'nltk · NLTK', chunks: 3, embedded: 3 },

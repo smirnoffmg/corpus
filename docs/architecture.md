@@ -194,6 +194,33 @@ over one is just its public interface repeated (Khononov, printed p. 151). What
 the layering *does* enforce is direction: `back/internal/corpus` holds the types and
 imports nothing, and extraction, storage, ranking and the API all point at it.
 
+## Scanned books
+
+A PDF that `pdftotext` gets no usable page from is a scan, or a TeX book whose
+fonts have no Unicode map (it comes out as `Ëþáîå`, and the unreadable-page
+filter drops it). Such a book is recognised with Tesseract (`rus+eng`), and then
+indexed like any other: a chunk per page, cited by page.
+
+- **Queue.** The pass records the book in `scans` (hash, path, page count) and
+  goes on. Recognition runs in the indexer loop *after* the pass and the
+  embedding queue: it is the slowest work here, and a scan's text is worth less
+  than vectors for books that already have text. One book at a time.
+- **Cache is the record, not the database.** Every page is written to
+  `LIBRARY_DIR/ocr/<sha256>/<page>.txt` as soon as it is read. An interrupted
+  book resumes at the missing pages; a renamed one is not read again; a rebuilt
+  database costs no recognition at all — the next pass finds the cache full and
+  indexes from it.
+- **Interruptible.** An upload's reindex request stops recognition between
+  pages, so a new book with text is searchable in seconds, not after the scan.
+- **Failures.** Three failed attempts set a scan aside, with the reason shown in
+  the library; the other scans keep moving.
+- **Honest about quality.** Sources, hits and passages carry `ocr: true`, and
+  the UI marks them «Распознано»: a recognised quote can carry misread letters
+  and is worth checking against the page before it goes into a paper.
+- **Cost.** `pdftoppm -r 300 -gray | tesseract` with `OMP_THREAD_LIMIT=1` is
+  about 2–2.5 s a page a core; `--ocr-workers` (default 2) sets the cores. The
+  image grows by the Tesseract binary and the two language models (~40 MB).
+
 ## A note on filtered vector search
 
 An HNSW scan collects its candidates *before* the `WHERE` clause runs, so

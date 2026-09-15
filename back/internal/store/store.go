@@ -174,13 +174,13 @@ func (s *Store) Replace(ctx context.Context, src corpus.Source, chunks []corpus.
 
 	var id int64
 	err = tx.QueryRow(ctx, `
-		INSERT INTO sources (kind, path, title, hash)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO sources (kind, path, title, hash, recognised)
+		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (path) DO UPDATE
 		    SET kind = EXCLUDED.kind, title = EXCLUDED.title,
-		        hash = EXCLUDED.hash, indexed_at = now()
+		        hash = EXCLUDED.hash, recognised = EXCLUDED.recognised, indexed_at = now()
 		RETURNING id`,
-		src.Kind, src.Path, src.Title, src.Hash).Scan(&id)
+		src.Kind, src.Path, src.Title, src.Hash, src.Recognised).Scan(&id)
 	if err != nil {
 		return fmt.Errorf("upsert source %s: %w", src.Path, err)
 	}
@@ -271,6 +271,7 @@ SELECT c.id,
        s.path,
        c.heading,
        coalesce(c.anchor, '') AS anchor,
+       s.recognised AS ocr,
        coalesce(c.page, 0) AS page,
        coalesce(c.printed_page, 0) AS printed_page,
        ts_rank_cd(c.tsv, CASE c.lang WHEN 'russian' THEN q.ru ELSE q.en END, $4)
@@ -311,6 +312,7 @@ type hitRow struct {
 	Path    string  `db:"path"`
 	Heading *string `db:"heading"`
 	Anchor  string  `db:"anchor"`
+	OCR     bool    `db:"ocr"`
 	Page    int     `db:"page"`
 	Printed int     `db:"printed_page"`
 	Rank    float32 `db:"rank"`
@@ -323,7 +325,8 @@ func collectHits(rows pgx.Rows) ([]corpus.Hit, error) {
 		return nil, err
 	}
 	hits := make([]corpus.Hit, len(found))
-	for i, r := range found {
+	for i := range found {
+		r := &found[i]
 		hits[i] = corpus.Hit{
 			ID:      r.ID,
 			Kind:    r.Kind,
@@ -331,6 +334,7 @@ func collectHits(rows pgx.Rows) ([]corpus.Hit, error) {
 			Path:    r.Path,
 			Locator: corpus.Locator(deref(r.Heading), r.Page, r.Printed),
 			Anchor:  r.Anchor,
+			OCR:     r.OCR,
 			Page:    r.Page,
 			Rank:    r.Rank,
 			Snippet: r.Snippet,

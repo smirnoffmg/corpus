@@ -166,12 +166,12 @@ func capPerSource(hits []corpus.Hit, perSource int) []corpus.Hit {
 	}
 	seen := make(map[string]int, len(hits))
 	kept := hits[:0:0]
-	for _, h := range hits {
-		if seen[h.Path] >= perSource {
+	for i := range hits {
+		if seen[hits[i].Path] >= perSource {
 			continue
 		}
-		seen[h.Path]++
-		kept = append(kept, h)
+		seen[hits[i].Path]++
+		kept = append(kept, hits[i])
 	}
 	return kept
 }

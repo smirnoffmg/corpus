@@ -62,9 +62,10 @@ so the vault stays current while obsidian-git commits into it.
 
 Contents pages, subject indexes and near-empty dividers are dropped too: they
 match any query that names a term the book covers — which is every query — and
-answer none. A file that yields no text is not a source either: scans without an
-OCR layer and empty notes are dropped rather than kept as rows nothing can ever
-return. Templater sources under `99 - templates/` are code, not knowledge, and
+answer none. A book with no text layer — a scan, or a PDF whose fonts map to no
+Unicode — is recognised with Tesseract instead (see
+[architecture](docs/architecture.md#scanned-books)); an empty note is dropped
+rather than kept as a row nothing can ever return. Templater sources under `99 - templates/` are code, not knowledge, and
 are not walked. Re-parsing
 them each pass costs nothing — there is no text to pull, so poppler returns in
 milliseconds — and the drop is reported only when it actually removes something.

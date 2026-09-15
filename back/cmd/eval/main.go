@@ -242,8 +242,8 @@ func measureRecall(addr string, queries []query, efs string, k int, extra url.Va
 
 func ids(hits []corpus.Hit) []int64 {
 	out := make([]int64, len(hits))
-	for i, h := range hits {
-		out[i] = h.ID
+	for i := range hits {
+		out[i] = hits[i].ID
 	}
 	return out
 }

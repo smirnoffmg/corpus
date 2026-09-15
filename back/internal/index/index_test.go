@@ -1,10 +1,12 @@
 package index_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -37,6 +39,8 @@ type recordingStore struct {
 	embedded  []string
 	prunes    int
 	cleans    int
+	scans     map[string]corpus.Scan // by hash
+	scanSeen  []string
 	stats     int
 	drafts    map[string]corpus.CSL
 	onStats   func(calls int) // called with the lock held, once per finished Index
@@ -47,6 +51,7 @@ func newStore() *recordingStore {
 		replaced: map[string]int{},
 		sources:  map[string]corpus.Source{},
 		attempts: map[string]int{},
+		scans:    map[string]corpus.Scan{},
 		failures: map[string]string{},
 		drafts:   map[string]corpus.CSL{},
 		chunks:   map[string][]corpus.Chunk{},
@@ -179,6 +184,55 @@ func (s *recordingStore) SaveEmbeddings(_ context.Context, keys []string, _ [][]
 	defer s.mu.Unlock()
 	s.embedded = append(s.embedded, keys...)
 	return nil
+}
+
+func (s *recordingStore) MarkScan(_ context.Context, scan corpus.Scan) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if have, ok := s.scans[scan.Hash]; ok {
+		scan.Recognised = have.Recognised
+	}
+	s.scans[scan.Hash] = scan
+	return nil
+}
+
+func (s *recordingStore) NextScan(context.Context) (corpus.Scan, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var next corpus.Scan
+	found := false
+	for _, sc := range s.scans {
+		if _, indexed := s.sources[sc.Path]; indexed {
+			continue
+		}
+		if !found || sc.Path < next.Path {
+			next, found = sc, true
+		}
+	}
+	return next, found, nil
+}
+
+func (s *recordingStore) ScanProgress(_ context.Context, hash string, recognised int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sc := s.scans[hash]
+	sc.Recognised = recognised
+	s.scans[hash] = sc
+	return nil
+}
+
+func (s *recordingStore) ScanFailed(_ context.Context, hash, _ string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.scans, hash)
+	return nil
+}
+
+func (s *recordingStore) PruneScans(_ context.Context, seen []string) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.scanSeen = seen
+	return 0, nil
 }
 
 func (s *recordingStore) CleanTextIndex(context.Context) (int64, error) {
@@ -902,5 +956,145 @@ func TestAPassThatChangedFilesCleansTheTextIndex(t *testing.T) {
 	defer store.mu.Unlock()
 	if store.cleans != 1 {
 		t.Errorf("cleaned %d times, want once — after the pass that indexed the notes, not the one that found nothing new", store.cleans)
+	}
+}
+
+// blankPDF writes a one-page PDF with no text on its page: what pdftotext makes
+// of a scan.
+func blankPDF(t *testing.T, dir, name string) {
+	t.Helper()
+	if _, err := exec.LookPath("pdftotext"); err != nil {
+		t.Skip("pdftotext is not installed: the container has it, this machine does not")
+	}
+	objects := []string{
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",
+	}
+	var buf bytes.Buffer
+	buf.WriteString("%PDF-1.4\n")
+	offsets := make([]int, len(objects))
+	for i, o := range objects {
+		offsets[i] = buf.Len()
+		fmt.Fprintf(&buf, "%d 0 obj\n%s\nendobj\n", i+1, o)
+	}
+	xref := buf.Len()
+	fmt.Fprintf(&buf, "xref\n0 %d\n0000000000 65535 f \n", len(objects)+1)
+	for _, off := range offsets {
+		fmt.Fprintf(&buf, "%010d 00000 n \n", off)
+	}
+	fmt.Fprintf(&buf, "trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", len(objects)+1, xref)
+	if err := os.WriteFile(filepath.Join(dir, name), buf.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// fakeRecognizer stands in for Tesseract: a scan has pages, and is recognised
+// once Recognize has run on it.
+type fakeRecognizer struct {
+	mu         sync.Mutex
+	pages      int
+	recognised map[string]bool
+	calls      []string
+}
+
+func (f *fakeRecognizer) Pages(context.Context, string) (int, error) { return f.pages, nil }
+
+func (f *fakeRecognizer) Cached(hash string, pages int) ([]string, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.recognised[hash] {
+		return nil, false
+	}
+	out := make([]string, pages)
+	for i := range out {
+		out[i] = fmt.Sprintf("Распознанная страница %d. %s", i+1, strings.Repeat("Текст книги со сканированной страницы. ", 6))
+	}
+	return out, true
+}
+
+func (f *fakeRecognizer) Recognize(_ context.Context, hash, pdf string, pages int, _ <-chan struct{}, progress func(int)) (bool, error) {
+	f.mu.Lock()
+	f.calls = append(f.calls, pdf)
+	if f.recognised == nil {
+		f.recognised = map[string]bool{}
+	}
+	f.recognised[hash] = true
+	f.mu.Unlock()
+	progress(pages)
+	return true, nil
+}
+
+// A scan used to be dropped without a word; now it is recorded, so the library
+// can say what it is and how far its recognition got.
+func TestAScanIsRecordedRatherThanDropped(t *testing.T) {
+	notes, books := vault(t, 1)
+	blankPDF(t, books, "scan.pdf")
+	store := newStore()
+	ix := index.New(store, nopEmbedder{}, index.Options{Books: books, Vault: notes, OCR: &fakeRecognizer{pages: 3}})
+
+	if err := ix.Index(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if len(store.scans) != 1 {
+		t.Fatalf("scans = %v, want the one scan", store.scans)
+	}
+	for _, sc := range store.scans {
+		if sc.Path != "scan.pdf" || sc.Pages != 3 || sc.Hash == "" {
+			t.Errorf("scan = %+v", sc)
+		}
+	}
+	if _, ok := store.sources["scan.pdf"]; ok {
+		t.Error("an unrecognised scan became a source with no text")
+	}
+	if len(store.scanSeen) != 1 || store.scanSeen[0] != "scan.pdf" {
+		t.Errorf("scans pruned against %v, want the books the pass walked", store.scanSeen)
+	}
+}
+
+func TestWithoutOCRAScanIsLeftOutAsBefore(t *testing.T) {
+	notes, books := vault(t, 1)
+	blankPDF(t, books, "scan.pdf")
+	store := newStore()
+	if err := index.New(store, nopEmbedder{}, index.Options{Books: books, Vault: notes}).Index(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if len(store.scans) != 0 || len(store.sources) != 1 {
+		t.Errorf("scans %v, sources %v; want the note alone", store.scans, store.sources)
+	}
+}
+
+// The loop recognises a queued scan, then indexes the book from what it read:
+// cited by page like any book, and marked as recognised.
+func TestRunRecognisesAScanAndIndexesItsPages(t *testing.T) {
+	notes, books := vault(t, 1)
+	blankPDF(t, books, "scan.pdf")
+	store := newStore()
+	recognizer := &fakeRecognizer{pages: 4}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	store.onStats = func(int) {
+		if src, ok := store.sources["scan.pdf"]; ok && src.Recognised {
+			cancel()
+		}
+	}
+	ix := index.New(store, nopEmbedder{}, index.Options{Books: books, Vault: notes, OCR: recognizer})
+
+	runFor(t, ix, ctx, time.Hour, nil)
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	chunks := store.chunks["scan.pdf"]
+	if len(chunks) != 4 || chunks[0].Page != 1 {
+		t.Errorf("chunks = %+v, want the four recognised pages", chunks)
+	}
+	recognizer.mu.Lock()
+	defer recognizer.mu.Unlock()
+	if len(recognizer.calls) != 1 || recognizer.calls[0] != filepath.Join(books, "scan.pdf") {
+		t.Errorf("recognised %v, want the scan once, by its path in the library", recognizer.calls)
 	}
 }

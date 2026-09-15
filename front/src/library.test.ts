@@ -17,6 +17,12 @@ describe('progress', () => {
   it('has errors once only quarantined chunks are left', () => {
     expect(progress({ chunks: 4, embedded: 3, quarantined: 1 })).toEqual({ state: 'errors', fraction: 0.75 })
   })
+  it('is recognising a scan, by the share of its pages read', () => {
+    expect(progress({ chunks: 0, embedded: 0, quarantined: 0, scan_pages: 200, scan_recognised: 50 })).toEqual({ state: 'recognising', fraction: 0.25 })
+  })
+  it('gives up on a scan recognition kept failing on', () => {
+    expect(progress({ chunks: 0, embedded: 0, quarantined: 0, scan_pages: 200, scan_recognised: 50, scan_failed: true })).toEqual({ state: 'errors', fraction: 0.25 })
+  })
   it('is waiting when nothing is stored yet', () => {
     expect(progress({ chunks: 0, embedded: 0, quarantined: 0 })).toEqual({ state: 'waiting', fraction: 0 })
   })
@@ -91,6 +97,9 @@ describe('stateLabel', () => {
     [{ chunks: 10, embedded: 4, quarantined: 0 }, 'Векторизация 40%'],
     [{ chunks: 10, embedded: 10, quarantined: 0 }, 'Готово'],
     [{ chunks: 10, embedded: 5, quarantined: 5 }, '5 фрагментов без вектора'],
+    [{ chunks: 0, embedded: 0, quarantined: 0, scan_pages: 300, scan_recognised: 0 }, 'Скан: ждёт распознавания'],
+    [{ chunks: 0, embedded: 0, quarantined: 0, scan_pages: 300, scan_recognised: 100 }, 'Распознаётся 33%'],
+    [{ chunks: 0, embedded: 0, quarantined: 0, scan_pages: 300, scan_recognised: 100, scan_failed: true }, 'Скан: распознать не удалось'],
   ])('%o → %s', (counts, want) => {
     expect(stateLabel(counts)).toBe(want)
   })

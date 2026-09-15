@@ -626,6 +626,22 @@ td:last-child {
   background: var(--problem);
 }
 
+/* Recognition fills the same meter, hatched: pages read, not vectors made. */
+.state-recognising .meter::after {
+  background: repeating-linear-gradient(135deg, var(--ink) 0 2px, transparent 2px 4px);
+}
+
+.recognised {
+  margin-left: 0.6rem;
+  padding: 0 0.35rem;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  white-space: nowrap;
+  cursor: help;
+}
+
 /* A column of underlined titles reads as noise; the underline marks the one
    under the pointer. */
 td a {

@@ -16,22 +16,20 @@ const k = 60.0
 // cosine similarity live on different scales, so only the positions are
 // comparable, never the scores themselves.
 func Fuse(lists ...[]corpus.Hit) []corpus.Hit {
-	scores := map[int64]float32{}
-	byID := map[int64]corpus.Hit{}
+	at := map[int64]int{} // position in fused
+	var fused []corpus.Hit
 
 	for _, list := range lists {
-		for i, hit := range list {
-			scores[hit.ID] += float32(1.0 / (k + float64(i+1)))
-			if _, seen := byID[hit.ID]; !seen {
-				byID[hit.ID] = hit
+		for i := range list {
+			score := float32(1.0 / (k + float64(i+1)))
+			if j, seen := at[list[i].ID]; seen {
+				fused[j].Rank += score
+				continue
 			}
+			at[list[i].ID] = len(fused)
+			fused = append(fused, list[i])
+			fused[len(fused)-1].Rank = score
 		}
-	}
-
-	fused := make([]corpus.Hit, 0, len(byID))
-	for id, hit := range byID {
-		hit.Rank = scores[id]
-		fused = append(fused, hit)
 	}
 	slices.SortFunc(fused, func(a, b corpus.Hit) int {
 		if c := cmp.Compare(b.Rank, a.Rank); c != 0 {

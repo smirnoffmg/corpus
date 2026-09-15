@@ -52,6 +52,12 @@ describe('ReaderPage', () => {
     expect(screen.getByRole('link', { name: 'Открыть оригинал' })).toHaveAttribute('href', 'http://localhost:8082/books/Concurrency%20in%20Go.pdf#page=203')
   })
 
+  it('warns that a passage read from a scan may carry misread letters', async () => {
+    stubApi(() => ({ body: { ...passage, kind: 'book', path: 'bringhurst.pdf', title: 'Bringhurst', locator: 'с. 12', page: 12, anchor: undefined, ocr: true } }))
+    renderReader()
+    expect(await screen.findByText('Распознано')).toHaveAttribute('title', expect.stringMatching(/сверьте/))
+  })
+
   it('opens a note in Obsidian once the vault is known', async () => {
     stubApi(() => ({ body: { ...passage, kind: 'vault', path: 'brain/Кросс-энтропия.md', locator: 'Что это', anchor: undefined } }))
     render(

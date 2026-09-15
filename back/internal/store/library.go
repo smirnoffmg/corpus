@@ -18,29 +18,48 @@ const reindexChannel = "corpus_reindex"
 // when non-empty; a manual is every source under "<manual>/".
 func (s *Store) Sources(ctx context.Context, kind, prefix string) ([]corpus.SourceStatus, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT s.kind, s.path, s.title, s.indexed_at,
-		       count(c.id) AS chunks,
-		       count(c.id) FILTER (WHERE e.embedding IS NOT NULL) AS embedded,
-		       count(c.id) FILTER (WHERE e.embedding IS NULL AND e.attempts >= $3) AS quarantined,
-		       coalesce(min(b.status), '') AS description
-		FROM sources s
-		LEFT JOIN chunks c ON c.source_id = s.id
-		LEFT JOIN embeddings e ON e.hash = c.embed_hash
-		LEFT JOIN bibliography b ON b.key = CASE s.kind
-		    WHEN 'book' THEN s.hash
-		    WHEN 'docs' THEN 'manual:' || split_part(s.path, '/', 1)
-		END
-		WHERE ($1 = '' OR s.kind = $1)
-		  AND starts_with(s.path, $2)
-		GROUP BY s.id
-		ORDER BY s.kind, s.path`,
-		kind, prefix, maxEmbedAttempts)
+		SELECT kind, path, title, indexed_at, chunks, embedded, quarantined, description, ocr,
+		       scan_pages, scan_recognised, scan_failed, scan_error
+		FROM (
+		    SELECT s.kind, s.path, s.title, s.indexed_at,
+		           count(c.id) AS chunks,
+		           count(c.id) FILTER (WHERE e.embedding IS NOT NULL) AS embedded,
+		           count(c.id) FILTER (WHERE e.embedding IS NULL AND e.attempts >= $3) AS quarantined,
+		           coalesce(min(b.status), '') AS description,
+		           s.recognised AS ocr,
+		           0 AS scan_pages, 0 AS scan_recognised, false AS scan_failed, '' AS scan_error
+		    FROM sources s
+		    LEFT JOIN chunks c ON c.source_id = s.id
+		    LEFT JOIN embeddings e ON e.hash = c.embed_hash
+		    LEFT JOIN bibliography b ON b.key = CASE s.kind
+		        WHEN 'book' THEN s.hash
+		        WHEN 'docs' THEN 'manual:' || split_part(s.path, '/', 1)
+		    END
+		    WHERE ($1 = '' OR s.kind = $1)
+		      AND starts_with(s.path, $2)
+		    GROUP BY s.id
+
+		    UNION ALL
+
+		    -- A scan has no source row until its pages are recognised; its file
+		    -- name stands in for the title it will get then.
+		    SELECT 'book', sc.path, regexp_replace(sc.path, '^.*/|\.pdf$', '', 'gi'), sc.updated_at,
+		           0, 0, 0, '', false,
+		           sc.pages, sc.recognised, sc.attempts >= $4, coalesce(sc.last_error, '')
+		    FROM scans sc
+		    WHERE ($1 = '' OR $1 = 'book')
+		      AND starts_with(sc.path, $2)
+		      AND NOT EXISTS (SELECT 1 FROM sources s WHERE s.path = sc.path)
+		) listed
+		ORDER BY kind, path`,
+		kind, prefix, maxEmbedAttempts, maxScanAttempts)
 	if err != nil {
 		return nil, err
 	}
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (corpus.SourceStatus, error) {
 		var r corpus.SourceStatus
-		err := row.Scan(&r.Kind, &r.Path, &r.Title, &r.IndexedAt, &r.Chunks, &r.Embedded, &r.Quarantined, &r.Description)
+		err := row.Scan(&r.Kind, &r.Path, &r.Title, &r.IndexedAt, &r.Chunks, &r.Embedded, &r.Quarantined,
+			&r.Description, &r.OCR, &r.ScanPages, &r.ScanRecognised, &r.ScanFailed, &r.ScanError)
 		return r, err
 	})
 }

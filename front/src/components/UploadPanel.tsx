@@ -1,15 +1,17 @@
 import { useEffect, useState, type DragEvent } from 'react'
 import { ApiError, sources, upload } from '../api'
-import { manualName, progress, stateLabel } from '../library'
+import { manualName, progress, stateLabel, type Counts } from '../library'
 import { plural } from '../text'
 
 interface Recent {
   path: string
   label: string
   prefix: string
-  counts?: { chunks: number; embedded: number; quarantined: number }
+  counts?: Counts
   settled: boolean
 }
+
+const nothing: Counts = { chunks: 0, embedded: 0, quarantined: 0 }
 
 const accepted = /\.(pdf|zip)$/i
 
@@ -119,9 +121,16 @@ export function UploadPanel({ pollMs, onSettled }: { pollMs: number; onSettled: 
           if (r.settled) return r
           try {
             const rows = await sources({ prefix: r.prefix })
-            const counts = rows.reduce(
-              (sum, s) => ({ chunks: sum.chunks + s.chunks, embedded: sum.embedded + s.embedded, quarantined: sum.quarantined + s.quarantined }),
-              { chunks: 0, embedded: 0, quarantined: 0 },
+            const counts = rows.reduce<Counts>(
+              (sum, s) => ({
+                chunks: sum.chunks + s.chunks,
+                embedded: sum.embedded + s.embedded,
+                quarantined: sum.quarantined + s.quarantined,
+                scan_pages: (sum.scan_pages ?? 0) + (s.scan_pages ?? 0),
+                scan_recognised: (sum.scan_recognised ?? 0) + (s.scan_recognised ?? 0),
+                scan_failed: sum.scan_failed || s.scan_failed,
+              }),
+              nothing,
             )
             const { state } = progress(counts)
             return { ...r, counts, settled: state === 'ready' || state === 'errors' }
@@ -229,9 +238,9 @@ export function UploadPanel({ pollMs, onSettled }: { pollMs: number; onSettled: 
         <section aria-label="Загрузки" className="recent">
           <ul>
             {recent.map((r) => (
-              <li key={r.path} className={`state-${progress(r.counts ?? { chunks: 0, embedded: 0, quarantined: 0 }).state}`}>
+              <li key={r.path} className={`state-${progress(r.counts ?? nothing).state}`}>
                 <span>{r.label}</span>
-                <span>{stateLabel(r.counts ?? { chunks: 0, embedded: 0, quarantined: 0 })}</span>
+                <span>{stateLabel(r.counts ?? nothing)}</span>
               </li>
             ))}
           </ul>

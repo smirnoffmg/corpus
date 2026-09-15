@@ -49,6 +49,11 @@ type Store interface {
 	CleanTextIndex(ctx context.Context) (int64, error)
 	UndescribedBooks(ctx context.Context) ([]corpus.Undescribed, error)
 	EnsureDraft(ctx context.Context, key string, csl corpus.CSL) error
+	MarkScan(ctx context.Context, scan corpus.Scan) error
+	NextScan(ctx context.Context) (corpus.Scan, bool, error)
+	ScanProgress(ctx context.Context, hash string, recognised int) error
+	ScanFailed(ctx context.Context, hash, reason string) error
+	PruneScans(ctx context.Context, seen []string) (int64, error)
 }
 
 type Embedder interface {
@@ -67,6 +72,20 @@ type Options struct {
 	// Bibliography is the file the bibliographic descriptions are kept in;
 	// nil leaves them in the database alone.
 	Bibliography Bibliography
+	// OCR recognises books that have no text layer; nil leaves scans out of
+	// the index, as before.
+	OCR Recognizer
+}
+
+// Recognizer reads the text of scanned PDFs and keeps it under the file's
+// content hash.
+type Recognizer interface {
+	Pages(ctx context.Context, pdf string) (int, error)
+	// Cached is every page's text, once all of them have been recognised.
+	Cached(hash string, pages int) ([]string, bool)
+	// Recognize reads the pages not yet cached, until done or until stop
+	// closes, and reports whether every page is now cached.
+	Recognize(ctx context.Context, hash, pdf string, pages int, stop <-chan struct{}, progress func(done int)) (bool, error)
 }
 
 // Bibliography is the bibliography's system of record outside the database.
@@ -132,19 +151,25 @@ func (ix *Indexer) Index(ctx context.Context) error {
 		}
 	}
 
-	books, err := ix.indexKind(ctx, "book", ix.opts.Books, ".pdf", func(path string) ([]corpus.Chunk, error) {
+	books, bookFiles, err := ix.indexKind(ctx, "book", ix.opts.Books, ".pdf", func(path string) ([]corpus.Chunk, error) {
 		return ix.opts.BookSplitter.PDF(ctx, path)
 	})
 	if err != nil {
 		return err
 	}
+	// Same guard as Prune: no books walked means no mount, not an empty shelf.
+	if ix.opts.OCR != nil && len(bookFiles) > 0 {
+		if _, pruneErr := ix.store.PruneScans(ctx, bookFiles); pruneErr != nil {
+			return pruneErr
+		}
+	}
 
-	notes, err := ix.indexKind(ctx, "vault", ix.opts.Vault, ".md", ix.opts.NoteSplitter.Markdown)
+	notes, _, err := ix.indexKind(ctx, "vault", ix.opts.Vault, ".md", ix.opts.NoteSplitter.Markdown)
 	if err != nil {
 		return err
 	}
 
-	docs, err := ix.indexKind(ctx, "docs", ix.opts.Docs, ".html", ix.opts.DocsSplitter.HTML)
+	docs, _, err := ix.indexKind(ctx, "docs", ix.opts.Docs, ".html", ix.opts.DocsSplitter.HTML)
 	if err != nil {
 		return err
 	}
@@ -197,13 +222,13 @@ func (ix *Indexer) indexKind(
 	ctx context.Context,
 	kind, root, ext string,
 	parse func(string) ([]corpus.Chunk, error),
-) (int, error) {
+) (updated int, files []string, err error) {
 	if root == "" {
-		return 0, nil
+		return 0, nil, nil
 	}
-	files, err := collect(root, ext)
+	files, err = collect(root, ext)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 
 	present := make(map[string]bool, len(files))
@@ -211,7 +236,7 @@ func (ix *Indexer) indexKind(
 		present[rel] = true
 	}
 
-	var updated atomic.Int64
+	var changed atomic.Int64
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(ix.opts.Parallel)
 	for _, rel := range files {
@@ -223,31 +248,31 @@ func (ix *Indexer) indexKind(
 			// document is not a failure of the index. Returning the error here
 			// would cancel the group and abandon the rest of the library, so
 			// the file is logged and the walk goes on.
-			if changed, err := ix.indexFile(gctx, kind, root, rel, present, parse); err != nil {
+			if ok, err := ix.indexFile(gctx, kind, root, rel, present, parse); err != nil {
 				slog.WarnContext(gctx, "skipped", "path", rel, "err", err)
-			} else if changed {
-				updated.Add(1)
+			} else if ok {
+				changed.Add(1)
 			}
 			return nil
 		})
 	}
 	if err := g.Wait(); err != nil {
-		return int(updated.Load()), err
+		return int(changed.Load()), files, err
 	}
 
 	if err := ctx.Err(); err != nil {
-		return int(updated.Load()), err
+		return int(changed.Load()), files, err
 	}
 	// An empty walk means the mount is missing, not that every file was deleted;
 	// pruning on that would wipe the whole index.
 	if len(files) == 0 {
 		slog.WarnContext(ctx, "no files under root, skipping prune", "kind", kind, "root", root)
-		return int(updated.Load()), nil
+		return int(changed.Load()), files, nil
 	}
 	if _, err := ix.store.Prune(ctx, kind, files); err != nil {
-		return int(updated.Load()), err
+		return int(changed.Load()), files, err
 	}
-	return int(updated.Load()), nil
+	return int(changed.Load()), files, nil
 }
 
 func (ix *Indexer) indexFile(
@@ -290,22 +315,43 @@ func (ix *Indexer) indexFile(
 	if err != nil {
 		return false, err
 	}
+	recognised := false
 	// A scan without an OCR layer yields nothing. Re-parsing it next pass costs
 	// milliseconds — there is no text to pull — so it is cheaper to forget it
 	// than to keep an empty source around.
 	if len(chunks) == 0 {
 		dropped, err := ix.store.Forget(ctx, rel)
-		if dropped {
-			slog.WarnContext(ctx, "no text, dropped (a scan without OCR?)", "path", rel)
+		if err != nil || kind != "book" || ix.opts.OCR == nil {
+			if dropped {
+				slog.WarnContext(ctx, "no text, dropped (a scan without OCR?)", "path", rel)
+			}
+			return false, err
 		}
-		return false, err
+		chunks, err = ix.scan(ctx, path, rel, hash)
+		if err != nil || len(chunks) == 0 {
+			return false, err
+		}
+		recognised = true
 	}
 	for i := range chunks {
 		chunks[i].Lang = lang.Detect(chunks[i].Body)
 	}
 
-	src := corpus.Source{Kind: kind, Path: rel, Title: title, Hash: hash}
+	src := corpus.Source{Kind: kind, Path: rel, Title: title, Hash: hash, Recognised: recognised}
 	return true, ix.store.Replace(ctx, src, chunks)
+}
+
+// scan is a book with no text layer: the pages recognised from it once they
+// all are, and until then no chunks and a place in the recognition queue.
+func (ix *Indexer) scan(ctx context.Context, path, rel, hash string) ([]corpus.Chunk, error) {
+	pages, err := ix.opts.OCR.Pages(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	if text, ok := ix.opts.OCR.Cached(hash, pages); ok {
+		return ix.opts.BookSplitter.Pages(text), nil
+	}
+	return nil, ix.store.MarkScan(ctx, corpus.Scan{Hash: hash, Path: rel, Pages: pages})
 }
 
 // Run indexes and embeds every interval, and starts a pass at once whenever
@@ -325,6 +371,13 @@ func (ix *Indexer) Run(ctx context.Context, interval time.Duration, listen func(
 		}
 
 		if ix.pass(ctx, wake) {
+			continue
+		}
+		// Recognition goes last: it takes hours, and a scan's text is worth
+		// less than the vectors of books that already have text. A book done
+		// or given way to a reindex request starts the next pass at once, which
+		// indexes it.
+		if ix.recognise(ctx, wake) {
 			continue
 		}
 
@@ -357,6 +410,68 @@ func (ix *Indexer) pass(ctx context.Context, wake <-chan struct{}) (interrupted 
 		slog.ErrorContext(ctx, "pass", "err", err)
 	}
 	return interrupted
+}
+
+// recognise reads the next scan in the queue, and reports whether the loop
+// should go straight on to a pass: the book is done, or wake asked for one.
+// Pages are saved as they are read, so an interrupted book loses at most the
+// pages in flight.
+func (ix *Indexer) recognise(ctx context.Context, wake <-chan struct{}) bool {
+	if ix.opts.OCR == nil {
+		return false
+	}
+	scan, found, err := ix.store.NextScan(ctx)
+	if err != nil {
+		if ctx.Err() == nil {
+			slog.ErrorContext(ctx, "finding a scan to recognise", "err", err)
+		}
+		return false
+	}
+	if !found {
+		return false
+	}
+
+	stop, finished := make(chan struct{}), make(chan struct{})
+	woken := make(chan bool, 1)
+	go func() {
+		select {
+		case _, ok := <-wake:
+			// A closed channel is a lost listener, not a request.
+			if ok {
+				close(stop)
+			}
+			woken <- ok
+		case <-finished:
+			woken <- false
+		}
+	}()
+
+	start := time.Now()
+	slog.InfoContext(ctx, "recognising", "path", scan.Path, "pages", scan.Pages, "recognised", scan.Recognised)
+	complete, err := ix.opts.OCR.Recognize(ctx, scan.Hash, filepath.Join(ix.opts.Books, scan.Path), scan.Pages, stop,
+		func(done int) {
+			if progressErr := ix.store.ScanProgress(ctx, scan.Hash, done); progressErr != nil && ctx.Err() == nil {
+				slog.WarnContext(ctx, "recording recognition progress", "path", scan.Path, "err", progressErr)
+			}
+		})
+	close(finished)
+	interrupted := <-woken
+
+	switch {
+	case ctx.Err() != nil:
+		return false
+	case err != nil:
+		slog.ErrorContext(ctx, "recognition failed", "path", scan.Path, "err", err)
+		if failErr := ix.store.ScanFailed(ctx, scan.Hash, err.Error()); failErr != nil {
+			slog.ErrorContext(ctx, "recording a failed recognition", "path", scan.Path, "err", failErr)
+		}
+		// The next scan in line should not wait an interval for this one.
+		return true
+	}
+	slog.InfoContext(ctx, "recognition stopped",
+		"path", scan.Path, "complete", complete, "interrupted", interrupted,
+		"took", time.Since(start).Round(time.Second).String())
+	return complete || interrupted
 }
 
 // draft files a description for every book and manual that has none: title,

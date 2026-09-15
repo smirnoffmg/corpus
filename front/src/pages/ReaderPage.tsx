@@ -4,6 +4,7 @@ import { ApiError, read, type Passage } from '../api'
 import { Blocks } from '../components/Blocks'
 import { CitationPanel } from '../components/CitationPanel'
 import { OriginalLink } from '../components/OriginalLink'
+import { RecognisedBadge } from '../components/RecognisedBadge'
 import { kindName } from '../kinds'
 import { originalUrl } from '../library'
 import { VaultContext } from '../vault'
@@ -81,7 +82,10 @@ export function ReaderPage() {
       <header className="reader-head">
         <p className="slip-kind">{kindName[p.kind]}</p>
         <h1>{p.title}</h1>
-        <p className="reader-locator">{p.locator}</p>
+        <p className="reader-locator">
+          {p.locator}
+          {p.ocr && <RecognisedBadge />}
+        </p>
         <div className="actions">
           <button type="button" onClick={copy}>
             {copied ? 'Скопировано' : 'Скопировать цитату'}

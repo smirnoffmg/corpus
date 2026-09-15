@@ -21,7 +21,14 @@ func (sp Splitter) PDF(ctx context.Context, path string) ([]corpus.Chunk, error)
 
 	// pdftotext terminates every page with a form feed, so the final split
 	// element is an empty tail, not a page.
-	pages := strings.Split(string(out), "\f")
+	return sp.Pages(strings.Split(string(out), "\f")), nil
+}
+
+// Pages turns the text of a book's pages, in order, into chunks: each cited by
+// its PDF page and the number printed on it, with contents, index and
+// unreadable pages dropped. Text extracted from a PDF and text recognised from
+// a scan both come this way.
+func (sp Splitter) Pages(pages []string) []corpus.Chunk {
 	folios := detectFolios(pages)
 
 	chunks := make([]corpus.Chunk, 0, len(pages))
@@ -43,5 +50,5 @@ func (sp Splitter) PDF(ctx context.Context, path string) ([]corpus.Chunk, error)
 			})
 		}
 	}
-	return chunks, nil
+	return chunks
 }

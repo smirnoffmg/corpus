@@ -48,6 +48,16 @@ describe('SearchPage', () => {
     expect(screen.getByRole('radio', { name: 'Мануалы' })).toBeChecked()
   })
 
+  it('marks a hit whose text was recognised from a scan', async () => {
+    const scanned: Hit = { ...hit, id: 8, kind: 'book', title: 'The Elements of Typographic Style', path: 'bringhurst.pdf', locator: 'с. 12', page: 12, ocr: true }
+    stubApi((url) => (url.pathname === '/api/search' ? { body: { hits: [hit, scanned] } } : undefined))
+    renderAt('/?q=kerning')
+
+    const [plain, recognised] = await screen.findAllByRole('listitem')
+    expect(within(recognised).getByText('Распознано')).toHaveAttribute('title', expect.stringMatching(/скан/))
+    expect(within(plain).queryByText('Распознано')).toBeNull()
+  })
+
   it('puts a new search into the address, so back returns to it', async () => {
     const calls = stubApi(() => ({ body: { hits: [] } }))
     renderAt('/')

@@ -13,6 +13,7 @@ import (
 	"github.com/smirnoffmg/corpus/internal/embed"
 	"github.com/smirnoffmg/corpus/internal/extract"
 	"github.com/smirnoffmg/corpus/internal/index"
+	"github.com/smirnoffmg/corpus/internal/ocr"
 	"github.com/smirnoffmg/corpus/internal/store"
 )
 
@@ -43,6 +44,10 @@ func run() error {
 		noteTarget = flag.Int("note-split-target", 0, "size a note part aims for")
 		docsAbove  = flag.Int("docs-split-above", 0, "split a manual section longer than this; 0 keeps the note default")
 		docsTarget = flag.Int("docs-split-target", 0, "size a manual part aims for")
+		ocrDir     = flag.String("ocr", "/data/ocr", "cache of text recognised from scanned books; empty leaves scans unindexed")
+		ocrWorkers = flag.Int("ocr-workers", 2, "pages recognised at once, one core each")
+		ocrLangs   = flag.String("ocr-languages", "rus+eng", "Tesseract languages for scanned books")
+		ocrDPI     = flag.Int("ocr-dpi", 300, "resolution scanned pages are rendered at for recognition")
 		requeue    = flag.Bool("requeue", false, "put quarantined chunks back in the embedding queue and continue")
 	)
 	flag.Parse()
@@ -72,8 +77,17 @@ func run() error {
 	if *bibDir != "" {
 		bibliography = bibfile.New(st, *bibDir)
 	}
+	var recognizer index.Recognizer
+	if *ocrDir != "" {
+		recognizer = ocr.Service{
+			Engine:  ocr.Tesseract{Languages: *ocrLangs, DPI: *ocrDPI},
+			Cache:   ocr.Cache{Dir: *ocrDir},
+			Workers: *ocrWorkers,
+		}
+	}
 	indexer := index.New(st, embed.New(*ollama, *model), index.Options{
 		Bibliography: bibliography,
+		OCR:          recognizer,
 		Books:        *booksDir,
 		Vault:        *vaultDir,
 		Docs:         *docsDir,

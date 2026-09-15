@@ -49,6 +49,9 @@ services:
       # The bibliography's system of record: imported each pass, written after
       # drafting. Read-write, unlike the library itself.
       - ${LIBRARY_DIR:-${HOME}/.corpus/data}/bibliography:/data/bibliography
+      # Text recognised from scanned books, a file per page under the book's
+      # hash: hours of recognition that survive a rebuilt database.
+      - ${LIBRARY_DIR:-${HOME}/.corpus/data}/ocr:/data/ocr
     depends_on:
       db:
         condition: service_healthy
