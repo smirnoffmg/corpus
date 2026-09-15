@@ -16,8 +16,8 @@ in them, and nobody else could reproduce its numbers anyway. `cmd/eval` reads
 when the file is absent. Every figure quoted below was measured on that set and
 that corpus.
 
-**`back/eval/example.json` is a public set** of 14 queries on the scikit-learn
-and NLTK manuals (see [manuals](manuals.md) for downloading them), so a fresh
+**`back/eval/example.json` is a public set** of 52 queries — 24 of them
+paraphrases, 14 in Russian — on the scikit-learn and NLTK manuals (see [manuals](manuals.md) for downloading them), so a fresh
 clone has something to measure, and the manuals are measured at all:
 
 ```sh
@@ -70,6 +70,56 @@ rewriting those until they pass turns the set blind.
 
 Nothing about ranking — length normalisation, `hnsw.ef`, the RRF constant —
 should be changed without running this before and after.
+
+**A difference is a difference only query by query.** On a few dozen queries a
+mean moves on a handful of them: exact-query MRR 0.938 → 1.000 on the private
+set was four queries moving up one place, p = 0.125 by a sign test — not
+evidence of anything by itself. So a change is compared against a baseline
+query by query:
+
+```sh
+go run ./cmd/eval -queries eval/example.json -set ef_search=200 -against default
+```
+
+which prints wins, losses and ties per mode, the mean difference, and a
+two-sided sign test. On sets this size, treat p above 0.05 as no difference,
+and a change worth making needs a reason beyond the judged set.
+
+**HNSW recall was measured, and ef_search raised to 200.** The index is
+approximate, and what it loses happens before ranking starts. `-recall`
+compares each query's 20 nearest chunks from the index with an exact scan:
+
+| ef_search | recall@20, private (31) | recall@20, public (52) | full recall, public |
+| --- | --- | --- | --- |
+| 40 (pgvector's default) | 0.831 | 0.789 | 19/52 |
+| 100 | 0.900 | 0.892 | 29/52 |
+| **200** | **0.947** | **0.959** | **35/52** |
+| 400 | 0.968 | 0.982 | 42/52 |
+
+At 40 some queries got back almost none of their true neighbours. Latency did
+not move — about 340 ms a vector search at 40, 200 and 400 alike, most of it
+the query's embedding. On the judged answers the effect is within noise and
+not even of one sign: on the public set vector search won 5 queries and lost 2
+(p = 0.45), hybrid 2 and 2; on the private set hybrid lost 2 exact queries and
+won none (p = 0.5), taking exact-query MRR from 1.000 back to 0.938. So the
+change rests on recall at no cost, not on the judged sets — and a larger set is
+what would settle it. 400 buys nothing more measurable (0 wins, 1 loss against
+200).
+
+The flag had been doing nothing. `mcpd --ef-search` was stored and never
+applied to a connection, so every search ran at 40 whatever it said;
+`/status` now reports `hnsw_ef_search` as the connections actually have it.
+
+**Fusion depth was measured and left alone.** Asking each leg for 100 hits
+instead of twice the page before RRF changed nothing: private set all ties,
+public 3 wins and 2 losses with ΔMRR +0.001. RRF's constant was not tuned
+either — Cormack et al. found k = 60 near-optimal and the choice not critical.
+
+**The vector cache migration moved the numbers, not the ranking.** Moving
+vectors into their own table rebuilt the HNSW index in one pass, where it had
+grown through many deletions; private vector MRR went 0.442 → 0.504 with
+identical vectors, consistent with the old graph's lower recall. Figures from
+before 2026-09-15 are not comparable with later ones.
 
 **A title that matches the query is worth 0.3 of rank.** A note called
 "Кросс-энтропия" and a note that merely mentions the term score identically on

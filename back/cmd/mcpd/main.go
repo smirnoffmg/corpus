@@ -43,7 +43,11 @@ func run() error {
 	addr := flag.String("addr", ":8080", "listen address")
 	ollama := flag.String("ollama", "http://host.docker.internal:11434", "ollama base URL")
 	model := flag.String("model", "bge-m3", "embedding model")
-	efSearch := flag.Int("ef-search", 0, "hnsw.ef_search; 0 leaves the pgvector default of 40")
+	// 200, not pgvector's 40: at 40 the index returned 79–83% of the true 20
+	// nearest chunks on the judged sets, and a few queries almost none; at 200,
+	// 95–96%, with no measurable change in latency, which the query's embedding
+	// dominates. See docs/search-evaluation.md.
+	efSearch := flag.Int("ef-search", 200, "hnsw.ef_search; 0 leaves the pgvector default of 40")
 	books := flag.String("books", "/data/books", "book library that uploaded PDFs are saved into")
 	docs := flag.String("docs", "/data/docs", "manuals directory that uploaded ZIPs are unpacked into")
 	bibliography := flag.String("bibliography", "/data/bibliography", "directory of the bibliography file, the descriptions' system of record; empty keeps them in the database alone")

@@ -53,6 +53,8 @@ func (f *fakeStore) Read(_ context.Context, id int64, _ bool) (corpus.Passage, e
 
 func (f *fakeStore) Stats(context.Context) (int64, int64, error) { return 1, 2, nil }
 
+func (f *fakeStore) EfSearch(context.Context) (int, error) { return 200, nil }
+
 type fakeEmbedder struct {
 	mu    sync.Mutex
 	calls int
@@ -275,6 +277,9 @@ func TestHTTPEndpointsAnswerInTheirDocumentedShape(t *testing.T) {
 		}
 		if status["embedder"] != "ok" {
 			t.Errorf("embedder = %v, want ok", status["embedder"])
+		}
+		if status["hnsw_ef_search"] != float64(200) {
+			t.Errorf("hnsw_ef_search = %v, want the setting the store's connections run with", status["hnsw_ef_search"])
 		}
 	})
 

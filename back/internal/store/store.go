@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"strconv"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -50,6 +51,17 @@ func WithWindow(body, neighbours int) Option {
 }
 
 func Open(ctx context.Context, dsn string, opts ...Option) (*Store, error) {
+	st := &Store{
+		dsn:            dsn,
+		bodyChars:      defaultBodyChars,
+		neighbourChars: defaultNeighbourChars,
+	}
+	// Options first: the connection setup below reads them. Applied after the
+	// pool was built, WithEfSearch was stored and never reached a connection.
+	for _, opt := range opts {
+		opt(st)
+	}
+
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return nil, err
@@ -59,8 +71,15 @@ func Open(ctx context.Context, dsn string, opts ...Option) (*Store, error) {
 	// none at all — while the index held plenty of matches. Iterative scans keep
 	// walking the index until the filter has yielded enough.
 	cfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
-		_, setErr := conn.Exec(ctx, "SET hnsw.iterative_scan = strict_order")
-		return setErr
+		if _, setErr := conn.Exec(ctx, "SET hnsw.iterative_scan = strict_order"); setErr != nil {
+			return setErr
+		}
+		if st.efSearch > 0 {
+			// SET takes no parameters; the value is an int, formatted.
+			_, setErr := conn.Exec(ctx, "SET hnsw.ef_search = "+strconv.Itoa(st.efSearch))
+			return setErr
+		}
+		return nil
 	}
 
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
@@ -71,14 +90,7 @@ func Open(ctx context.Context, dsn string, opts ...Option) (*Store, error) {
 		pool.Close()
 		return nil, err
 	}
-	st := &Store{
-		pool: pool, dsn: dsn,
-		bodyChars:      defaultBodyChars,
-		neighbourChars: defaultNeighbourChars,
-	}
-	for _, opt := range opts {
-		opt(st)
-	}
+	st.pool = pool
 	return st, nil
 }
 
@@ -341,6 +353,15 @@ func (s *Store) CleanTextIndex(ctx context.Context) (int64, error) {
 	var pages int64
 	err := s.pool.QueryRow(ctx, `SELECT gin_clean_pending_list('chunks_tsv_idx')`).Scan(&pages)
 	return pages, err
+}
+
+// EfSearch reports hnsw.ef_search as the store's connections run with it.
+func (s *Store) EfSearch(ctx context.Context) (int, error) {
+	var value string
+	if err := s.pool.QueryRow(ctx, `SHOW hnsw.ef_search`).Scan(&value); err != nil {
+		return 0, err
+	}
+	return strconv.Atoi(value)
 }
 
 func (s *Store) Stats(ctx context.Context) (sources, chunks int64, err error) {

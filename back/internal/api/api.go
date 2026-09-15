@@ -31,6 +31,7 @@ type Store interface {
 	SearchVector(ctx context.Context, vector []float32, q corpus.Query) ([]corpus.Hit, error)
 	Read(ctx context.Context, id int64, neighbours bool) (corpus.Passage, error)
 	Stats(ctx context.Context) (int64, int64, error)
+	EfSearch(ctx context.Context) (int, error)
 	Sources(ctx context.Context, kind, prefix string) ([]corpus.SourceStatus, error)
 	RequestReindex(ctx context.Context) error
 }
@@ -339,6 +340,9 @@ func (s *Service) Handler() http.Handler {
 
 		status["embedder"] = "ok"
 		status["searches_without_vectors"] = s.withoutVectors.Load()
+		if ef, err := s.store.EfSearch(r.Context()); err == nil {
+			status["hnsw_ef_search"] = ef
+		}
 		if err := s.probeEmbedder(r.Context()); err != nil {
 			status["embedder"] = "unreachable"
 			status["degraded"] = "search is running on full text alone; vectors are not being written"

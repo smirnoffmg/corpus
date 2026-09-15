@@ -207,6 +207,12 @@ func TestOptionsAreApplied(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(st.Close)
 
+	// The flag existed for months and did nothing: the option was stored and
+	// never applied, so every search ran at pgvector's default of 40.
+	ef, err := st.EfSearch(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 64, ef, "WithEfSearch sets hnsw.ef_search on the store's connections")
+
 	// The window is only observable through what the embedding queue hands out.
 	require.NoError(t, st.Replace(ctx, book("__test__/window.pdf", "Книга", "h1"),
 		[]corpus.Chunk{{Ord: 1, Page: 1, Lang: "russian", Body: strings.Repeat("я", 3000)}}))
