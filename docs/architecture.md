@@ -75,6 +75,22 @@ failed cycles. `GET /status` says the same in words, alongside the corpus counts
 `/healthz` deliberately stays 200, because a liveness probe that fails on a
 degraded-but-serving process invites a restart that fixes nothing.
 
+**Search does not wait for a missing embedder.** The indexer's embed client
+allows ten minutes a call and retries four times, which suits a page of a book
+and not a query someone is waiting on: `mcpd` used the same client, so with
+ollama off every hybrid search waited seven seconds before falling back to
+text, and with ollama hung, much longer. `mcpd` now gives a query's embedding
+one attempt and three seconds, and after a failure skips the vector leg for 30
+seconds rather than paying for the same timeout on every search. `/status`
+probes ollama with its own two-second limit, which also ends the cooldown as
+soon as ollama answers again, and reports `searches_without_vectors`. Explicit
+`mode=vector` has nothing to fall back to and answers 503 at once.
+
+Every search logs one wide event — mode, kind, hits, what the vector leg did
+(`ok`, `failed`, `skipped`, `unused`) and how long each leg took — so a slow or
+degraded search can be explained afterwards. The query text is left out: the
+corpus holds a diary, and logs travel further than the database.
+
 ollama itself is not managed here. If it should survive a reboot,
 `brew services start ollama`.
 

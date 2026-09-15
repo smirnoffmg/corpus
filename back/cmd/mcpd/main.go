@@ -73,7 +73,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              *addr,
-		Handler:           api.Guard(api.New(st, embed.New(*ollama, *model), opts...).Handler(), strings.Split(*allowedHosts, ",")),
+		Handler:           api.Guard(api.New(st, embed.New(*ollama, *model, embed.WithRetry(1, 0)), opts...).Handler(), strings.Split(*allowedHosts, ",")),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go func() {

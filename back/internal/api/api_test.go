@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/smirnoffmg/corpus/internal/api"
@@ -51,14 +52,23 @@ func (f *fakeStore) Read(_ context.Context, id int64, _ bool) (corpus.Passage, e
 func (f *fakeStore) Stats(context.Context) (int64, int64, error) { return 1, 2, nil }
 
 type fakeEmbedder struct {
+	mu    sync.Mutex
 	calls int
 	err   error
+	hang  bool // wait for the caller to give up, as a hung ollama does
 }
 
-func (f *fakeEmbedder) Embed(_ context.Context, inputs []string) ([][]float32, error) {
+func (f *fakeEmbedder) Embed(ctx context.Context, inputs []string) ([][]float32, error) {
+	f.mu.Lock()
 	f.calls++
-	if f.err != nil {
-		return nil, f.err
+	hang, err := f.hang, f.err
+	f.mu.Unlock()
+	if hang {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	if err != nil {
+		return nil, err
 	}
 	out := make([][]float32, len(inputs))
 	for i := range out {

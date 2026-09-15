@@ -15,6 +15,9 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -52,6 +55,14 @@ type Service struct {
 
 	bibliography Bibliography
 	lookup       Lookup
+
+	queryTimeout   time.Duration
+	statusTimeout  time.Duration
+	cooldown       time.Duration
+	now            func() time.Time
+	mu             sync.Mutex
+	skipUntil      time.Time
+	withoutVectors atomic.Int64 // hybrid searches answered by the text leg alone
 }
 
 type Option func(*Service)
@@ -69,7 +80,11 @@ func WithVault(name string) Option {
 }
 
 func New(store Store, embedder Embedder, opts ...Option) *Service {
-	s := &Service{store: store, embedder: embedder}
+	s := &Service{
+		store: store, embedder: embedder,
+		queryTimeout: defaultQueryTimeout, statusTimeout: defaultStatusTimeout,
+		cooldown: defaultCooldown, now: time.Now,
+	}
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -103,6 +118,20 @@ type readInput struct {
 }
 
 func (s *Service) Search(ctx context.Context, q corpus.Query) ([]corpus.Hit, error) {
+	start := time.Now()
+	tr := &trace{vector: "unused"}
+	mode := q.Mode
+	if mode != "fts" && mode != "vector" {
+		mode = "hybrid"
+	}
+	hits, err := s.search(ctx, q, tr)
+	logged := q
+	logged.Limit = clampLimit(q.Limit)
+	logSearch(ctx, logged, mode, len(hits), tr, time.Since(start), err)
+	return hits, err
+}
+
+func (s *Service) search(ctx context.Context, q corpus.Query, tr *trace) ([]corpus.Hit, error) {
 	limit := clampLimit(q.Limit)
 	// Capping per source needs a deeper list to cap: the hits being dropped have
 	// to be replaced by something.
@@ -115,11 +144,11 @@ func (s *Service) Search(ctx context.Context, q corpus.Query) ([]corpus.Hit, err
 	var err error
 	switch q.Mode {
 	case "fts":
-		hits, err = s.store.Search(ctx, q)
+		hits, err = s.text(ctx, q, tr)
 	case "vector":
-		hits, err = s.vector(ctx, q)
+		hits, err = s.vector(ctx, q, tr)
 	default:
-		hits, err = s.hybrid(ctx, q)
+		hits, err = s.hybrid(ctx, q, tr)
 	}
 	if err != nil {
 		return nil, err
@@ -145,29 +174,36 @@ func capPerSource(hits []corpus.Hit, perSource int) []corpus.Hit {
 	return kept
 }
 
-func (s *Service) vector(ctx context.Context, q corpus.Query) ([]corpus.Hit, error) {
-	vectors, err := s.embedder.Embed(ctx, []string{q.Text})
+func (s *Service) text(ctx context.Context, q corpus.Query, tr *trace) ([]corpus.Hit, error) {
+	start := time.Now()
+	defer func() { tr.textTook = time.Since(start) }()
+	return s.store.Search(ctx, q)
+}
+
+func (s *Service) vector(ctx context.Context, q corpus.Query, tr *trace) ([]corpus.Hit, error) {
+	vector, err := s.embedQuery(ctx, q.Text, tr)
 	if err != nil {
 		return nil, err
 	}
-	return s.store.SearchVector(ctx, vectors[0], q.Kind, q.Limit)
+	return s.store.SearchVector(ctx, vector, q.Kind, q.Limit)
 }
 
 // hybrid fuses both lists by rank. If the embedder is unreachable the text index
 // still answers, which is the half that needs no GPU.
-func (s *Service) hybrid(ctx context.Context, q corpus.Query) ([]corpus.Hit, error) {
+func (s *Service) hybrid(ctx context.Context, q corpus.Query, tr *trace) ([]corpus.Hit, error) {
 	limit := q.Limit
 	deep := q
 	deep.Limit = limit * 2
 
-	text, err := s.store.Search(ctx, deep)
+	text, err := s.text(ctx, deep, tr)
 	if err != nil {
 		return nil, err
 	}
-	semantic, err := s.vector(ctx, deep)
+	semantic, err := s.vector(ctx, deep, tr)
 	if err != nil {
-		slog.WarnContext(ctx, "vector leg unavailable, falling back to text", "err", err)
-		return truncate(text, limit), nil
+		// The text leg answers; the failure is in the trace and the counter.
+		s.withoutVectors.Add(1)
+		return truncate(text, limit), nil //nolint:nilerr // degrading is the point
 	}
 	return truncate(rank.Fuse(text, semantic), limit), nil
 }
@@ -179,14 +215,15 @@ func (s *Service) Compare(ctx context.Context, q corpus.Query) (map[string][]cor
 	deep := q
 	deep.Limit = limit * 2
 
-	text, err := s.store.Search(ctx, deep)
+	tr := &trace{}
+	text, err := s.text(ctx, deep, tr)
 	if err != nil {
 		return nil, err
 	}
-	semantic, err := s.vector(ctx, deep)
+	semantic, err := s.vector(ctx, deep, tr)
 	if err != nil {
-		slog.WarnContext(ctx, "vector leg unavailable, comparing text alone", "err", err)
-		return map[string][]corpus.Hit{
+		// Compare what the text leg found; the failure is in the trace.
+		return map[string][]corpus.Hit{ //nolint:nilerr // degrading is the point
 			"fts":    truncate(text, limit),
 			"vector": {},
 			"hybrid": truncate(text, limit),
@@ -251,7 +288,11 @@ func (s *Service) Handler() http.Handler {
 		q := r.URL.Query()
 		hits, err := s.Search(r.Context(), queryFromURL(q))
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			code := http.StatusInternalServerError
+			if isEmbedderDown(err) {
+				code = http.StatusServiceUnavailable
+			}
+			http.Error(w, err.Error(), code)
 			return
 		}
 		writeJSON(w, searchOutput{Hits: hits})
@@ -296,7 +337,8 @@ func (s *Service) Handler() http.Handler {
 		}
 
 		status["embedder"] = "ok"
-		if _, err := s.embedder.Embed(r.Context(), []string{"проверка"}); err != nil {
+		status["searches_without_vectors"] = s.withoutVectors.Load()
+		if err := s.probeEmbedder(r.Context()); err != nil {
 			status["embedder"] = "unreachable"
 			status["degraded"] = "search is running on full text alone; vectors are not being written"
 		}
