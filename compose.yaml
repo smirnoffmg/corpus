@@ -4,9 +4,19 @@
 # database — without the bibliographic descriptions, which files cannot rebuild.
 name: corpus
 
+# Container logs are kept by Docker until removed; a search event per query
+# and an indexer that runs for months would otherwise grow them without end.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   db:
     image: pgvector/pgvector:pg18
+    logging: *logging
+    restart: unless-stopped
     environment:
       POSTGRES_DB: corpus
       POSTGRES_USER: corpus
@@ -24,6 +34,7 @@ services:
       retries: 10
 
   indexer:
+    logging: *logging
     build: ./back
     image: corpus:latest
     command: ["indexer", "--interval", "15m"]
@@ -53,6 +64,7 @@ services:
     restart: unless-stopped
 
   mcpd:
+    logging: *logging
     build: ./back
     image: corpus:latest
     command: ["mcpd"]
@@ -77,9 +89,14 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      # The indexer applies migrations on start; mcpd refuses a schema behind
+      # it and is restarted until the migrations are in.
+      indexer:
+        condition: service_started
     restart: unless-stopped
 
   front:
+    logging: *logging
     build: ./front
     image: corpus-front:latest
     ports:

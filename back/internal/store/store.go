@@ -89,23 +89,11 @@ func (s *Store) Close() { s.pool.Close() }
 // while every statement happened to be idempotent, and the migration that
 // renamed a column already was not.
 func (s *Store) Migrate(ctx context.Context) error {
-	db, err := sql.Open("pgx", s.dsn)
+	provider, db, err := s.provider()
 	if err != nil {
 		return err
 	}
 	defer db.Close()
-
-	// The provider reads from the root of the filesystem it is given, and the
-	// embedded one is rooted at the module, not at the migrations directory.
-	root, err := fs.Sub(migrations, "migrations")
-	if err != nil {
-		return err
-	}
-
-	provider, err := goose.NewProvider(goose.DialectPostgres, db, root)
-	if err != nil {
-		return err
-	}
 	applied, err := provider.Up(ctx)
 	if err != nil {
 		return err
@@ -114,6 +102,38 @@ func (s *Store) Migrate(ctx context.Context) error {
 		slog.InfoContext(ctx, "migration applied", "migration", m.Source.Path)
 	}
 	return nil
+}
+
+// SchemaVersions reports the database's schema version and the one this build
+// was written against. Only the indexer migrates, so a server started first, or
+// built later, can find the schema behind it.
+func (s *Store) SchemaVersions(ctx context.Context) (current, target int64, err error) {
+	provider, db, err := s.provider()
+	if err != nil {
+		return 0, 0, err
+	}
+	defer db.Close()
+	return provider.GetVersions(ctx)
+}
+
+func (s *Store) provider() (*goose.Provider, *sql.DB, error) {
+	db, err := sql.Open("pgx", s.dsn)
+	if err != nil {
+		return nil, nil, err
+	}
+	// The provider reads from the root of the filesystem it is given, and the
+	// embedded one is rooted at the module, not at the migrations directory.
+	root, err := fs.Sub(migrations, "migrations")
+	if err != nil {
+		db.Close()
+		return nil, nil, err
+	}
+	provider, err := goose.NewProvider(goose.DialectPostgres, db, root)
+	if err != nil {
+		db.Close()
+		return nil, nil, err
+	}
+	return provider, db, nil
 }
 
 // Unchanged reports whether the file is already indexed under the same content

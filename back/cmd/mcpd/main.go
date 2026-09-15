@@ -61,6 +61,18 @@ func run() error {
 	}
 	defer st.Close()
 
+	// Only the indexer migrates. Serving against a schema behind this build
+	// fails later and obscurely, on the first query that needs a new column;
+	// refusing to start says why, and compose restarts mcpd until the indexer
+	// has caught the schema up.
+	current, target, err := st.SchemaVersions(ctx)
+	if err != nil {
+		return fmt.Errorf("schema version: %w", err)
+	}
+	if current < target {
+		return fmt.Errorf("schema is at version %d and this build needs %d: the indexer applies migrations on start", current, target)
+	}
+
 	opts := []api.Option{api.WithVault(*vaultName), api.WithBibliography(st, cite.NewLookup())}
 	// Uploads are an addition to search, not a condition of it: a server whose
 	// library directories are missing still answers queries.

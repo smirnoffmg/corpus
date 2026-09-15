@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -214,4 +215,29 @@ func find(t *testing.T, hits []corpus.Hit, path string) corpus.Hit {
 	}
 	require.FailNowf(t, "not found", "no hit for %s among %d hits", path, len(hits))
 	return corpus.Hit{}
+}
+
+// mcpd does not migrate — the indexer does — so a newer mcpd can start against
+// an older schema and fail on the first query that needs a new column. It asks
+// first instead.
+func TestSchemaVersionsTellAnUnmigratedDatabase(t *testing.T) {
+	st, pool, ctx := open(t)
+
+	current, target, err := st.SchemaVersions(ctx)
+	require.NoError(t, err)
+	require.Positive(t, target)
+	require.Equal(t, target, current, "the test database is migrated")
+
+	_, err = pool.Exec(ctx, `CREATE DATABASE corpus_unmigrated`)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DROP DATABASE IF EXISTS corpus_unmigrated WITH (FORCE)`)
+	})
+	fresh, err := store.Open(ctx, strings.Replace(dsn, "/corpus?", "/corpus_unmigrated?", 1))
+	require.NoError(t, err)
+	defer fresh.Close()
+
+	current, target, err = fresh.SchemaVersions(ctx)
+	require.NoError(t, err)
+	require.Less(t, current, target)
 }
