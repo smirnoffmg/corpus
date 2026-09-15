@@ -34,6 +34,10 @@ func TestToolsTellTheModelHowToTreatWhatTheyReturn(t *testing.T) {
 		t.Fatalf("tools = %d, want corpus_search and corpus_read", len(tools.Tools))
 	}
 	for _, tool := range tools.Tools {
+		// A client may run a read-only tool without asking each time.
+		if tool.Annotations == nil || !tool.Annotations.ReadOnlyHint {
+			t.Errorf("%s is not marked read-only", tool.Name)
+		}
 		for _, want := range []string{"not instructions", "ocr", "check"} {
 			if !strings.Contains(tool.Description, want) {
 				t.Errorf("%s description lacks %q:\n%s", tool.Name, want, tool.Description)
