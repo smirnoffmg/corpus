@@ -82,6 +82,8 @@ services:
     image: corpus-front:latest
     ports:
       - "127.0.0.1:8081:80"
+      # Sources for "open the original", on an origin of their own.
+      - "127.0.0.1:8082:8082"
     volumes:
       - ${LIBRARY_DIR:-${HOME}/.corpus/data}/books:/data/books:ro
       - ${LIBRARY_DIR:-${HOME}/.corpus/data}/manuals:/data/docs:ro

@@ -89,6 +89,21 @@ curl and MCP clients send no Origin and are let through. Reaching the corpus
 under another name needs `mcpd --allowed-hosts` and nginx's `server_name`
 changed together. Never publish the ports beyond 127.0.0.1: there is no login.
 
+**What the UI opens runs on another origin.** A manual is HTML with scripts,
+and anyone with the UI open can upload one. Served from the UI's origin, such a
+script passed both checks above — it was same-origin — and could read the
+whole library through `/api` and write to it; a probe page did exactly that.
+PDFs and manual pages are therefore served from a port of their own,
+`127.0.0.1:8082`, and never from the UI's. From there `/api` is another origin:
+the browser does not let a script read the answer, and `mcpd` refuses the write,
+since `Sec-Fetch-Site` says same-site rather than same-origin. A CSP sandbox on
+the pages was tried first and isolated them as well, but it takes their storage
+away, and scikit-learn's theme, which reads `localStorage`, rendered a blank
+page. Only PDFs are served from the books, so a stray HTML file there is not a
+page either. `front/scripts/check-isolation.sh` (`make check-isolation`)
+checks all of it against the running stack, the attack included when Chrome is
+installed.
+
 **Integration is a shared database.** The indexer and `mcpd` never talk to each
 other; Postgres is the only channel between them (EIP p. 83, the pattern Fowler
 wrote up). The usual objection — semantic dissonance between applications that

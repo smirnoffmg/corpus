@@ -69,7 +69,9 @@ milliseconds — and the drop is reported only when it actually removes somethin
 
 ## Search
 
-In the browser: <http://localhost:8081/> — search, read the passage behind a
+In the browser: <http://localhost:8081/> (the originals it opens — PDFs and
+manual pages — come from <http://localhost:8082/>, a separate origin on
+purpose) — search, read the passage behind a
 hit and copy its citation, open the book's PDF at the page, the manual's
 original section or the note in Obsidian at its heading, and add books and
 manuals on the library page. It works offline; see [working offline](docs/offline.md).

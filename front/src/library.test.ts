@@ -47,17 +47,17 @@ describe('groupManuals', () => {
 describe('originalUrl', () => {
   it('links a manual section to its page and anchor', () => {
     expect(originalUrl({ kind: 'docs', path: 'scikit-learn/modules/svm.html', anchor: 'multi-class classification' })).toBe(
-      '/docs/scikit-learn/modules/svm.html#multi-class%20classification',
+      'http://localhost:8082/docs/scikit-learn/modules/svm.html#multi-class%20classification',
     )
   })
   it('escapes each path segment but keeps the slashes', () => {
-    expect(originalUrl({ kind: 'docs', path: 'my manual/a#b.html' })).toBe('/docs/my%20manual/a%23b.html')
+    expect(originalUrl({ kind: 'docs', path: 'my manual/a#b.html' })).toBe('http://localhost:8082/docs/my%20manual/a%23b.html')
   })
   it('opens a book at the PDF page of the passage', () => {
     expect(originalUrl({ kind: 'book', path: 'uploads/Concurrency in Go.pdf', page: 203 })).toBe(
-      '/books/uploads/Concurrency%20in%20Go.pdf#page=203',
+      'http://localhost:8082/books/uploads/Concurrency%20in%20Go.pdf#page=203',
     )
-    expect(originalUrl({ kind: 'book', path: 'a.pdf' })).toBe('/books/a.pdf')
+    expect(originalUrl({ kind: 'book', path: 'a.pdf' })).toBe('http://localhost:8082/books/a.pdf')
   })
   it('opens a note in Obsidian at the heading it was cited by', () => {
     expect(originalUrl({ kind: 'vault', path: 'brain/Cross entropy.md', locator: 'What it is > Example' }, 'my vault')).toBe(

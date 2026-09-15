@@ -58,6 +58,14 @@ function homelier(candidate: string, current: string, manual: string): boolean {
   return depth(candidate) < depth(current) || (depth(candidate) === depth(current) && candidate < current)
 }
 
+// sourcesOrigin is where PDFs and manual pages are served: the same host as
+// the UI on a port of its own. A manual's scripts must not run on the UI's
+// origin, where they could read the library through /api (see nginx.conf).
+export function sourcesOrigin(): string {
+  const port = import.meta.env.VITE_SOURCES_PORT ?? '8082'
+  return `${window.location.protocol}//${window.location.hostname}:${port}`
+}
+
 // originalUrl is where nginx serves the source itself: a manual's own page,
 // with its styles and images, scrolled to the section; a book's PDF, opened by
 // the browser's viewer at the page (#page= is the PDF open parameter Chrome
@@ -67,9 +75,9 @@ export function originalUrl({ kind, path, locator, anchor, page }: Place, vault?
   const escaped = path.split('/').map(encodeURIComponent).join('/')
   switch (kind) {
     case 'docs':
-      return anchor ? `/docs/${escaped}#${encodeURIComponent(anchor)}` : `/docs/${escaped}`
+      return anchor ? `${sourcesOrigin()}/docs/${escaped}#${encodeURIComponent(anchor)}` : `${sourcesOrigin()}/docs/${escaped}`
     case 'book':
-      return page ? `/books/${escaped}#page=${page}` : `/books/${escaped}`
+      return page ? `${sourcesOrigin()}/books/${escaped}#page=${page}` : `${sourcesOrigin()}/books/${escaped}`
     case 'vault': {
       if (!vault) return null
       const heading = locator ? locator.split(' > ').pop() : ''

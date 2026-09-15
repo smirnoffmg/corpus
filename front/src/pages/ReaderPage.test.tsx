@@ -34,7 +34,7 @@ describe('ReaderPage', () => {
     expect(screen.getByText(passage.locator)).toBeInTheDocument()
     expect(screen.getByText('>>> clf = svm.SVC()', { selector: 'pre code' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Открыть оригинал' })).toHaveAttribute(
-      'href', '/docs/scikit-learn/modules/svm.html#classification',
+      'href', 'http://localhost:8082/docs/scikit-learn/modules/svm.html#classification',
     )
     expect(screen.getByText(passage.previous!)).toBeInTheDocument()
     expect(screen.getByText(passage.next!)).toBeInTheDocument()
@@ -49,7 +49,7 @@ describe('ReaderPage', () => {
     await user.click(await screen.findByRole('button', { name: 'Скопировать цитату' }))
     expect(writeText).toHaveBeenCalledWith('Concurrency in Go, с. 189 (PDF 203)')
     expect(await screen.findByRole('button', { name: 'Скопировано' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Открыть оригинал' })).toHaveAttribute('href', '/books/Concurrency%20in%20Go.pdf#page=203')
+    expect(screen.getByRole('link', { name: 'Открыть оригинал' })).toHaveAttribute('href', 'http://localhost:8082/books/Concurrency%20in%20Go.pdf#page=203')
   })
 
   it('opens a note in Obsidian once the vault is known', async () => {

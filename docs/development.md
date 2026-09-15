@@ -101,5 +101,8 @@ when a file under `front/` changes. `front/.npmrc` sets `legacy-peer-deps`:
 npm 10.9 crashes resolving vitest's optional peers without it, and the lockfile
 was written with it, so every install needs it too.
 
-In development `/docs/` is not served — in compose nginx serves the manuals'
-original pages — so "open the original" only works against the container.
+In development the sources are not served: "open the original" links point at
+`http://localhost:8082`, where the compose stack's nginx serves PDFs and manual
+pages on an origin of their own (see [architecture](architecture.md)). With
+the stack running they work from the dev server too; `VITE_SOURCES_PORT`
+changes the port.
