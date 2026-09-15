@@ -18,6 +18,7 @@ type fakeStore struct {
 	text            []corpus.Hit
 	semantic        []corpus.Hit
 	lastText        int
+	lastVector      corpus.Query
 	lastNorm        int
 	sources         []corpus.SourceStatus
 	lastKind        string
@@ -41,7 +42,8 @@ func (f *fakeStore) Search(_ context.Context, q corpus.Query) ([]corpus.Hit, err
 	return f.text, nil
 }
 
-func (f *fakeStore) SearchVector(_ context.Context, _ []float32, _ string, _ int) ([]corpus.Hit, error) {
+func (f *fakeStore) SearchVector(_ context.Context, _ []float32, q corpus.Query) ([]corpus.Hit, error) {
+	f.lastVector = q
 	return f.semantic, nil
 }
 
@@ -376,5 +378,42 @@ func TestStatusNamesTheVaultWhenConfigured(t *testing.T) {
 	get(t, bare.URL+"/status", &status)
 	if _, ok := status["vault"]; ok {
 		t.Errorf("status = %v, want no vault when none is configured", status)
+	}
+}
+
+// How deep each leg is fetched before fusion is a measured choice, so it can be
+// set per request; without it, hybrid keeps asking for twice the page.
+func TestHybridLegDepthCanBeSetPerSearch(t *testing.T) {
+	store := &fakeStore{}
+	svc := api.New(store, &fakeEmbedder{})
+
+	if _, err := svc.Search(context.Background(), corpus.Query{Text: "q", Limit: 10}); err != nil {
+		t.Fatal(err)
+	}
+	if store.lastText != 20 || store.lastVector.Limit != 20 {
+		t.Errorf("default depth: text %d, vector %d, want 20 each", store.lastText, store.lastVector.Limit)
+	}
+
+	if _, err := svc.Search(context.Background(), corpus.Query{Text: "q", Limit: 10, Depth: 100}); err != nil {
+		t.Fatal(err)
+	}
+	if store.lastText != 100 || store.lastVector.Limit != 100 {
+		t.Errorf("depth 100: text %d, vector %d, want 100 each", store.lastText, store.lastVector.Limit)
+	}
+}
+
+func TestMeasurementKnobsAreReadFromTheQueryString(t *testing.T) {
+	store := &fakeStore{text: []corpus.Hit{}}
+	srv := httptest.NewServer(api.New(store, &fakeEmbedder{}).Handler())
+	defer srv.Close()
+
+	var body map[string]any
+	get(t, srv.URL+"/search?q=x&mode=vector&limit=5&ef_search=200&exact=1", &body)
+	if store.lastVector.EfSearch != 200 || !store.lastVector.Exact || store.lastVector.Limit != 5 {
+		t.Errorf("vector query = %+v, want ef_search 200, exact, limit 5", store.lastVector)
+	}
+	get(t, srv.URL+"/search?q=x&depth=60", &body)
+	if store.lastVector.Limit != 60 {
+		t.Errorf("depth = %d, want 60", store.lastVector.Limit)
 	}
 }

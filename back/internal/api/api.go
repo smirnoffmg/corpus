@@ -28,7 +28,7 @@ import (
 
 type Store interface {
 	Search(ctx context.Context, q corpus.Query) ([]corpus.Hit, error)
-	SearchVector(ctx context.Context, vector []float32, kind string, limit int) ([]corpus.Hit, error)
+	SearchVector(ctx context.Context, vector []float32, q corpus.Query) ([]corpus.Hit, error)
 	Read(ctx context.Context, id int64, neighbours bool) (corpus.Passage, error)
 	Stats(ctx context.Context) (int64, int64, error)
 	Sources(ctx context.Context, kind, prefix string) ([]corpus.SourceStatus, error)
@@ -186,7 +186,7 @@ func (s *Service) vector(ctx context.Context, q corpus.Query, tr *trace) ([]corp
 	if err != nil {
 		return nil, err
 	}
-	return s.store.SearchVector(ctx, vector, q.Kind, q.Limit)
+	return s.store.SearchVector(ctx, vector, q)
 }
 
 // hybrid fuses both lists by rank. If the embedder is unreachable the text index
@@ -194,7 +194,7 @@ func (s *Service) vector(ctx context.Context, q corpus.Query, tr *trace) ([]corp
 func (s *Service) hybrid(ctx context.Context, q corpus.Query, tr *trace) ([]corpus.Hit, error) {
 	limit := q.Limit
 	deep := q
-	deep.Limit = limit * 2
+	deep.Limit = legDepth(q)
 
 	text, err := s.text(ctx, deep, tr)
 	if err != nil {
@@ -466,7 +466,22 @@ func queryFromURL(v url.Values) corpus.Query {
 		// Absent means the default; an explicit 0 turns it off, which is how the
 		// sweep measures the alternative.
 		TitleBoost: floatOr(v, "title_boost", defaultTitleBoost),
+		Depth:      atoiOrZero(v.Get("depth")),
+		EfSearch:   atoiOrZero(v.Get("ef_search")),
+		Exact:      v.Get("exact") == "1" || v.Get("exact") == "true",
 	}
+}
+
+// maxDepth bounds how deep a leg is fetched: fusion gains nothing from
+// candidates a person would never page to, and the vector leg costs more the
+// deeper it walks.
+const maxDepth = 500
+
+func legDepth(q corpus.Query) int {
+	if q.Depth > 0 {
+		return min(q.Depth, maxDepth)
+	}
+	return q.Limit * 2
 }
 
 func truncate(hits []corpus.Hit, limit int) []corpus.Hit {

@@ -167,7 +167,7 @@ func TestIdenticalTextIsEmbeddedOnceAndFoundInEverySource(t *testing.T) {
 
 	require.Equal(t, 1, embedAll(t, st, ctx), "two copies of a page are one text")
 
-	hits, err := st.SearchVector(ctx, unit(0), "", 10)
+	hits, err := st.SearchVector(ctx, unit(0), corpus.Query{Limit: 10})
 	require.NoError(t, err)
 	var paths []string
 	for _, h := range hits {
@@ -217,13 +217,13 @@ func TestSearchVectorReturnsTheNearestChunkFirst(t *testing.T) {
 	require.Len(t, rest, 1)
 	require.NoError(t, st.SaveEmbeddings(ctx, []string{rest[0].Key}, [][]float32{unit(2)}))
 
-	hits, err := st.SearchVector(ctx, unit(1), "", 10)
+	hits, err := st.SearchVector(ctx, unit(1), corpus.Query{Limit: 10})
 	require.NoError(t, err)
 	require.NotEmpty(t, hits)
 	require.Equal(t, "ось один", hits[0].Snippet)
 	require.InDelta(t, 1.0, hits[0].Rank, 1e-5, "an identical vector is at distance zero")
 
-	books, err := st.SearchVector(ctx, unit(2), "book", 10)
+	books, err := st.SearchVector(ctx, unit(2), corpus.Query{Kind: "book", Limit: 10})
 	require.NoError(t, err)
 	for _, h := range books {
 		require.Equal(t, "book", h.Kind, "the kind filter must hold even for the nearest note")
@@ -319,4 +319,23 @@ func TestAFailureIsRecordedAndAnAttemptCanBeTakenBack(t *testing.T) {
 	require.NoError(t, st.SaveEmbeddings(ctx, keys, [][]float32{unit(0)}))
 	require.NoError(t, pool.QueryRow(ctx, `SELECT last_error FROM embeddings WHERE hash = $1`, keys[0]).Scan(&reason))
 	require.Nil(t, reason, "a vector clears the failure it overcame")
+}
+
+// Recall is measured against an exact scan, and ef_search is swept to find the
+// smallest value that keeps it; both are per-search settings for that.
+func TestExactSearchAndEfSearchCanBeAskedFor(t *testing.T) {
+	st, _, ctx := open(t)
+	require.NoError(t, st.Replace(ctx, book("__test__/exact.pdf", "Книга", "h1"), pages("а", "б", "в", "г", "д")))
+	embedAll(t, st, ctx)
+
+	exact, err := st.SearchVector(ctx, unit(2), corpus.Query{Limit: 3, Exact: true})
+	require.NoError(t, err)
+	approx, err := st.SearchVector(ctx, unit(2), corpus.Query{Limit: 3, EfSearch: 100})
+	require.NoError(t, err)
+	require.Len(t, exact, 3)
+	require.Equal(t, exact[0].ID, approx[0].ID)
+	require.InDelta(t, 1.0, exact[0].Rank, 1e-5)
+
+	_, err = st.SearchVector(ctx, unit(2), corpus.Query{Limit: 3, EfSearch: 5000})
+	require.Error(t, err, "ef_search beyond what pgvector accepts is refused, not clamped silently")
 }

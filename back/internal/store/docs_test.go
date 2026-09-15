@@ -30,7 +30,7 @@ func TestDocsSectionKeepsItsAnchorThroughEveryRead(t *testing.T) {
 	var key string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT id, embed_hash FROM chunks WHERE anchor = 'classification'`).Scan(&id, &key))
 	require.NoError(t, st.SaveEmbeddings(ctx, []string{key}, [][]float32{unit(7)}))
-	hits, err = st.SearchVector(ctx, unit(7), "docs", 1)
+	hits, err = st.SearchVector(ctx, unit(7), corpus.Query{Kind: "docs", Limit: 1})
 	require.NoError(t, err)
 	require.Equal(t, "classification", find(t, hits, src.Path).Anchor, "vector search")
 

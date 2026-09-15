@@ -45,6 +45,14 @@ type Query struct {
 	// query. A note called "Кросс-энтропия" should beat a note that merely
 	// mentions the term, and on text rank alone the two tie.
 	TitleBoost float64
+	// Depth is how many hits each leg of a hybrid search is asked for before
+	// fusion; 0 leaves the default of twice the limit.
+	Depth int
+	// EfSearch is hnsw.ef_search for this search; 0 leaves the server's.
+	EfSearch int
+	// Exact scans every vector instead of walking the index: slow, and the
+	// reference an approximate search's recall is measured against.
+	Exact bool
 }
 
 // Hit is one search result: enough to judge it and to cite it.

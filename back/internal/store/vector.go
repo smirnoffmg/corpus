@@ -245,8 +245,35 @@ WHERE e.embedding IS NOT NULL
 ORDER BY e.embedding <=> $1::vector, c.id
 LIMIT $3`
 
-func (s *Store) SearchVector(ctx context.Context, vector []float32, kind string, limit int) ([]corpus.Hit, error) {
-	rows, err := s.pool.Query(ctx, vectorSQL, vectorLiteral(vector), kind, limit)
+// SearchVector returns the chunks nearest a vector. ef_search and an exact scan
+// are set for this one search, inside its own transaction, so they never leak
+// onto a pooled connection another search will use.
+func (s *Store) SearchVector(ctx context.Context, vector []float32, q corpus.Query) ([]corpus.Hit, error) {
+	if q.EfSearch == 0 && !q.Exact {
+		rows, err := s.pool.Query(ctx, vectorSQL, vectorLiteral(vector), q.Kind, q.Limit)
+		if err != nil {
+			return nil, err
+		}
+		return collectHits(rows)
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if q.EfSearch > 0 {
+		// SET takes no parameters; the value is an int, formatted, not text.
+		if _, setErr := tx.Exec(ctx, "SET LOCAL hnsw.ef_search = "+strconv.Itoa(q.EfSearch)); setErr != nil {
+			return nil, fmt.Errorf("ef_search %d: %w", q.EfSearch, setErr)
+		}
+	}
+	if q.Exact {
+		if _, setErr := tx.Exec(ctx, "SET LOCAL enable_indexscan = off"); setErr != nil {
+			return nil, setErr
+		}
+	}
+	rows, err := tx.Query(ctx, vectorSQL, vectorLiteral(vector), q.Kind, q.Limit)
 	if err != nil {
 		return nil, err
 	}
