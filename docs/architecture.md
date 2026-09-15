@@ -78,6 +78,17 @@ degraded-but-serving process invites a restart that fixes nothing.
 ollama itself is not managed here. If it should survive a reboot,
 `brew services start ollama`.
 
+**Nothing is authenticated, so nothing answers to strangers.** The corpus
+holds a diary and listens on 127.0.0.1, which keeps other machines out but not
+other web sites: a page open in the browser can point its own domain at
+127.0.0.1 and read the answers (DNS rebinding), and a form on it can post an
+upload without the browser asking (CSRF). Both `mcpd` and nginx therefore
+refuse a request whose Host header is not `localhost` or `127.0.0.1`, and `mcpd`
+refuses writes from another origin with Go's `http.CrossOriginProtection`.
+curl and MCP clients send no Origin and are let through. Reaching the corpus
+under another name needs `mcpd --allowed-hosts` and nginx's `server_name`
+changed together. Never publish the ports beyond 127.0.0.1: there is no login.
+
 **Integration is a shared database.** The indexer and `mcpd` never talk to each
 other; Postgres is the only channel between them (EIP p. 83, the pattern Fowler
 wrote up). The usual objection — semantic dissonance between applications that

@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -45,6 +46,7 @@ func run() error {
 	books := flag.String("books", "/data/books", "book library that uploaded PDFs are saved into")
 	docs := flag.String("docs", "/data/docs", "manuals directory that uploaded ZIPs are unpacked into")
 	uploadMax := flag.Int64("upload-max", 300<<20, "largest upload accepted, in bytes")
+	allowedHosts := flag.String("allowed-hosts", "localhost,127.0.0.1,::1", "comma-separated host names requests may be addressed to; anything else is refused, against DNS rebinding")
 	// Inside the container the vault is /data/vault; its Obsidian name is the
 	// name of the directory on the host, which compose passes along.
 	vaultName := flag.String("vault-name", vaultNameFrom(os.Getenv("CORPUS_VAULT_DIR")), "Obsidian vault name, for obsidian:// links to notes")
@@ -71,7 +73,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              *addr,
-		Handler:           api.New(st, embed.New(*ollama, *model), opts...).Handler(),
+		Handler:           api.Guard(api.New(st, embed.New(*ollama, *model), opts...).Handler(), strings.Split(*allowedHosts, ",")),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go func() {
