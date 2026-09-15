@@ -65,6 +65,33 @@ func TestDOITranslatesRegistryTypesToCSL(t *testing.T) {
 	}
 }
 
+// Crossref files a book's series under container-title, which CSL reserves
+// for what a work is part of; a styled reference would then read as a chapter
+// "in" the series.
+func TestDOIFilesABooksSeriesAsItsCollection(t *testing.T) {
+	l := lookupAgainst(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"type":"monograph","title":"Introduction to Cryptography","container-title":"Information Security and Cryptography"}`))
+	})
+	record, err := l.DOI(context.Background(), "10.1007/978-3-662-47974-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record["collection-title"] != "Information Security and Cryptography" || record["container-title"] != nil {
+		t.Errorf("record = %v", record)
+	}
+
+	chapter := lookupAgainst(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"type":"book-chapter","title":"Introduction","container-title":"An Introduction to Statistical Learning"}`))
+	})
+	record, err = chapter.DOI(context.Background(), "10.1007/978-3-031-38747-0_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record["container-title"] != "An Introduction to Statistical Learning" {
+		t.Errorf("a chapter keeps its book as container: %v", record)
+	}
+}
+
 func TestISBNMapsAnOpenLibraryBook(t *testing.T) {
 	l := lookupAgainst(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("bibkeys") != "ISBN:9781449373320" {

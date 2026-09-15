@@ -54,6 +54,12 @@ func (l *Lookup) DOI(ctx context.Context, doi string) (corpus.CSL, error) {
 			record["type"] = csl
 		}
 	}
+	if record["type"] == "book" && record["collection-title"] == nil {
+		if series, ok := record["container-title"]; ok {
+			record["collection-title"] = series
+			delete(record, "container-title")
+		}
+	}
 	return record, nil
 }
 
