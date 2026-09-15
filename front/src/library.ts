@@ -1,14 +1,14 @@
 import { plural } from './text'
-import type { Kind, SourceStatus } from './api'
+import type { Description, Indexed, IndexedSource, Kind, Scan, SourceStatus } from './api'
 
 export type State = 'waiting' | 'recognising' | 'embedding' | 'ready' | 'errors'
 
-export type Counts = Pick<SourceStatus, 'chunks' | 'embedded' | 'quarantined' | 'scan_pages' | 'scan_recognised' | 'scan_failed'>
+// Tally is how far a source, or a group of them, has come.
+export type Tally = Indexed | Scan
 
-export function progress({ chunks, embedded, quarantined, scan_pages = 0, scan_recognised = 0, scan_failed }: Counts): { state: State; fraction: number } {
-  if (chunks === 0 && scan_pages > 0) {
-    return { state: scan_failed ? 'errors' : 'recognising', fraction: scan_recognised / scan_pages }
-  }
+export function progress(t: Tally): { state: State; fraction: number } {
+  if (t.stage === 'scan') return { state: t.failed ? 'errors' : 'recognising', fraction: t.recognised / t.pages }
+  const { chunks, embedded, quarantined } = t
   if (chunks === 0) return { state: 'waiting', fraction: 0 }
   const fraction = embedded / chunks
   if (embedded === chunks) return { state: 'ready', fraction }
@@ -16,9 +16,29 @@ export function progress({ chunks, embedded, quarantined, scan_pages = 0, scan_r
   return { state: 'embedding', fraction }
 }
 
-export interface Manual extends Counts {
+export const nothingYet: Indexed = { stage: 'indexed', chunks: 0, embedded: 0, quarantined: 0 }
+
+function tallyOf(s: SourceStatus): Tally {
+  return s.stage === 'scan'
+    ? { stage: 'scan', pages: s.pages, recognised: s.recognised, failed: s.failed }
+    : { stage: 'indexed', chunks: s.chunks, embedded: s.embedded, quarantined: s.quarantined }
+}
+
+// combine is the progress of one upload: a book is one source, which may be a
+// scan; a manual is its pages, each indexed.
+export function combine(rows: SourceStatus[]): Tally {
+  if (rows.length === 1) return tallyOf(rows[0])
+  return rows.reduce<Indexed>(
+    (sum, s) => (s.stage === 'indexed'
+      ? { stage: 'indexed', chunks: sum.chunks + s.chunks, embedded: sum.embedded + s.embedded, quarantined: sum.quarantined + s.quarantined }
+      : sum),
+    nothingYet,
+  )
+}
+
+export interface Manual extends Indexed {
   name: string
-  description: SourceStatus['description']
+  description: Description
   home: string // the page a manual opens at
   pages: number
   indexed_at: string
@@ -26,11 +46,11 @@ export interface Manual extends Counts {
 
 // A manual is hundreds of sources, one per page; the library shows it as one
 // row, named by its directory, which is also how its citations name it.
-export function groupManuals(pages: SourceStatus[]): Manual[] {
+export function groupManuals(pages: IndexedSource[]): Manual[] {
   const byName = new Map<string, Manual>()
   for (const p of pages) {
     const name = p.path.split('/')[0]
-    const m = byName.get(name) ?? { name, description: p.description, home: p.path, pages: 0, chunks: 0, embedded: 0, quarantined: 0, indexed_at: p.indexed_at }
+    const m = byName.get(name) ?? { stage: 'indexed', name, description: p.description, home: p.path, pages: 0, chunks: 0, embedded: 0, quarantined: 0, indexed_at: p.indexed_at }
     if (homelier(p.path, m.home, name)) m.home = p.path
     m.pages++
     m.chunks += p.chunks
@@ -96,20 +116,21 @@ export function originalLabel(kind: Kind): string {
 
 const withoutVector: [string, string, string] = ['фрагмент без вектора', 'фрагмента без вектора', 'фрагментов без вектора']
 
-export function stateLabel(counts: Counts): string {
-  const { state, fraction } = progress(counts)
+export function stateLabel(t: Tally): string {
+  const { state, fraction } = progress(t)
+  if (t.stage === 'scan') {
+    if (state === 'errors') return 'Скан: распознать не удалось'
+    return t.recognised ? `Распознаётся ${Math.floor(fraction * 100)}%` : 'Скан: ждёт распознавания'
+  }
   switch (state) {
-    case 'waiting':
-      return 'Ждёт индексации'
-    case 'recognising':
-      return counts.scan_recognised ? `Распознаётся ${Math.floor(fraction * 100)}%` : 'Скан: ждёт распознавания'
     case 'embedding':
       return `Векторизация ${Math.floor(fraction * 100)}%`
     case 'ready':
       return 'Готово'
     case 'errors':
-      if (counts.chunks === 0) return 'Скан: распознать не удалось'
-      return `${counts.quarantined} ${plural(counts.quarantined, withoutVector)}`
+      return `${t.quarantined} ${plural(t.quarantined, withoutVector)}`
+    default:
+      return 'Ждёт индексации'
   }
 }
 

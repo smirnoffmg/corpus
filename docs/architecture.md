@@ -130,7 +130,17 @@ since `Sec-Fetch-Site` says same-site rather than same-origin. A CSP sandbox on
 the pages was tried first and isolated them as well, but it takes their storage
 away, and scikit-learn's theme, which reads `localStorage`, rendered a blank
 page. Only PDFs are served from the books, so a stray HTML file there is not a
-page either. `front/scripts/check-security.sh` (`make check-security`)
+page either.
+
+The port isolates scripts and storage, not cookies. The same-origin policy
+compares protocol, host and port (*The Tangled Web*, p. 142), but a cookie is
+scoped by domain and path alone (ibid., pp. 149–150; RFC 6265 §8.5): a script on
+`:8082` can set a cookie that the UI on `:8081` and `mcpd` on `:8080` then
+receive. Nothing here reads a cookie, so today that buys an attacker nothing.
+**Never add cookie-based sessions or trust a cookie in `mcpd` while manuals are
+served from the same host** — a manual could set or overwrite it. Authentication,
+if it ever comes, needs a header the page's own script sets, or the sources
+moved to a host name of their own. `front/scripts/check-security.sh` (`make check-security`)
 checks all of it against the running stack, the attack included when Chrome is
 installed.
 

@@ -1,30 +1,45 @@
 import { describe, expect, it } from 'vitest'
-import type { SourceStatus } from './api'
-import { groupManuals, manualName, originalUrl, progress, stateLabel } from './library'
+import type { IndexedSource } from './api'
+import { combine, groupManuals, manualName, originalUrl, progress, stateLabel } from './library'
 
-const source = (over: Partial<SourceStatus>): SourceStatus => ({
-  kind: 'docs', path: 'nltk/index.html', title: 'nltk · NLTK', indexed_at: '2026-09-14T10:00:00Z',
-  chunks: 10, embedded: 10, quarantined: 0, description: '', ...over,
+const indexed = (chunks: number, embedded: number, quarantined: number) => ({ stage: 'indexed' as const, chunks, embedded, quarantined })
+const scan = (pages: number, recognised: number, failed = false) => ({ stage: 'scan' as const, pages, recognised, failed })
+
+const source = (over: Partial<IndexedSource>): IndexedSource => ({
+  stage: 'indexed', kind: 'docs', path: 'nltk/index.html', title: 'nltk · NLTK', indexed_at: '2026-09-14T10:00:00Z',
+  chunks: 10, embedded: 10, quarantined: 0, description: '', ocr: false, ...over,
 })
 
 describe('progress', () => {
   it('is ready when every chunk has a vector', () => {
-    expect(progress({ chunks: 4, embedded: 4, quarantined: 0 })).toEqual({ state: 'ready', fraction: 1 })
+    expect(progress(indexed(4, 4, 0))).toEqual({ state: 'ready', fraction: 1 })
   })
   it('is embedding while vectors are missing', () => {
-    expect(progress({ chunks: 4, embedded: 1, quarantined: 0 })).toEqual({ state: 'embedding', fraction: 0.25 })
+    expect(progress(indexed(4, 1, 0))).toEqual({ state: 'embedding', fraction: 0.25 })
   })
   it('has errors once only quarantined chunks are left', () => {
-    expect(progress({ chunks: 4, embedded: 3, quarantined: 1 })).toEqual({ state: 'errors', fraction: 0.75 })
+    expect(progress(indexed(4, 3, 1))).toEqual({ state: 'errors', fraction: 0.75 })
   })
   it('is recognising a scan, by the share of its pages read', () => {
-    expect(progress({ chunks: 0, embedded: 0, quarantined: 0, scan_pages: 200, scan_recognised: 50 })).toEqual({ state: 'recognising', fraction: 0.25 })
+    expect(progress(scan(200, 50))).toEqual({ state: 'recognising', fraction: 0.25 })
   })
   it('gives up on a scan recognition kept failing on', () => {
-    expect(progress({ chunks: 0, embedded: 0, quarantined: 0, scan_pages: 200, scan_recognised: 50, scan_failed: true })).toEqual({ state: 'errors', fraction: 0.25 })
+    expect(progress(scan(200, 50, true))).toEqual({ state: 'errors', fraction: 0.25 })
   })
   it('is waiting when nothing is stored yet', () => {
-    expect(progress({ chunks: 0, embedded: 0, quarantined: 0 })).toEqual({ state: 'waiting', fraction: 0 })
+    expect(progress(indexed(0, 0, 0))).toEqual({ state: 'waiting', fraction: 0 })
+  })
+})
+
+describe('combine', () => {
+  it('sums the pages of an uploaded manual', () => {
+    expect(combine([source({ chunks: 3, embedded: 1 }), source({ chunks: 2, embedded: 2, quarantined: 0 })])).toEqual(indexed(5, 3, 0))
+  })
+  it('follows an uploaded scan through recognition', () => {
+    expect(combine([{ stage: 'scan', kind: 'book', path: 'b.pdf', title: 'b', pages: 10, recognised: 4, failed: false }])).toEqual(scan(10, 4))
+  })
+  it('is waiting while the upload has no row yet', () => {
+    expect(combine([])).toEqual(indexed(0, 0, 0))
   })
 })
 
@@ -44,8 +59,8 @@ describe('groupManuals', () => {
       source({ path: 'scikit-learn/modules/svm.html', chunks: 2, embedded: 0, indexed_at: '2026-09-14T11:00:00Z' }),
     ])
     expect(groups).toEqual([
-      { name: 'nltk', description: '', home: 'nltk/index.html', pages: 2, chunks: 8, embedded: 4, quarantined: 1, indexed_at: '2026-09-14T10:00:00Z' },
-      { name: 'scikit-learn', description: '', home: 'scikit-learn/modules/svm.html', pages: 1, chunks: 2, embedded: 0, quarantined: 0, indexed_at: '2026-09-14T11:00:00Z' },
+      { stage: 'indexed', name: 'nltk', description: '', home: 'nltk/index.html', pages: 2, chunks: 8, embedded: 4, quarantined: 1, indexed_at: '2026-09-14T10:00:00Z' },
+      { stage: 'indexed', name: 'scikit-learn', description: '', home: 'scikit-learn/modules/svm.html', pages: 1, chunks: 2, embedded: 0, quarantined: 0, indexed_at: '2026-09-14T11:00:00Z' },
     ])
   })
 })
@@ -93,13 +108,13 @@ describe('manualName', () => {
 
 describe('stateLabel', () => {
   it.each([
-    [{ chunks: 0, embedded: 0, quarantined: 0 }, 'Ждёт индексации'],
-    [{ chunks: 10, embedded: 4, quarantined: 0 }, 'Векторизация 40%'],
-    [{ chunks: 10, embedded: 10, quarantined: 0 }, 'Готово'],
-    [{ chunks: 10, embedded: 5, quarantined: 5 }, '5 фрагментов без вектора'],
-    [{ chunks: 0, embedded: 0, quarantined: 0, scan_pages: 300, scan_recognised: 0 }, 'Скан: ждёт распознавания'],
-    [{ chunks: 0, embedded: 0, quarantined: 0, scan_pages: 300, scan_recognised: 100 }, 'Распознаётся 33%'],
-    [{ chunks: 0, embedded: 0, quarantined: 0, scan_pages: 300, scan_recognised: 100, scan_failed: true }, 'Скан: распознать не удалось'],
+    [indexed(0, 0, 0), 'Ждёт индексации'],
+    [indexed(10, 4, 0), 'Векторизация 40%'],
+    [indexed(10, 10, 0), 'Готово'],
+    [indexed(10, 5, 5), '5 фрагментов без вектора'],
+    [scan(300, 0), 'Скан: ждёт распознавания'],
+    [scan(300, 100), 'Распознаётся 33%'],
+    [scan(300, 100, true), 'Скан: распознать не удалось'],
   ])('%o → %s', (counts, want) => {
     expect(stateLabel(counts)).toBe(want)
   })

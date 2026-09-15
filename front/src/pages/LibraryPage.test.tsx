@@ -2,12 +2,12 @@ import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router'
 import { describe, expect, it, vi } from 'vitest'
-import type { SourceStatus } from '../api'
+import type { SourceRow } from '../api'
 import { stubApi } from '../test/fetch'
 import { VaultContext } from '../vault'
 import { LibraryPage } from './LibraryPage'
 
-const book = (over: Partial<SourceStatus> = {}): SourceStatus => ({
+const book = (over: Partial<SourceRow> = {}): SourceRow => ({
   kind: 'book', path: 'Concurrency in Go.pdf', title: 'Concurrency in Go', indexed_at: '2026-09-14T10:00:00Z',
   chunks: 240, embedded: 240, quarantined: 0, description: '', ...over,
 })

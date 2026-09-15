@@ -15,6 +15,21 @@ describe('searchQuery', () => {
   })
 })
 
+describe('sources', () => {
+  it('tells a scan waiting for recognition from an indexed source', async () => {
+    vi.stubGlobal('fetch', respond(200, { sources: [
+      { kind: 'book', path: 'a.pdf', title: 'A', indexed_at: '2026-09-15T10:00:00Z', chunks: 5, embedded: 5, quarantined: 0, description: 'checked', ocr: true },
+      { kind: 'book', path: 'scan.pdf', title: 'scan', indexed_at: '0001-01-01T00:00:00Z', chunks: 0, embedded: 0, quarantined: 0, description: '', scan_pages: 300, scan_recognised: 12, scan_failed: true, scan_error: 'tesseract: exit 1' },
+      { kind: 'book', path: 'new.pdf', title: 'new', indexed_at: '0001-01-01T00:00:00Z', chunks: 0, embedded: 0, quarantined: 0, description: '', scan_pages: 40 },
+    ] }))
+    await expect(sources({ kind: 'book' })).resolves.toEqual([
+      { stage: 'indexed', kind: 'book', path: 'a.pdf', title: 'A', indexed_at: '2026-09-15T10:00:00Z', chunks: 5, embedded: 5, quarantined: 0, description: 'checked', ocr: true },
+      { stage: 'scan', kind: 'book', path: 'scan.pdf', title: 'scan', pages: 300, recognised: 12, failed: true, error: 'tesseract: exit 1' },
+      { stage: 'scan', kind: 'book', path: 'new.pdf', title: 'new', pages: 40, recognised: 0, failed: false },
+    ])
+  })
+})
+
 describe('requests', () => {
   it('reads hits through the /api prefix', async () => {
     const fetchMock = respond(200, { hits: [{ id: 1 }] })

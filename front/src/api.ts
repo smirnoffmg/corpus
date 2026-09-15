@@ -27,7 +27,9 @@ export interface Passage {
   ocr?: boolean
 }
 
-export interface SourceStatus {
+// SourceRow is a row of /sources as the server sends it: an indexed source and
+// a scan waiting for recognition share one flat shape there.
+export interface SourceRow {
   kind: Kind
   path: string
   title: string
@@ -35,14 +37,63 @@ export interface SourceStatus {
   chunks: number
   embedded: number
   quarantined: number
-  description: '' | 'draft' | 'checked'
+  description: Description
   ocr?: boolean
-  // A scan not yet indexed: its pages, how many are recognised, and whether
-  // recognition was given up on.
   scan_pages?: number
   scan_recognised?: number
   scan_failed?: boolean
   scan_error?: string
+}
+
+export type Description = '' | 'draft' | 'checked'
+
+// Indexed counts a source's chunks by how far their vectors have come.
+export interface Indexed {
+  stage: 'indexed'
+  chunks: number
+  embedded: number
+  quarantined: number
+}
+
+// Scan is a book with no text layer, still being recognised; it has no chunks
+// and no description until it is indexed.
+export interface Scan {
+  stage: 'scan'
+  pages: number
+  recognised: number
+  failed: boolean // set aside after repeated failures
+  error?: string
+}
+
+interface Named {
+  kind: Kind
+  path: string
+  title: string
+}
+
+export interface IndexedSource extends Named, Indexed {
+  indexed_at: string
+  description: Description
+  ocr: boolean // text recognised from a scan
+}
+
+export type ScanSource = Named & Scan
+
+export type SourceStatus = IndexedSource | ScanSource
+
+// sourceOf turns the flat row into a source that is either one or the other,
+// so no screen has to work out from zeros which kind of row it holds.
+export function sourceOf(r: SourceRow): SourceStatus {
+  const named = { kind: r.kind, path: r.path, title: r.title }
+  if (r.chunks === 0 && (r.scan_pages ?? 0) > 0) {
+    const scan: ScanSource = { stage: 'scan', ...named, pages: r.scan_pages!, recognised: r.scan_recognised ?? 0, failed: r.scan_failed ?? false }
+    return r.scan_error ? { ...scan, error: r.scan_error } : scan
+  }
+  return {
+    stage: 'indexed', ...named, indexed_at: r.indexed_at,
+    chunks: r.chunks, embedded: r.embedded, quarantined: r.quarantined,
+    description: r.description, ocr: r.ocr ?? false,
+  }
 }
 
 export type CSLRecord = Record<string, unknown>
@@ -123,7 +174,7 @@ export async function sources(filter: { kind?: Kind; prefix?: string }, signal?:
   const q = new URLSearchParams()
   if (filter.kind) q.set('kind', filter.kind)
   if (filter.prefix) q.set('prefix', filter.prefix)
-  return (await getJSON<{ sources: SourceStatus[] }>(`/sources?${q}`, signal)).sources
+  return (await getJSON<{ sources: SourceRow[] }>(`/sources?${q}`, signal)).sources.map(sourceOf)
 }
 
 async function sendJSON<T>(method: string, path: string, body: unknown): Promise<T> {

@@ -1,12 +1,12 @@
 import { useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
-import { sources, type Kind, type SourceStatus } from '../api'
+import { sources, type Description, type Kind, type SourceStatus } from '../api'
 import { describeHref } from '../cite'
 import { OriginalLink } from '../components/OriginalLink'
 import { StylesPanel } from '../components/StylesPanel'
 import { UploadPanel } from '../components/UploadPanel'
 import { RecognisedBadge } from '../components/RecognisedBadge'
-import { groupManuals, originalUrl, progress, stateLabel, type Counts } from '../library'
+import { groupManuals, originalUrl, progress, stateLabel, type Tally } from '../library'
 import { VaultContext } from '../vault'
 import { plural } from '../text'
 
@@ -16,7 +16,7 @@ const tabs: { kind: Kind; label: string }[] = [
   { kind: 'vault', label: 'Заметки' },
 ]
 
-const descriptionLabel: Record<SourceStatus['description'], string> = { '': 'Описать', draft: 'Черновик', checked: 'Проверено' }
+const descriptionLabel: Record<Description, string> = { '': 'Описать', draft: 'Черновик', checked: 'Проверено' }
 
 // The vault alone is thousands of notes; past this many rows a table is
 // scrolled, not read, and the filter is the way in.
@@ -26,37 +26,31 @@ interface Row {
   key: string
   title: string
   href: string | null
-  describe: { path: string; status: SourceStatus['description'] } | null
+  describe: { path: string; status: Description } | null
   detail: string
-  counts: Counts
-  ocr?: boolean
+  tally: Tally
+  ocr: boolean
   problem?: string
 }
 
 function rowsOf(kind: Kind, list: SourceStatus[], vault?: string): Row[] {
   if (kind === 'docs') {
-    return groupManuals(list).map((m) => ({
+    const pages = list.filter((s) => s.stage === 'indexed')
+    return groupManuals(pages).map((m) => ({
       key: m.name,
       title: m.name,
       href: originalUrl({ kind, path: m.home }),
       describe: { path: m.home, status: m.description },
       detail: `${m.pages} ${plural(m.pages, ['страница', 'страницы', 'страниц'])}`,
-      counts: m,
+      tally: m,
+      ocr: false,
     }))
   }
   return list.map((s) => {
+    const row = { key: s.path, title: s.title, href: originalUrl(s, vault), detail: s.path, tally: s }
     // A scan not yet indexed has no source to hang a description on.
-    const scan = s.chunks === 0 && (s.scan_pages ?? 0) > 0
-    return {
-      key: s.path,
-      title: s.title,
-      href: originalUrl(s, vault),
-      describe: kind === 'book' && !scan ? { path: s.path, status: s.description } : null,
-      detail: s.path,
-      counts: s,
-      ocr: s.ocr,
-      problem: s.scan_error,
-    }
+    if (s.stage === 'scan') return { ...row, describe: null, ocr: false, problem: s.error }
+    return { ...row, describe: kind === 'book' ? { path: s.path, status: s.description } : null, ocr: s.ocr }
   })
 }
 
@@ -138,7 +132,7 @@ export function LibraryPage({ pollMs = 5000 }: { pollMs?: number }) {
             </thead>
             <tbody>
               {rows.slice(0, shownRows).map((r) => {
-                const { state, fraction } = progress(r.counts)
+                const { state, fraction } = progress(r.tally)
                 return (
                   <tr key={r.key} className={`state-${state}`}>
                     <td>
@@ -153,7 +147,7 @@ export function LibraryPage({ pollMs = 5000 }: { pollMs?: number }) {
                     <td className="detail">{r.detail}</td>
                     <td>
                       <span className="meter" style={{ '--fill': fraction } as React.CSSProperties} aria-hidden="true" />
-                      <span title={state === 'errors' ? r.problem : undefined}>{stateLabel(r.counts)}</span>
+                      <span title={state === 'errors' ? r.problem : undefined}>{stateLabel(r.tally)}</span>
                       {r.ocr && <RecognisedBadge />}
                     </td>
                     {kind === 'book' && !r.describe && <td />}
