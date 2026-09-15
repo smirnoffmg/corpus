@@ -177,13 +177,14 @@ func (s *Store) Replace(ctx context.Context, src corpus.Source, chunks []corpus.
 		return err
 	}
 
+	keys := s.embedKeys(chunks)
 	batch := &pgx.Batch{}
-	for _, c := range chunks {
+	for i, c := range chunks {
 		batch.Queue(`
-			INSERT INTO chunks (source_id, ord, page, printed_page, heading, anchor, lang, tags, body, tsv)
+			INSERT INTO chunks (source_id, ord, page, printed_page, heading, anchor, lang, tags, body, tsv, embed_hash)
 			VALUES ($1, $2, NULLIF($3, 0), NULLIF($4, 0), NULLIF($5, ''), NULLIF($10, ''), $6, COALESCE($7::text[], '{}'), $8,
-			        to_tsvector($9::regconfig, $8))`,
-			id, c.Ord, c.Page, c.Printed, c.Heading, c.Lang, c.Tags, c.Body, c.Lang, c.Anchor)
+			        to_tsvector($9::regconfig, $8), $11)`,
+			id, c.Ord, c.Page, c.Printed, c.Heading, c.Lang, c.Tags, c.Body, c.Lang, c.Anchor, keys[i])
 	}
 	if err := tx.SendBatch(ctx, batch).Close(); err != nil {
 		return fmt.Errorf("insert chunks for %s: %w", src.Path, err)

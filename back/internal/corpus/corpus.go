@@ -107,9 +107,11 @@ type Undescribed struct {
 	Head, Tail        string
 }
 
-// Pending is a chunk that has no embedding yet.
+// Pending is a text waiting for its vector: what the embedder is handed, and
+// the key its vector is filed under — the text's SHA-256, shared by every chunk
+// with the same window.
 type Pending struct {
-	ID   int64
+	Key  string
 	Body string
 }
 

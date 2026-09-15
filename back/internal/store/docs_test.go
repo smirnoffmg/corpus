@@ -27,8 +27,9 @@ func TestDocsSectionKeepsItsAnchorThroughEveryRead(t *testing.T) {
 	require.Equal(t, "1.4. Support Vector Machines > 1.4.1. Classification", got.Locator)
 
 	var id int64
-	require.NoError(t, pool.QueryRow(ctx, `SELECT id FROM chunks WHERE anchor = 'classification'`).Scan(&id))
-	require.NoError(t, st.SaveEmbeddings(ctx, []int64{id}, [][]float32{unit(7)}))
+	var key string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT id, embed_hash FROM chunks WHERE anchor = 'classification'`).Scan(&id, &key))
+	require.NoError(t, st.SaveEmbeddings(ctx, []string{key}, [][]float32{unit(7)}))
 	hits, err = st.SearchVector(ctx, unit(7), "docs", 1)
 	require.NoError(t, err)
 	require.Equal(t, "classification", find(t, hits, src.Path).Anchor, "vector search")

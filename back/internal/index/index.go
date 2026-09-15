@@ -40,8 +40,9 @@ type Store interface {
 	MissingEmbeddings(ctx context.Context) (int64, error)
 	Quarantined(ctx context.Context) (int64, error)
 	PendingEmbeddings(ctx context.Context, limit int) ([]corpus.Pending, error)
-	CountAttempt(ctx context.Context, ids []int64) error
-	SaveEmbeddings(ctx context.Context, ids []int64, vectors [][]float32) error
+	CountAttempt(ctx context.Context, keys []string) error
+	SaveEmbeddings(ctx context.Context, keys []string, vectors [][]float32) error
+	PruneEmbeddings(ctx context.Context) (int64, error)
 	UndescribedBooks(ctx context.Context) ([]corpus.Undescribed, error)
 	EnsureDraft(ctx context.Context, key string, csl corpus.CSL) error
 }
@@ -122,6 +123,13 @@ func (ix *Indexer) Index(ctx context.Context) error {
 		return err
 	}
 
+	// Vectors are filed by text, so what changed or deleted files embedded is
+	// left with no chunk to use it; once the walk is done it can go.
+	pruned, err := ix.store.PruneEmbeddings(ctx)
+	if err != nil {
+		return err
+	}
+
 	// Descriptions are drafted after indexing, from what the index now holds; a
 	// failure here costs a draft, not the pass.
 	if draftErr := ix.draft(ctx, docsManuals(ix.opts.Docs)); draftErr != nil && ctx.Err() == nil {
@@ -138,6 +146,7 @@ func (ix *Indexer) Index(ctx context.Context) error {
 		"books", books,
 		"notes", notes,
 		"docs", docs,
+		"vectors_pruned", pruned,
 		"took", time.Since(start).Round(time.Second).String(),
 		"sources", sources,
 		"chunks", chunks)
@@ -393,21 +402,21 @@ func (ix *Indexer) embed(ctx context.Context, wake <-chan struct{}) (interrupted
 		}
 
 		bodies := make([]string, len(chunks))
-		ids := make([]int64, len(chunks))
+		keys := make([]string, len(chunks))
 		for i, c := range chunks {
-			bodies[i], ids[i] = c.Body, c.ID
+			bodies[i], keys[i] = c.Body, c.Key
 		}
 
 		// The attempt is recorded before the call, so a crash or a timeout counts
 		// too; otherwise a chunk that kills the process is retried forever.
-		if attemptErr := ix.store.CountAttempt(ctx, ids); attemptErr != nil {
+		if attemptErr := ix.store.CountAttempt(ctx, keys); attemptErr != nil {
 			return false, attemptErr
 		}
 		vectors, err := ix.embedder.Embed(ctx, bodies)
 		if err != nil {
 			return false, err
 		}
-		if err := ix.store.SaveEmbeddings(ctx, ids, vectors); err != nil {
+		if err := ix.store.SaveEmbeddings(ctx, keys, vectors); err != nil {
 			return false, err
 		}
 

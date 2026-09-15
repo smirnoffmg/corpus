@@ -20,11 +20,12 @@ func (s *Store) Sources(ctx context.Context, kind, prefix string) ([]corpus.Sour
 	rows, err := s.pool.Query(ctx, `
 		SELECT s.kind, s.path, s.title, s.indexed_at,
 		       count(c.id) AS chunks,
-		       count(c.id) FILTER (WHERE c.embedding IS NOT NULL) AS embedded,
-		       count(c.id) FILTER (WHERE c.embedding IS NULL AND c.embed_attempts >= $3) AS quarantined,
+		       count(c.id) FILTER (WHERE e.embedding IS NOT NULL) AS embedded,
+		       count(c.id) FILTER (WHERE e.embedding IS NULL AND e.attempts >= $3) AS quarantined,
 		       coalesce(min(b.status), '') AS description
 		FROM sources s
 		LEFT JOIN chunks c ON c.source_id = s.id
+		LEFT JOIN embeddings e ON e.hash = c.embed_hash
 		LEFT JOIN bibliography b ON b.key = CASE s.kind
 		    WHEN 'book' THEN s.hash
 		    WHEN 'docs' THEN 'manual:' || split_part(s.path, '/', 1)

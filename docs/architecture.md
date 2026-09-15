@@ -24,9 +24,23 @@ host**, not in the stack: on macOS a containerised ollama is CPU-only, while the
 host process uses the GPU. Nothing is sent anywhere — the corpus includes a
 personal diary, and that rules out a hosted embedding API.
 
-Embedding is a pass of its own, separate from extraction, and only touches rows
-where `embedding IS NULL`. It is therefore resumable, and a missing or slow
+Embedding is a pass of its own, separate from extraction, and only touches texts
+that have no vector yet. It is therefore resumable, and a missing or slow
 ollama degrades hybrid search to plain full-text rather than stalling the index.
+
+**A vector is filed under the text it was computed from.** `embeddings` is keyed
+by the SHA-256 of exactly what the embedder is handed — a chunk's first 5000
+characters with 500 of each neighbour — and a chunk carries that key. A changed
+file used to lose every vector it had, since its chunks are rewritten whole; now
+a chunk whose window did not change finds its vector again, and only the changed
+chunks and their neighbours go back to the queue. Keeping vectors out of
+`chunks` also stops each saved vector from writing a new version of the chunk
+row, which re-entered its lexemes into the GIN index (Рогов, *PostgreSQL 18
+изнутри*, с. 115). Identical windows — two copies of a page, or short
+neighbouring notes that fall wholly inside each other's windows — share one
+vector, and each pass drops vectors no chunk uses any more. The key is computed
+in Go when chunks are written and in SQL by the migration that moved the
+existing vectors; a store test holds the two together.
 
 ## Why Postgres
 

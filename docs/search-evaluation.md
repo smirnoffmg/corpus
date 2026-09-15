@@ -53,10 +53,11 @@ works. Check first:
 
 ```sh
 docker compose exec db psql -U corpus -d corpus -c \
-  "SELECT count(*) FILTER (WHERE embedding IS NULL) AS queued, max(embedded_at) FROM chunks"
+  "SELECT count(*) FILTER (WHERE e.embedding IS NULL) AS queued, max(e.embedded_at)
+   FROM chunks c LEFT JOIN embeddings e ON e.hash = c.embed_hash"
 ```
 
-`chunks.embedded_at` is when each vector was written, so a past run can be placed
+`embeddings.embedded_at` is when each vector was written, so a past run can be placed
 against the state of the corpus rather than guessed at — which it had to be the
 first time this happened, since the column did not exist yet. Rows embedded
 before it was added stay NULL: that time is genuinely unknown, and a row stamped

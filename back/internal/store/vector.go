@@ -2,9 +2,14 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/smirnoffmg/corpus/internal/corpus"
 )
@@ -20,77 +25,132 @@ const (
 	// the wider window (Manning, IIR, printed p. 22: an IR system should offer
 	// choices of granularity).
 	defaultNeighbourChars = 500
-	// maxEmbedAttempts quarantines a chunk the embedder keeps refusing. Without
+	// maxEmbedAttempts quarantines a text the embedder keeps refusing. Without
 	// it one permanently failing batch blocks every chunk behind it forever,
 	// which is the failure an invalid message channel exists to prevent.
 	maxEmbedAttempts = 3
 )
 
+// embedKeys computes, for chunks in order, the window each is embedded as and
+// that window's SHA-256 — the key its vector is filed under.
+//
+// The window is also computed in SQL: by the queue, to hand the text out, and
+// by migration 010, which filed the vectors that existed before. Postgres's
+// left and right count characters, so this counts runes; a test holds the Go
+// and SQL versions together.
+func (s *Store) embedKeys(chunks []corpus.Chunk) []string {
+	keys := make([]string, len(chunks))
+	for i := range chunks {
+		parts := make([]string, 0, 3)
+		if i > 0 {
+			if prev := lastRunes(chunks[i-1].Body, s.neighbourChars); prev != "" {
+				parts = append(parts, prev)
+			}
+		}
+		parts = append(parts, firstRunes(chunks[i].Body, s.bodyChars))
+		if i+1 < len(chunks) {
+			if next := firstRunes(chunks[i+1].Body, s.neighbourChars); next != "" {
+				parts = append(parts, next)
+			}
+		}
+		sum := sha256.Sum256([]byte(strings.Join(parts, " ")))
+		keys[i] = hex.EncodeToString(sum[:])
+	}
+	return keys
+}
+
+func firstRunes(s string, n int) string {
+	count := 0
+	for i := range s {
+		if count == n {
+			return s[:i]
+		}
+		count++
+	}
+	return s
+}
+
+func lastRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[len(r)-n:])
+}
+
+// pending is the condition for a chunk whose text has no vector and has not
+// been refused too often; e is the chunk's row in embeddings, if any.
+const pending = `e.embedding IS NULL AND coalesce(e.attempts, 0) < $1`
+
 const pendingSQL = `
 WITH target AS (
-    SELECT source_id FROM chunks
-    WHERE embedding IS NULL AND embed_attempts < $4
-    ORDER BY source_id LIMIT 1
+    SELECT c.source_id
+    FROM chunks c
+    LEFT JOIN embeddings e ON e.hash = c.embed_hash
+    WHERE ` + pending + `
+    ORDER BY c.source_id
+    LIMIT 1
 ), windowed AS (
-    SELECT c.id,
-           c.ord,
-           c.embedding,
-           c.embed_attempts,
-           right(lag(c.body) OVER (ORDER BY c.ord), $1)  AS prev,
-           left(c.body, $2)                              AS body,
-           left(lead(c.body) OVER (ORDER BY c.ord), $1)  AS next
+    SELECT c.ord,
+           c.embed_hash,
+           concat_ws(' ',
+               nullif(right(lag(c.body) OVER o, $2), ''),
+               left(c.body, $3),
+               nullif(left(lead(c.body) OVER o, $2), '')) AS text
     FROM chunks c
     JOIN target t ON t.source_id = c.source_id
+    WINDOW o AS (ORDER BY c.ord)
+), texts AS (
+    SELECT DISTINCT ON (w.embed_hash) w.embed_hash, w.text, w.ord
+    FROM windowed w
+    LEFT JOIN embeddings e ON e.hash = w.embed_hash
+    WHERE ` + pending + `
+    ORDER BY w.embed_hash, w.ord
 )
-SELECT id, concat_ws(' ', nullif(prev, ''), body, nullif(next, ''))
-FROM windowed
-WHERE embedding IS NULL AND embed_attempts < $4
-ORDER BY ord
-LIMIT $3`
+SELECT embed_hash, text FROM texts ORDER BY ord LIMIT $4`
 
+// PendingEmbeddings hands out texts that need a vector, one source at a time,
+// each text once however many chunks share it.
 func (s *Store) PendingEmbeddings(ctx context.Context, limit int) ([]corpus.Pending, error) {
-	rows, err := s.pool.Query(ctx, pendingSQL, s.neighbourChars, s.bodyChars, limit, maxEmbedAttempts)
+	rows, err := s.pool.Query(ctx, pendingSQL, maxEmbedAttempts, s.neighbourChars, s.bodyChars, limit)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	var out []corpus.Pending
-	for rows.Next() {
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (corpus.Pending, error) {
 		var p corpus.Pending
-		if err := rows.Scan(&p.ID, &p.Body); err != nil {
-			return nil, err
-		}
-		out = append(out, p)
-	}
-	return out, rows.Err()
+		err := row.Scan(&p.Key, &p.Body)
+		return p, err
+	})
 }
 
+// MissingEmbeddings counts the texts still waiting for a vector.
 func (s *Store) MissingEmbeddings(ctx context.Context) (int64, error) {
 	var n int64
-	err := s.pool.QueryRow(ctx,
-		`SELECT count(*) FROM chunks WHERE embedding IS NULL AND embed_attempts < $1`,
-		maxEmbedAttempts).Scan(&n)
+	err := s.pool.QueryRow(ctx, `
+		SELECT count(DISTINCT c.embed_hash)
+		FROM chunks c LEFT JOIN embeddings e ON e.hash = c.embed_hash
+		WHERE `+pending, maxEmbedAttempts).Scan(&n)
 	return n, err
 }
 
-// Quarantined counts chunks the embedder has refused too often. They are left
-// out of the queue so the rest of the corpus can finish; the text index still
-// covers them.
+// Quarantined counts chunks whose text the embedder has refused too often.
+// They are left out of the queue so the rest of the corpus can finish; the
+// text index still covers them.
 func (s *Store) Quarantined(ctx context.Context) (int64, error) {
 	var n int64
-	err := s.pool.QueryRow(ctx,
-		`SELECT count(*) FROM chunks WHERE embedding IS NULL AND embed_attempts >= $1`,
-		maxEmbedAttempts).Scan(&n)
+	err := s.pool.QueryRow(ctx, `
+		SELECT count(*)
+		FROM chunks c JOIN embeddings e ON e.hash = c.embed_hash
+		WHERE e.embedding IS NULL AND e.attempts >= $1`, maxEmbedAttempts).Scan(&n)
 	return n, err
 }
 
-// RequeueQuarantined puts quarantined chunks back in the queue. Attempts are
+// RequeueQuarantined puts quarantined texts back in the queue. Attempts are
 // counted before the call, so a run of transient failures — ollama restarting,
-// say — can quarantine a perfectly good chunk; this is the way back.
+// say — can quarantine a perfectly good text; this is the way back.
 func (s *Store) RequeueQuarantined(ctx context.Context) (int64, error) {
 	tag, err := s.pool.Exec(ctx,
-		`UPDATE chunks SET embed_attempts = 0 WHERE embedding IS NULL AND embed_attempts >= $1`,
+		`UPDATE embeddings SET attempts = 0 WHERE embedding IS NULL AND attempts >= $1`,
 		maxEmbedAttempts)
 	if err != nil {
 		return 0, err
@@ -99,26 +159,57 @@ func (s *Store) RequeueQuarantined(ctx context.Context) (int64, error) {
 }
 
 // CountAttempt records a try before it is made, so that a crash or a timeout
-// counts too — otherwise a chunk that kills the process is retried forever.
-func (s *Store) CountAttempt(ctx context.Context, ids []int64) error {
-	_, err := s.pool.Exec(ctx,
-		`UPDATE chunks SET embed_attempts = embed_attempts + 1 WHERE id = ANY($1)`, ids)
+// counts too — otherwise a text that kills the process is retried forever.
+func (s *Store) CountAttempt(ctx context.Context, keys []string) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO embeddings (hash, attempts)
+		SELECT k, 1 FROM unnest($1::text[]) AS k
+		ON CONFLICT (hash) DO UPDATE SET attempts = embeddings.attempts + 1`, sortedUnique(keys))
 	return err
 }
 
-func (s *Store) SaveEmbeddings(ctx context.Context, ids []int64, vectors [][]float32) error {
-	if len(ids) != len(vectors) {
-		return fmt.Errorf("%d ids for %d vectors", len(ids), len(vectors))
+func (s *Store) SaveEmbeddings(ctx context.Context, keys []string, vectors [][]float32) error {
+	if len(keys) != len(vectors) {
+		return fmt.Errorf("%d keys for %d vectors", len(keys), len(vectors))
 	}
 	literals := make([]string, len(vectors))
 	for i, v := range vectors {
 		literals[i] = vectorLiteral(v)
 	}
 	_, err := s.pool.Exec(ctx, `
-		UPDATE chunks SET embedding = data.vec::vector, embedded_at = now()
-		FROM unnest($1::bigint[], $2::text[]) AS data(id, vec)
-		WHERE chunks.id = data.id`, ids, literals)
+		INSERT INTO embeddings (hash, embedding, embedded_at)
+		SELECT k, v::vector, now() FROM unnest($1::text[], $2::text[]) AS data(k, v)
+		ON CONFLICT (hash) DO UPDATE SET embedding = EXCLUDED.embedding, embedded_at = now()`,
+		keys, literals)
 	return err
+}
+
+// PruneEmbeddings drops vectors no chunk's text uses any more: the windows of
+// deleted files, and of the parts of changed files that changed.
+func (s *Store) PruneEmbeddings(ctx context.Context) (int64, error) {
+	tag, err := s.pool.Exec(ctx, `
+		DELETE FROM embeddings e
+		WHERE NOT EXISTS (SELECT 1 FROM chunks c WHERE c.embed_hash = e.hash)`)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
+// sortedUnique keeps concurrent upserts from locking rows in different orders,
+// and a key twice in one batch from updating its own row twice, which
+// ON CONFLICT refuses.
+func sortedUnique(keys []string) []string {
+	out := append([]string(nil), keys...)
+	sort.Strings(out)
+	j := 0
+	for i, k := range out {
+		if i == 0 || k != out[j-1] {
+			out[j] = k
+			j++
+		}
+	}
+	return out[:j]
 }
 
 const vectorSQL = `
@@ -130,13 +221,14 @@ SELECT c.id,
        coalesce(c.anchor, '') AS anchor,
        coalesce(c.page, 0) AS page,
        coalesce(c.printed_page, 0) AS printed_page,
-       1 - (c.embedding <=> $1::vector) AS rank,
+       1 - (e.embedding <=> $1::vector) AS rank,
        left(c.body, 240) AS snippet
-FROM chunks c
+FROM embeddings e
+JOIN chunks c ON c.embed_hash = e.hash
 JOIN sources s ON s.id = c.source_id
-WHERE c.embedding IS NOT NULL
+WHERE e.embedding IS NOT NULL
   AND ($2 = '' OR s.kind = $2)
-ORDER BY c.embedding <=> $1::vector, c.id
+ORDER BY e.embedding <=> $1::vector, c.id
 LIMIT $3`
 
 func (s *Store) SearchVector(ctx context.Context, vector []float32, kind string, limit int) ([]corpus.Hit, error) {

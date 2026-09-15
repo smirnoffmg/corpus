@@ -21,13 +21,15 @@ func TestSourcesReportEachSourcesProgress(t *testing.T) {
 	docs := corpus.Source{Kind: "docs", Path: "nltk/howto/tokenize.html", Title: "nltk · Tokenize", Hash: "h2"}
 	require.NoError(t, st.Replace(ctx, docs, []corpus.Chunk{{Ord: 1, Heading: "T", Lang: "english", Body: "tokens"}}))
 
-	var first, second int64
+	var first, second string
 	require.NoError(t, pool.QueryRow(ctx, `
-		SELECT min(c.id), max(c.id) FROM chunks c JOIN sources s ON s.id = c.source_id
-		WHERE s.path = 'uploads/a.pdf' AND c.ord IN (1, 2)`).Scan(&first, &second))
-	require.NoError(t, st.SaveEmbeddings(ctx, []int64{first}, [][]float32{unit(1)}))
-	_, err := pool.Exec(ctx, `UPDATE chunks SET embed_attempts = 3 WHERE id = $1`, second)
-	require.NoError(t, err)
+		SELECT (array_agg(c.embed_hash ORDER BY c.ord))[1], (array_agg(c.embed_hash ORDER BY c.ord))[2]
+		FROM chunks c JOIN sources s ON s.id = c.source_id
+		WHERE s.path = 'uploads/a.pdf'`).Scan(&first, &second))
+	require.NoError(t, st.SaveEmbeddings(ctx, []string{first}, [][]float32{unit(1)}))
+	for range 3 {
+		require.NoError(t, st.CountAttempt(ctx, []string{second}))
+	}
 
 	all, err := st.Sources(ctx, "", "")
 	require.NoError(t, err)

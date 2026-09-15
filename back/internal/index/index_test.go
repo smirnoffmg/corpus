@@ -31,8 +31,9 @@ type recordingStore struct {
 	forgotten []string
 	unchanged bool
 	pending   []corpus.Pending
-	attempted []int64
-	embedded  []int64
+	attempted []string
+	embedded  []string
+	prunes    int
 	stats     int
 	drafts    map[string]corpus.CSL
 	onStats   func(calls int) // called with the lock held, once per finished Index
@@ -140,18 +141,25 @@ func (s *recordingStore) PendingEmbeddings(_ context.Context, limit int) ([]corp
 	return batch, nil
 }
 
-func (s *recordingStore) CountAttempt(_ context.Context, ids []int64) error {
+func (s *recordingStore) CountAttempt(_ context.Context, keys []string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.attempted = append(s.attempted, ids...)
+	s.attempted = append(s.attempted, keys...)
 	return nil
 }
 
-func (s *recordingStore) SaveEmbeddings(_ context.Context, ids []int64, _ [][]float32) error {
+func (s *recordingStore) SaveEmbeddings(_ context.Context, keys []string, _ [][]float32) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.embedded = append(s.embedded, ids...)
+	s.embedded = append(s.embedded, keys...)
 	return nil
+}
+
+func (s *recordingStore) PruneEmbeddings(context.Context) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.prunes++
+	return 0, nil
 }
 
 // UndescribedBooks reports every replaced book without a draft, with its
@@ -376,7 +384,7 @@ func TestAFileWithNoTextIsNotIndexed(t *testing.T) {
 func queued(n int) []corpus.Pending {
 	out := make([]corpus.Pending, n)
 	for i := range out {
-		out[i] = corpus.Pending{ID: int64(i + 1), Body: fmt.Sprintf("кусок %d", i+1)}
+		out[i] = corpus.Pending{Key: fmt.Sprintf("hash-%d", i+1), Body: fmt.Sprintf("кусок %d", i+1)}
 	}
 	return out
 }
@@ -715,5 +723,22 @@ func TestIndexDraftsADescriptionForEachManual(t *testing.T) {
 	}
 	if _, ok := store.drafts["manual:.upload-tmp"]; ok {
 		t.Error("an upload in progress is not a manual")
+	}
+}
+
+// Vectors are filed by text, so a changed or deleted file leaves vectors behind
+// that nothing uses; each pass clears them once the walk is done.
+func TestAPassPrunesVectorsNoChunkUses(t *testing.T) {
+	notes, books := vault(t, 1)
+	store := newStore()
+
+	ix := index.New(store, nopEmbedder{}, index.Options{Books: books, Vault: notes})
+	if err := ix.Index(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if store.prunes != 1 {
+		t.Errorf("pruned %d times in a pass, want 1", store.prunes)
 	}
 }
