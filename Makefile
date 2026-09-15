@@ -1,4 +1,4 @@
-.PHONY: up down test lint cover front-test front-lint check-isolation
+.PHONY: up down test lint cover front-test front-lint check-security
 
 up:
 	docker compose up -d --build
@@ -21,6 +21,6 @@ front-test:
 front-lint:
 	cd front && npm run lint && npx tsc -b
 
-# Against the running stack: what the UI opens cannot reach the API.
-check-isolation:
-	front/scripts/check-isolation.sh
+# Against the running stack: security headers, and what the UI opens cannot reach the API.
+check-security:
+	front/scripts/check-security.sh

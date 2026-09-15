@@ -100,7 +100,7 @@ since `Sec-Fetch-Site` says same-site rather than same-origin. A CSP sandbox on
 the pages was tried first and isolated them as well, but it takes their storage
 away, and scikit-learn's theme, which reads `localStorage`, rendered a blank
 page. Only PDFs are served from the books, so a stray HTML file there is not a
-page either. `front/scripts/check-isolation.sh` (`make check-isolation`)
+page either. `front/scripts/check-security.sh` (`make check-security`)
 checks all of it against the running stack, the attack included when Chrome is
 installed.
 

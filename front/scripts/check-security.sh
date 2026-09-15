@@ -1,11 +1,12 @@
 #!/bin/sh
-# Checks, against the running stack, that the sources served for "open the
+# Checks, against the running stack, the defences of a server with no login:
+# the UI's own security headers, and that the sources served for "open the
 # original" cannot reach the API. The corpus has no login, so anything that
 # runs on the UI's origin can read the whole library, diary included — and
 # manuals are HTML with scripts, uploaded by anyone who has the UI open. They
 # are therefore served from an origin of their own, a separate port.
 #
-#   front/scripts/check-isolation.sh [UI base] [sources base]
+#   front/scripts/check-security.sh [UI base] [sources base]
 #   (defaults http://localhost:8081 and http://localhost:8082)
 set -eu
 ui=${1:-http://localhost:8081}
@@ -20,6 +21,18 @@ page=$(curl -s "$ui/api/sources?kind=docs" | sed -n 's/.*"path": "\([^"]*\.html\
 manual=$(echo "$page" | cut -d/ -f1)
 book=$(curl -s "$ui/api/sources?kind=book" | sed -n 's/.*"path": "\([^"]*\.pdf\)".*/\1/p' | head -1)
 book=$(printf %s "$book" | python3 -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.stdin.read()))')
+
+headers=$(curl -sI "$ui/" | tr -d '\r')
+assets=$(curl -sI "$ui/assets/$(curl -s "$ui/" | sed -n 's|.*src="/assets/\([^"]*\.js\)".*|\1|p' | head -1)" | tr -d '\r')
+csp=$(echo "$headers" | sed -n 's/^[Cc]ontent-[Ss]ecurity-[Pp]olicy: //p')
+check "the UI sends a Content-Security-Policy" '[ -n "$csp" ]'
+check "the UI allows scripts from itself only" 'echo "$csp" | grep -q "script-src '"'"'self'"'"'" && ! echo "$csp" | grep -q "script-src[^;]*unsafe"'
+check "the UI takes no plugins and no base-URI rewrites" 'echo "$csp" | grep -q "object-src '"'"'none'"'"'" && echo "$csp" | grep -q "base-uri '"'"'none'"'"'"'
+check "the UI cannot be framed" 'echo "$csp" | grep -q "frame-ancestors '"'"'none'"'"'"'
+check "the UI is not content-sniffed" 'echo "$headers" | grep -qi "^x-content-type-options: nosniff"'
+check "the UI sends no referrer to the sources it opens" 'echo "$headers" | grep -qi "^referrer-policy: no-referrer"'
+check "cached assets keep the security headers" 'echo "$assets" | grep -qi "^x-content-type-options: nosniff" && echo "$assets" | grep -qi "^content-security-policy:"'
+check "Postgres is not published to the host" '! nc -z 127.0.0.1 5433 2>/dev/null'
 
 check "manuals are not served from the UI's origin" '[ "$(status "$ui/docs/$page")" = 404 ]'
 check "books are not served from the UI's origin" '[ "$(status "$ui/books/$book")" = 404 ]'

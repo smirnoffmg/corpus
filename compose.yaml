@@ -13,8 +13,10 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-corpus}
     volumes:
       - pgdata:/var/lib/postgresql
-    ports:
-      - "127.0.0.1:5433:5432"
+    # Not published to the host: only the stack's own services reach it. On the
+    # host it was open to every local account with the default password.
+    # `docker compose exec db psql -U corpus -d corpus` still gets a shell; a
+    # compose.override.yaml can publish a port for a session that needs one.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U corpus -d corpus"]
       interval: 5s

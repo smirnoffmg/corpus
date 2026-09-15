@@ -74,10 +74,13 @@ lose updates, which is how one knows the test is worth having.
 
 For real-world load, the way the Go team recommends, a `-race` build of the
 indexer can be pointed at a scratch database and a real slice of the library.
+The stack's Postgres is not published to the host, so run a throwaway one:
 
 ```sh
+docker run -d --rm --name corpus-race -p 127.0.0.1:5439:5432 \
+  -e POSTGRES_USER=corpus -e POSTGRES_PASSWORD=corpus -e POSTGRES_DB=corpus_race pgvector/pgvector:pg18
 go build -race -o /tmp/indexer-race ./cmd/indexer
-DATABASE_URL=postgres://corpus:corpus@localhost:5433/corpus_race \
+DATABASE_URL=postgres://corpus:corpus@localhost:5439/corpus_race \
   /tmp/indexer-race --books <dir> --vault <dir> \
   --ollama http://127.0.0.1:1 --interval 0
 ```
