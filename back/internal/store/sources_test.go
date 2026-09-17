@@ -223,3 +223,29 @@ func TestOptionsAreApplied(t *testing.T) {
 	require.Len(t, pending, 1)
 	require.Len(t, []rune(pending[0].Body), 1000, "WithWindow caps the body handed to the embedder")
 }
+
+// A publication is a source like any other: stored, searched by its own kind,
+// and filed under its content hash for a description, the way a book is.
+func TestPapersAreAKindOfTheirOwn(t *testing.T) {
+	st, _, ctx := open(t)
+
+	paper := corpus.Source{Kind: "paper", Path: "__test__/mapreduce.pdf", Title: "MapReduce", Hash: "p1"}
+	require.NoError(t, st.Replace(ctx, paper, oneChunk("упрощённая обработка данных на кластерах")))
+	require.NoError(t, st.Replace(ctx, book("__test__/kleppmann.pdf", "Клеппман", "b1"),
+		oneChunk("упрощённая обработка данных в книге")))
+
+	hits, err := st.Search(ctx, corpus.Query{Text: "упрощённая", Kind: "paper", Limit: 5})
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+	require.Equal(t, "paper", hits[0].Kind)
+	require.Equal(t, paper.Path, hits[0].Path)
+
+	key, err := st.ReferenceKey(ctx, "paper", paper.Path)
+	require.NoError(t, err)
+	require.Equal(t, "p1", key)
+
+	listed, err := st.Sources(ctx, "paper", "")
+	require.NoError(t, err)
+	require.Len(t, listed, 1)
+	require.Equal(t, "MapReduce", listed[0].Title)
+}

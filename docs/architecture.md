@@ -64,7 +64,7 @@ so without it `.env` — with the database password — and the whole `.git` his
 are baked into that layer. They never reach the runtime image, but the layer is
 real, cached, and would travel with a push.
 
-The indexer reads its mounts read-only. The web UI's nginx mounts the library read-only to serve the originals — a book's PDF opened at `#page=N`, a manual's own page at its section. A note opens in Obsidian through an `obsidian://open` link at the last heading of its citation; the link needs the vault's name, which is the vault directory's, so compose hands `VAULT_DIR` to `mcpd` and `/status` reports the name. `mcpd` mounts the library — `books/` and
+The indexer reads its mounts read-only. The web UI's nginx mounts the library read-only to serve the originals — a book's PDF opened at `#page=N`, a manual's own page at its section. A note opens in Obsidian through an `obsidian://open` link at the last heading of its citation; the link needs the vault's name, which is the vault directory's, so compose hands `VAULT_DIR` to `mcpd` and `/status` reports the name. `mcpd` mounts the library — `books/`, `papers/` and
 `manuals/` under `LIBRARY_DIR` — read-write, because uploads are saved into them (see below); nothing else is
 written, and neither binary binds a privileged port, so the image runs as
 `nobody`.
@@ -162,7 +162,7 @@ connection keeps its `LISTEN` when released. If that connection drops, the
 indexer falls back to the interval and listens again on its next pass.
 
 **Uploads land in the library itself.** A PDF goes to `uploads/` under the
-books, a ZIP of a manual is unpacked into its own directory under the manuals —
+books or the papers, a ZIP of a manual is unpacked into its own directory under the manuals —
 the directories the indexer already walks. A separate uploads root would not
 work: a pass prunes every source of a kind that is missing from that kind's
 root, so a second root for books would be wiped on every pass. Writes go
@@ -204,6 +204,50 @@ over one is just its public interface repeated (Khononov, printed p. 151). What
 the layering *does* enforce is direction: `back/internal/corpus` holds the types and
 imports nothing, and extraction, storage, ranking and the API all point at it.
 
+## Publications and what they cite
+
+A paper is a fourth kind of source, and the list of works it cites is data of
+its own. Three decisions are worth the space, and [publications](publications.md)
+has the rest.
+
+**The list is filed by what the paper is, not by its source row.** Citations are
+keyed by the file's content hash — the key a bibliographic description already
+uses, and for the same reason (docs/citing.md, "What survives what"). A
+re-index rewrites every chunk of a source, and reading a bibliography out of a
+PDF is work worth keeping across one; renaming or re-uploading the file does not
+change what the paper cites. A separate `bibliographies` row records that a
+paper was read even when it had no references, which is what tells "parsed,
+found none" from "not parsed yet" — without it every such paper would be read
+again every fifteen minutes.
+
+**Reading it is a pass of its own**, beside drafting descriptions rather than
+inside `indexFile`: a failure costs a reference list, not the index, and the
+work is per file rather than per pass. Matching the entries against the library
+runs at the end of it, every pass — the library grows, and an entry that found
+nothing today should find the book uploaded tomorrow.
+
+**The bibliography pages leave the text index.** They match every query that
+names a term the paper cites anything about and answer none, which is what
+`frontOrBackMatter` already drops contents pages and subject indexes for; the
+filter simply does not catch them, since its subject-index rule wants lines
+shaped `term, 12, 34` and a reference ends in a full stop. Measured on this
+corpus: searching *citation analysis bibliographic coupling* returned five hits,
+and all five were bibliography pages of books. The pages from the heading
+onwards are therefore not chunked, and what sits above the heading — the end of
+the conclusion, usually — is kept.
+
+The reader for the reference list runs `pdftotext -raw`, unlike every other PDF
+here, and the list is located in that text even when it is cut out of the
+layout text the chunks come from: on a two-column page the layout text sets the
+heading beside the other column (`R EFERENCES      Ding, H., …`), and no line
+of it is the heading alone. The cut is then made by page, and within the first
+and last page by the lines that begin as the heading and as what follows the
+list. Layout mode sets a two-column paper's columns side by side on one line, and
+a reference list read that way comes out interleaved; raw mode gives reading
+order, and loses every indent, which is why an unnumbered list is cut by what
+its lines say rather than by where they start. The list records the parser
+version that read it, so an improved parser reaches old papers on its own.
+
 ## Scanned books
 
 A PDF that `pdftotext` gets no usable page from is a scan, or a TeX book whose
@@ -211,7 +255,11 @@ fonts have no Unicode map (it comes out as `Ëþáîå`, and the unreadable-page
 filter drops it). Such a book is recognised with Tesseract (`rus+eng`), and then
 indexed like any other: a chunk per page, cited by page.
 
-- **Queue.** The pass records the book in `scans` (hash, path, page count) and
+Publications are recognised the same way; a scan carries its kind, because
+books and papers are pruned against their own walks and resolved against their
+own library root.
+
+- **Queue.** The pass records the book in `scans` (kind, hash, path, page count) and
   goes on. Recognition runs in the indexer loop *after* the pass and the
   embedding queue: it is the slowest work here, and a scan's text is worth less
   than vectors for books that already have text. One book at a time.

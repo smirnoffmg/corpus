@@ -80,6 +80,11 @@ describe('originalUrl', () => {
     )
     expect(originalUrl({ kind: 'book', path: 'a.pdf' })).toBe('http://localhost:8082/books/a.pdf')
   })
+  it('opens a publication from the papers shelf, not the books', () => {
+    expect(originalUrl({ kind: 'paper', path: 'uploads/MapReduce.pdf', page: 4 })).toBe(
+      'http://localhost:8082/papers/uploads/MapReduce.pdf#page=4',
+    )
+  })
   it('opens a note in Obsidian at the heading it was cited by', () => {
     expect(originalUrl({ kind: 'vault', path: 'brain/Cross entropy.md', locator: 'What it is > Example' }, 'my vault')).toBe(
       'obsidian://open?vault=my%20vault&file=brain%2FCross%20entropy%23Example',

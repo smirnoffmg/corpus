@@ -25,6 +25,20 @@ function renderReader(id = '7') {
 }
 
 describe('ReaderPage', () => {
+  it('leads from a passage of a publication to its card', async () => {
+    stubApi((url) => {
+      if (url.pathname === '/api/read') return { body: { kind: 'paper', title: 'Hidden Technical Debt', path: 'uploads/sculley2015.pdf', locator: 'PDF 2', page: 2, body: 'Text.' } }
+      if (url.pathname === '/api/bibliography') return { body: { key: 'h', reference: null } }
+      if (url.pathname === '/api/styles') return { body: { styles: [] } }
+      return undefined
+    })
+    renderReader()
+
+    expect(await screen.findByRole('link', { name: 'Карточка статьи' })).toHaveAttribute('href', '/paper?path=uploads%2Fsculley2015.pdf')
+    expect(screen.queryByRole('heading', { name: 'Ссылается на' })).toBeNull()
+  })
+
+
   it('shows the passage, its citation and a link to the original section', async () => {
     const calls = stubApi(() => ({ body: passage }))
     renderReader()

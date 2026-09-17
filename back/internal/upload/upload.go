@@ -1,5 +1,5 @@
-// Package upload adds books and manuals to the library directories the indexer
-// walks. Files land in the existing roots rather than in a place of their own:
+// Package upload adds books, publications and manuals to the library
+// directories the indexer walks. Files land in the existing roots rather than in a place of their own:
 // the indexer prunes every source of a kind that is missing from that kind's
 // root, so a second root for books would be wiped on every pass.
 //
@@ -51,11 +51,11 @@ const (
 )
 
 type Library struct {
-	books, docs *os.Root
-	limits      Limits
+	books, docs, papers *os.Root
+	limits              Limits
 }
 
-func Open(books, docs string, limits Limits) (*Library, error) {
+func Open(books, docs, papers string, limits Limits) (*Library, error) {
 	if limits.Entries <= 0 {
 		limits.Entries = defaultEntries
 	}
@@ -71,16 +71,33 @@ func Open(books, docs string, limits Limits) (*Library, error) {
 		b.Close()
 		return nil, fmt.Errorf("docs root: %w", err)
 	}
-	return &Library{books: b, docs: d, limits: limits}, nil
+	p, err := os.OpenRoot(papers)
+	if err != nil {
+		b.Close()
+		d.Close()
+		return nil, fmt.Errorf("papers root: %w", err)
+	}
+	return &Library{books: b, docs: d, papers: p, limits: limits}, nil
 }
 
 func (l *Library) Close() error {
-	return errors.Join(l.books.Close(), l.docs.Close())
+	return errors.Join(l.books.Close(), l.docs.Close(), l.papers.Close())
 }
 
 // AddBook saves a PDF as uploads/<name> under the books root and returns that
 // path, which is the path the indexer will give the source.
 func (l *Library) AddBook(name string, r io.Reader) (string, error) {
+	return addPDF(l.books, name, r)
+}
+
+// AddPaper saves a publication the same way, under the papers root. A paper is
+// kept apart from the books rather than tagged among them because a pass prunes
+// every source of a kind missing from that kind's root.
+func (l *Library) AddPaper(name string, r io.Reader) (string, error) {
+	return addPDF(l.papers, name, r)
+}
+
+func addPDF(root *os.Root, name string, r io.Reader) (string, error) {
 	name = baseName(name)
 	if !strings.EqualFold(filepath.Ext(name), ".pdf") || strings.HasPrefix(name, ".") {
 		return "", fmt.Errorf("%w: %q is not a .pdf file name", ErrInvalid, name)
@@ -94,27 +111,27 @@ func (l *Library) AddBook(name string, r io.Reader) (string, error) {
 	}
 
 	final := path.Join(booksDir, name)
-	if _, err := l.books.Stat(final); err == nil {
+	if _, err := root.Stat(final); err == nil {
 		return "", fmt.Errorf("%w: %s", ErrExists, final)
 	}
-	if err := l.books.MkdirAll(booksDir, 0o755); err != nil {
+	if err := root.MkdirAll(booksDir, 0o755); err != nil {
 		return "", err
 	}
 
 	// A dot name without the .pdf extension: neither the walker nor a listing
 	// in Finder shows it while it is being written.
 	part := path.Join(booksDir, "."+name+".part")
-	f, err := l.books.OpenFile(part, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	f, err := root.OpenFile(part, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {
 		return "", err
 	}
 	_, err = io.Copy(f, io.MultiReader(strings.NewReader(string(head)), r))
 	err = errors.Join(err, f.Close())
 	if err == nil {
-		err = l.books.Rename(part, final)
+		err = root.Rename(part, final)
 	}
 	if err != nil {
-		_ = l.books.Remove(part)
+		_ = root.Remove(part)
 		return "", err
 	}
 	return final, nil

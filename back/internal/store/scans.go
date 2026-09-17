@@ -17,9 +17,9 @@ const maxScanAttempts = 3
 // how far its recognition got, and follows a rename.
 func (s *Store) MarkScan(ctx context.Context, scan corpus.Scan) error {
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO scans (hash, path, pages) VALUES ($1, $2, $3)
-		ON CONFLICT (hash) DO UPDATE SET path = EXCLUDED.path, pages = EXCLUDED.pages`,
-		scan.Hash, scan.Path, scan.Pages)
+		INSERT INTO scans (kind, hash, path, pages) VALUES ($1, $2, $3, $4)
+		ON CONFLICT (hash) DO UPDATE SET kind = EXCLUDED.kind, path = EXCLUDED.path, pages = EXCLUDED.pages`,
+		scan.Kind, scan.Hash, scan.Path, scan.Pages)
 	return err
 }
 
@@ -28,12 +28,12 @@ func (s *Store) MarkScan(ctx context.Context, scan corpus.Scan) error {
 func (s *Store) NextScan(ctx context.Context) (corpus.Scan, bool, error) {
 	var sc corpus.Scan
 	err := s.pool.QueryRow(ctx, `
-		SELECT sc.hash, sc.path, sc.pages, sc.recognised
+		SELECT sc.kind, sc.hash, sc.path, sc.pages, sc.recognised
 		FROM scans sc
 		WHERE sc.attempts < $1
 		  AND NOT EXISTS (SELECT 1 FROM sources s WHERE s.path = sc.path)
 		ORDER BY sc.path
-		LIMIT 1`, maxScanAttempts).Scan(&sc.Hash, &sc.Path, &sc.Pages, &sc.Recognised)
+		LIMIT 1`, maxScanAttempts).Scan(&sc.Kind, &sc.Hash, &sc.Path, &sc.Pages, &sc.Recognised)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return corpus.Scan{}, false, nil
 	}
@@ -54,12 +54,13 @@ func (s *Store) ScanFailed(ctx context.Context, hash, reason string) error {
 }
 
 // PruneScans drops scans that are sources now, and scans of files no longer in
-// the library. seen is every book path the pass walked.
-func (s *Store) PruneScans(ctx context.Context, seen []string) (int64, error) {
+// the library. seen is every path of that kind the pass walked, so a kind whose
+// root was not walked leaves the other kinds' scans alone.
+func (s *Store) PruneScans(ctx context.Context, kind string, seen []string) (int64, error) {
 	tag, err := s.pool.Exec(ctx, `
 		DELETE FROM scans sc
-		WHERE NOT (sc.path = ANY($1))
-		   OR EXISTS (SELECT 1 FROM sources s WHERE s.path = sc.path)`, seen)
+		WHERE (sc.kind = $2 AND NOT (sc.path = ANY($1)))
+		   OR EXISTS (SELECT 1 FROM sources s WHERE s.path = sc.path)`, seen, kind)
 	if err != nil {
 		return 0, err
 	}

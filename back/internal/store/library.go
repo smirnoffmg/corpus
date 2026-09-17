@@ -33,6 +33,7 @@ func (s *Store) Sources(ctx context.Context, kind, prefix string) ([]corpus.Sour
 		    LEFT JOIN embeddings e ON e.hash = c.embed_hash
 		    LEFT JOIN bibliography b ON b.key = CASE s.kind
 		        WHEN 'book' THEN s.hash
+		        WHEN 'paper' THEN s.hash
 		        WHEN 'docs' THEN 'manual:' || split_part(s.path, '/', 1)
 		    END
 		    WHERE ($1 = '' OR s.kind = $1)
@@ -43,11 +44,11 @@ func (s *Store) Sources(ctx context.Context, kind, prefix string) ([]corpus.Sour
 
 		    -- A scan has no source row until its pages are recognised; its file
 		    -- name stands in for the title it will get then.
-		    SELECT 'book', sc.path, regexp_replace(sc.path, '^.*/|\.pdf$', '', 'gi'), sc.updated_at,
+		    SELECT sc.kind, sc.path, regexp_replace(sc.path, '^.*/|\.pdf$', '', 'gi'), sc.updated_at,
 		           0, 0, 0, '', false,
 		           sc.pages, sc.recognised, sc.attempts >= $4, coalesce(sc.last_error, '')
 		    FROM scans sc
-		    WHERE ($1 = '' OR $1 = 'book')
+		    WHERE ($1 = '' OR $1 = sc.kind)
 		      AND starts_with(sc.path, $2)
 		      AND NOT EXISTS (SELECT 1 FROM sources s WHERE s.path = sc.path)
 		) listed

@@ -1,4 +1,4 @@
-export type Kind = 'book' | 'vault' | 'docs'
+export type Kind = 'book' | 'paper' | 'vault' | 'docs'
 export type Mode = 'hybrid' | 'fts' | 'vector'
 
 export interface Hit {
@@ -98,6 +98,34 @@ export function sourceOf(r: SourceRow): SourceStatus {
 
 export type CSLRecord = Record<string, unknown>
 
+// Citation is one entry of a publication's reference list: the line as printed,
+// what could be read out of it, and where the library keeps that work when it
+// has it.
+export interface Citation {
+  ord: number
+  raw: string
+  label?: string
+  doi?: string
+  arxiv?: string
+  isbn?: string
+  url?: string
+  authors?: string
+  title?: string
+  container?: string
+  year?: number
+  resolved?: string
+  matched_by?: string
+  resolved_kind?: Kind
+  resolved_path?: string
+  resolved_title?: string
+}
+
+export interface CitingPaper {
+  path: string
+  title: string
+  citation: Citation
+}
+
 export interface Reference {
   key: string
   citekey: string
@@ -177,6 +205,28 @@ export async function sources(filter: { kind?: Kind; prefix?: string }, signal?:
   return (await getJSON<{ sources: SourceRow[] }>(`/sources?${q}`, signal)).sources.map(sourceOf)
 }
 
+export async function citations(path: string, signal?: AbortSignal): Promise<Citation[]> {
+  const q = new URLSearchParams({ path })
+  return (await getJSON<{ citations: Citation[] }>(`/citations?${q}`, signal)).citations
+}
+
+export async function citing(path: string, signal?: AbortSignal): Promise<CitingPaper[]> {
+  const q = new URLSearchParams({ path })
+  return (await getJSON<{ citing: CitingPaper[] }>(`/citations/citing?${q}`, signal)).citing
+}
+
+export interface Enriched {
+  asked: number
+  filled: number
+  citations: Citation[]
+}
+
+export async function enrichCitations(path: string): Promise<Enriched> {
+  const res = await fetch(`/api/citations/enrich?${new URLSearchParams({ path })}`, { method: 'POST' })
+  if (!res.ok) throw new ApiError(res.status, (await res.text()).trim() || res.statusText)
+  return (await res.json()) as Enriched
+}
+
 async function sendJSON<T>(method: string, path: string, body: unknown): Promise<T> {
   const res = await fetch(`/api${path}`, {
     method,
@@ -226,7 +276,7 @@ export function status(signal?: AbortSignal): Promise<Status> {
 }
 
 export interface Uploaded {
-  kind: 'book' | 'docs'
+  kind: 'book' | 'paper' | 'docs'
   path: string
 }
 
@@ -234,7 +284,7 @@ export interface Uploaded {
 // and a 100 MB manual without a progress bar looks like a hang.
 export function upload(
   file: File,
-  target: { kind: 'book' } | { kind: 'docs'; manual?: string },
+  target: { kind: 'book' | 'paper' } | { kind: 'docs'; manual?: string },
   onProgress: (fraction: number) => void,
 ): Promise<Uploaded> {
   const q = new URLSearchParams({ kind: target.kind })

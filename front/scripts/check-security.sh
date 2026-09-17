@@ -36,6 +36,7 @@ check "Postgres is not published to the host" '! nc -z 127.0.0.1 5433 2>/dev/nul
 
 check "manuals are not served from the UI's origin" '[ "$(status "$ui/docs/$page")" = 404 ]'
 check "books are not served from the UI's origin" '[ "$(status "$ui/books/$book")" = 404 ]'
+check "publications are not served from the UI's origin" '[ "$(status "$ui/papers/probe.pdf")" = 404 ]'
 check "manuals are served from the sources origin" '[ "$(status "$sources/docs/$page")" = 200 ]'
 check "the sources origin has no API" '[ "$(status "$sources/api/status")" = 404 ]'
 check "the sources origin refuses other host names" '[ "$(status -H "Host: rebind.attacker.test" "$sources/docs/$page")" = 403 ]'
@@ -43,14 +44,15 @@ check "the sources origin refuses other host names" '[ "$(status -H "Host: rebin
 pdf=$(curl -sI "$sources/books/$book" | tr -d '\r')
 check "a book is served as a PDF" 'echo "$pdf" | grep -qi "^content-type: application/pdf"'
 check "a book is not content-sniffed" 'echo "$pdf" | grep -qi "^x-content-type-options: nosniff"'
-if [ -d "$library/books" ]; then
+for shelf in books papers; do
+  [ -d "$library/$shelf" ] || continue
   # A real file, so a 404 means refused rather than absent. Only PDFs are
   # walked, so it never becomes a source.
-  echo '<script>fetch("/api/status")</script>' > "$library/books/isolation-probe.html"
-  code=$(status "$sources/books/isolation-probe.html")
-  rm -f "$library/books/isolation-probe.html"
-  check "nothing but PDFs is served from the books ($code)" '[ "$code" = 404 ]'
-fi
+  echo '<script>fetch("/api/status")</script>' > "$library/$shelf/isolation-probe.html"
+  code=$(status "$sources/$shelf/isolation-probe.html")
+  rm -f "$library/$shelf/isolation-probe.html"
+  check "nothing but PDFs is served from the $shelf ($code)" '[ "$code" = 404 ]'
+done
 
 # The attack itself, in a real browser, when there is one: a script on a
 # manual page tries to read the API and to write through it.

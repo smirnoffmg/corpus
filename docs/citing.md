@@ -1,7 +1,7 @@
 # Citing sources in papers
 
-Every book and manual in the library has a bibliographic description: a
-CSL-JSON record with a citation key such as `kleppmann2017`. From it the
+Every book, publication and manual in the library has a bibliographic
+description: a CSL-JSON record with a citation key such as `kleppmann2017`. From it the
 reader formats the passage for a paper, and the library exports the whole
 bibliography for LaTeX and Pandoc. Notes have no description; they are not
 cited in papers.
@@ -14,6 +14,10 @@ cited in papers.
     field when it reads as people's names, an ISBN from its opening or closing
     pages (check digit verified), and a DOI from its opening pages only — its
     closing pages are references to other works;
+  - a publication gets the same title and authors, is an article, and is
+    identified by the DOI on its opening pages and never by an ISBN: the one a
+    paper prints belongs to its proceedings volume, shared with every other
+    paper in it, and the ones on its closing pages belong to the books it cites;
   - a manual gets its site title and version from `<title>`, its address from
     `<link rel="canonical">` or the site's `CNAME`, its publisher from the
     copyright line, and the date the copy was taken as the date accessed.
@@ -28,8 +32,8 @@ cited in papers.
 ## What survives what
 
 Descriptions are the one thing in the database typed by hand, so they are
-filed by what the source *is* — a book's content hash, `manual:<name>` for a
-manual — without a foreign key. Renaming, moving, pruning or re-uploading a
+filed by what the source *is* — a book's or a publication's content hash,
+`manual:<name>` for a manual — without a foreign key. Renaming, moving, pruning or re-uploading a
 file leaves its description in place. A draft's citation key follows its
 record; once the description is checked the key is fixed, since papers cite it.
 

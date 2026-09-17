@@ -50,6 +50,7 @@ func run() error {
 	efSearch := flag.Int("ef-search", 200, "hnsw.ef_search; 0 leaves the pgvector default of 40")
 	books := flag.String("books", "/data/books", "book library that uploaded PDFs are saved into")
 	docs := flag.String("docs", "/data/docs", "manuals directory that uploaded ZIPs are unpacked into")
+	papers := flag.String("papers", "/data/papers", "publications directory that uploaded PDFs are saved into")
 	bibliography := flag.String("bibliography", "/data/bibliography", "directory of the bibliography file, the descriptions' system of record; empty keeps them in the database alone")
 	uploadMax := flag.Int64("upload-max", 300<<20, "largest upload accepted, in bytes")
 	allowedHosts := flag.String("allowed-hosts", "localhost,127.0.0.1,::1", "comma-separated host names requests may be addressed to; anything else is refused, against DNS rebinding")
@@ -79,13 +80,13 @@ func run() error {
 		return fmt.Errorf("schema is at version %d and this build needs %d: the indexer applies migrations on start", current, target)
 	}
 
-	opts := []api.Option{api.WithVault(*vaultName), api.WithBibliography(st, cite.NewLookup())}
+	opts := []api.Option{api.WithVault(*vaultName), api.WithBibliography(st, cite.NewLookup()), api.WithCitations(st)}
 	if *bibliography != "" {
 		opts = append(opts, api.WithBibliographyExport(bibfile.New(st, *bibliography).Export))
 	}
 	// Uploads are an addition to search, not a condition of it: a server whose
 	// library directories are missing still answers queries.
-	if lib, err := upload.Open(*books, *docs, upload.Limits{}); err != nil {
+	if lib, err := upload.Open(*books, *docs, *papers, upload.Limits{}); err != nil {
 		slog.WarnContext(ctx, "uploads disabled", "err", err)
 	} else {
 		defer lib.Close()

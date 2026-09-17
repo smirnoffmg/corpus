@@ -90,8 +90,8 @@ export function sourcesOrigin(): string {
 }
 
 // originalUrl is where nginx serves the source itself: a manual's own page,
-// with its styles and images, scrolled to the section; a book's PDF, opened by
-// the browser's viewer at the page (#page= is the PDF open parameter Chrome
+// with its styles and images, scrolled to the section; a book's or a
+// publication's PDF, opened by the browser's viewer at the page (#page= is the PDF open parameter Chrome
 // and Firefox honour). A note opens in Obsidian itself, at the last heading of
 // its citation — an obsidian:// file may name one heading, not a path of them.
 export function originalUrl({ kind, path, locator, anchor, page }: Place, vault?: string): string | null {
@@ -101,6 +101,8 @@ export function originalUrl({ kind, path, locator, anchor, page }: Place, vault?
       return anchor ? `${sourcesOrigin()}/docs/${escaped}#${encodeURIComponent(anchor)}` : `${sourcesOrigin()}/docs/${escaped}`
     case 'book':
       return page ? `${sourcesOrigin()}/books/${escaped}#page=${page}` : `${sourcesOrigin()}/books/${escaped}`
+    case 'paper':
+      return page ? `${sourcesOrigin()}/papers/${escaped}#page=${page}` : `${sourcesOrigin()}/papers/${escaped}`
     case 'vault': {
       if (!vault) return null
       const heading = locator ? locator.split(' > ').pop() : ''
@@ -108,6 +110,11 @@ export function originalUrl({ kind, path, locator, anchor, page }: Place, vault?
       return `obsidian://open?vault=${encodeURIComponent(vault)}&file=${encodeURIComponent(file)}`
     }
   }
+}
+
+// paperHref is a publication's card: what it is, what it cites, what cites it.
+export function paperHref(path: string): string {
+  return `/paper?${new URLSearchParams({ path })}`
 }
 
 export function originalLabel(kind: Kind): string {

@@ -6,12 +6,13 @@ import { OriginalLink } from '../components/OriginalLink'
 import { StylesPanel } from '../components/StylesPanel'
 import { UploadPanel } from '../components/UploadPanel'
 import { RecognisedBadge } from '../components/RecognisedBadge'
-import { groupManuals, originalUrl, progress, stateLabel, type Tally } from '../library'
+import { groupManuals, originalUrl, paperHref, progress, stateLabel, type Tally } from '../library'
 import { VaultContext } from '../vault'
 import { plural } from '../text'
 
 const tabs: { kind: Kind; label: string }[] = [
   { kind: 'book', label: 'Книги' },
+  { kind: 'paper', label: 'Статьи' },
   { kind: 'docs', label: 'Мануалы' },
   { kind: 'vault', label: 'Заметки' },
 ]
@@ -26,6 +27,7 @@ interface Row {
   key: string
   title: string
   href: string | null
+  card: string | null // a publication's page in the corpus, which its title opens
   describe: { path: string; status: Description } | null
   detail: string
   tally: Tally
@@ -40,6 +42,7 @@ function rowsOf(kind: Kind, list: SourceStatus[], vault?: string): Row[] {
       key: m.name,
       title: m.name,
       href: originalUrl({ kind, path: m.home }),
+      card: null,
       describe: { path: m.home, status: m.description },
       detail: `${m.pages} ${plural(m.pages, ['страница', 'страницы', 'страниц'])}`,
       tally: m,
@@ -47,10 +50,17 @@ function rowsOf(kind: Kind, list: SourceStatus[], vault?: string): Row[] {
     }))
   }
   return list.map((s) => {
-    const row = { key: s.path, title: s.title, href: originalUrl(s, vault), detail: s.path, tally: s }
-    // A scan not yet indexed has no source to hang a description on.
+    const row = { key: s.path, title: s.title, href: originalUrl(s, vault), card: null, detail: s.path, tally: s }
+    // A scan not yet indexed has no source to hang a description on, and no
+    // card: there is nothing read out of it yet.
     if (s.stage === 'scan') return { ...row, describe: null, ocr: false, problem: s.error }
-    return { ...row, describe: kind === 'book' ? { path: s.path, status: s.description } : null, ocr: s.ocr }
+    const described = kind === 'book' || kind === 'paper'
+    return {
+      ...row,
+      card: kind === 'paper' ? paperHref(s.path) : null,
+      describe: described ? { path: s.path, status: s.description } : null,
+      ocr: s.ocr,
+    }
   })
 }
 
@@ -59,7 +69,9 @@ export function LibraryPage({ pollMs = 5000 }: { pollMs?: number }) {
   const kind = (params.get('kind') as Kind | null) ?? 'book'
   const [loaded, setLoaded] = useState<{ kind: Kind; list?: SourceStatus[]; error?: string }>()
   const [generation, setGeneration] = useState(0)
-  const [filter, setFilter] = useState('')
+  // Seeded from the query string, so a link elsewhere can point at one source:
+  // a citation that was matched to a book links to the book itself.
+  const [filter, setFilter] = useState(params.get('filter') ?? '')
   const vault = useContext(VaultContext)
 
   useEffect(() => {
@@ -136,7 +148,19 @@ export function LibraryPage({ pollMs = 5000 }: { pollMs?: number }) {
                 return (
                   <tr key={r.key} className={`state-${state}`}>
                     <td>
-                      {r.href ? (
+                      {r.card ? (
+                        <>
+                          <Link to={r.card}>{r.title}</Link>
+                          {r.href && (
+                            <>
+                              {' '}
+                              <OriginalLink kind={kind} href={r.href} className="quiet" label={`PDF: ${r.title}`}>
+                                PDF
+                              </OriginalLink>
+                            </>
+                          )}
+                        </>
+                      ) : r.href ? (
                         <OriginalLink kind={kind} href={r.href}>
                           {r.title}
                         </OriginalLink>
@@ -150,7 +174,7 @@ export function LibraryPage({ pollMs = 5000 }: { pollMs?: number }) {
                       <span title={state === 'errors' ? r.problem : undefined}>{stateLabel(r.tally)}</span>
                       {r.ocr && <RecognisedBadge />}
                     </td>
-                    {kind === 'book' && !r.describe && <td />}
+                    {(kind === 'book' || kind === 'paper') && !r.describe && <td />}
                     {r.describe && (
                       <td className={`description-${r.describe.status || 'none'}`}>
                         <Link to={describeHref(kind, r.describe.path)} aria-label={`Описание: ${r.title}`}>

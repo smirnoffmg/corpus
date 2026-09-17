@@ -16,15 +16,15 @@ import (
 
 const pdf = "%PDF-1.7\n%âãÏÓ\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n"
 
-func library(t *testing.T, limits upload.Limits) (lib *upload.Library, books, docs string) {
+func library(t *testing.T, limits upload.Limits) (lib *upload.Library, books, docs, papers string) {
 	t.Helper()
-	books, docs = t.TempDir(), t.TempDir()
-	lib, err := upload.Open(books, docs, limits)
+	books, docs, papers = t.TempDir(), t.TempDir(), t.TempDir()
+	lib, err := upload.Open(books, docs, papers, limits)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = lib.Close() })
-	return lib, books, docs
+	return lib, books, docs, papers
 }
 
 type entry struct {
@@ -76,7 +76,7 @@ func tree(t *testing.T, dir string) []string {
 }
 
 func TestAddBookSavesUnderUploads(t *testing.T) {
-	lib, books, _ := library(t, upload.Limits{})
+	lib, books, _, _ := library(t, upload.Limits{})
 
 	path, err := lib.AddBook("Мартин Клеппман — Высоконагруженные приложения.pdf", strings.NewReader(pdf))
 	if err != nil {
@@ -97,8 +97,37 @@ func TestAddBookSavesUnderUploads(t *testing.T) {
 	}
 }
 
+func TestAddPaperSavesUnderUploadsOfItsOwnRoot(t *testing.T) {
+	lib, books, _, papers := library(t, upload.Limits{})
+
+	path, err := lib.AddPaper("Dean & Ghemawat — MapReduce.pdf", strings.NewReader(pdf))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "uploads/Dean & Ghemawat — MapReduce.pdf"; path != want {
+		t.Errorf("path = %q, want %q", path, want)
+	}
+	if _, err := os.Stat(filepath.Join(papers, filepath.FromSlash(path))); err != nil {
+		t.Fatal(err)
+	}
+	if files := tree(t, books); len(files) != 0 {
+		t.Errorf("books holds %v, want a paper to stay out of the shelf", files)
+	}
+}
+
+func TestAddPaperRejectsWhatIsNotAPDF(t *testing.T) {
+	lib, _, _, _ := library(t, upload.Limits{})
+
+	if _, err := lib.AddPaper("paper.txt", strings.NewReader(pdf)); !errors.Is(err, upload.ErrInvalid) {
+		t.Errorf("err = %v, want ErrInvalid", err)
+	}
+	if _, err := lib.AddPaper("paper.pdf", strings.NewReader("not a pdf at all")); !errors.Is(err, upload.ErrInvalid) {
+		t.Errorf("err = %v, want ErrInvalid", err)
+	}
+}
+
 func TestAddBookKeepsOnlyTheBaseName(t *testing.T) {
-	lib, books, _ := library(t, upload.Limits{})
+	lib, books, _, _ := library(t, upload.Limits{})
 
 	for _, name := range []string{"../../etc/evil.pdf", `C:\Users\me\evil.pdf`} {
 		path, err := lib.AddBook(name, strings.NewReader(pdf))
@@ -127,7 +156,7 @@ func TestAddBookRejects(t *testing.T) {
 	}
 	for label, c := range cases {
 		t.Run(label, func(t *testing.T) {
-			lib, books, _ := library(t, upload.Limits{})
+			lib, books, _, _ := library(t, upload.Limits{})
 			if _, err := lib.AddBook(c.name, strings.NewReader(c.body)); !errors.Is(err, c.want) {
 				t.Errorf("err = %v, want %v", err, c.want)
 			}
@@ -139,7 +168,7 @@ func TestAddBookRejects(t *testing.T) {
 }
 
 func TestAddBookRefusesToOverwrite(t *testing.T) {
-	lib, books, _ := library(t, upload.Limits{})
+	lib, books, _, _ := library(t, upload.Limits{})
 	if _, err := lib.AddBook("book.pdf", strings.NewReader(pdf)); err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +201,7 @@ func (f *failingReader) Read(p []byte) (int, error) {
 // The indexer walks the library while uploads arrive, so a book must appear
 // whole or not at all.
 func TestAnInterruptedBookUploadLeavesNothing(t *testing.T) {
-	lib, books, _ := library(t, upload.Limits{})
+	lib, books, _, _ := library(t, upload.Limits{})
 	body := &failingReader{r: strings.NewReader(pdf + strings.Repeat("x", 1<<16)), after: 1 << 12}
 
 	if _, err := lib.AddBook("book.pdf", body); err == nil {
@@ -184,7 +213,7 @@ func TestAnInterruptedBookUploadLeavesNothing(t *testing.T) {
 }
 
 func TestAddManualUnpacksIntoItsOwnDirectory(t *testing.T) {
-	lib, _, docs := library(t, upload.Limits{})
+	lib, _, docs, _ := library(t, upload.Limits{})
 	zipped := archive(t,
 		entry{name: "index.html", body: "<h1>NLTK</h1>"},
 		entry{name: "howto/"},
@@ -209,7 +238,7 @@ func TestAddManualUnpacksIntoItsOwnDirectory(t *testing.T) {
 // A ZIP of a site is often the site's directory itself; the manual is its
 // contents, not a directory holding it.
 func TestAddManualStripsASingleTopLevelDirectory(t *testing.T) {
-	lib, _, docs := library(t, upload.Limits{})
+	lib, _, docs, _ := library(t, upload.Limits{})
 	zipped := archive(t,
 		entry{name: "nltk.github.com-main/index.html", body: "<h1>NLTK</h1>"},
 		entry{name: "nltk.github.com-main/howto/tokenize.html", body: "<h1>Tokenize</h1>"},
@@ -242,7 +271,7 @@ func TestAddManualRejects(t *testing.T) {
 	}
 	for label, c := range cases {
 		t.Run(label, func(t *testing.T) {
-			lib, _, docs := library(t, c.limits)
+			lib, _, docs, _ := library(t, c.limits)
 			if _, err := lib.AddManual(c.manual, archive(t, c.entries...)); !errors.Is(err, c.want) {
 				t.Errorf("err = %v, want %v", err, c.want)
 			}
@@ -254,7 +283,7 @@ func TestAddManualRejects(t *testing.T) {
 }
 
 func TestAddManualRejectsWhatIsNotAZip(t *testing.T) {
-	lib, _, docs := library(t, upload.Limits{})
+	lib, _, docs, _ := library(t, upload.Limits{})
 	if _, err := lib.AddManual("m", strings.NewReader("definitely not a zip")); !errors.Is(err, upload.ErrInvalid) {
 		t.Errorf("err = %v, want ErrInvalid", err)
 	}
@@ -264,7 +293,7 @@ func TestAddManualRejectsWhatIsNotAZip(t *testing.T) {
 }
 
 func TestAddManualRefusesAnExistingManual(t *testing.T) {
-	lib, _, docs := library(t, upload.Limits{})
+	lib, _, docs, _ := library(t, upload.Limits{})
 	if err := os.MkdirAll(filepath.Join(docs, "nltk"), 0o750); err != nil {
 		t.Fatal(err)
 	}
@@ -288,11 +317,15 @@ func TestManualName(t *testing.T) {
 	}
 }
 
-func TestOpenRequiresBothRoots(t *testing.T) {
-	if _, err := upload.Open(filepath.Join(t.TempDir(), "absent"), t.TempDir(), upload.Limits{}); err == nil {
-		t.Error("want an error for a missing books root")
-	}
-	if _, err := upload.Open(t.TempDir(), filepath.Join(t.TempDir(), "absent"), upload.Limits{}); err == nil {
-		t.Error("want an error for a missing docs root")
+func TestOpenRequiresEveryRoot(t *testing.T) {
+	absent := filepath.Join(t.TempDir(), "absent")
+	for name, roots := range map[string][3]string{
+		"books":  {absent, t.TempDir(), t.TempDir()},
+		"docs":   {t.TempDir(), absent, t.TempDir()},
+		"papers": {t.TempDir(), t.TempDir(), absent},
+	} {
+		if _, err := upload.Open(roots[0], roots[1], roots[2], upload.Limits{}); err == nil {
+			t.Errorf("want an error for a missing %s root", name)
+		}
 	}
 }

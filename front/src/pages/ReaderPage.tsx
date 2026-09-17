@@ -6,7 +6,7 @@ import { CitationPanel } from '../components/CitationPanel'
 import { OriginalLink } from '../components/OriginalLink'
 import { RecognisedBadge } from '../components/RecognisedBadge'
 import { kindName } from '../kinds'
-import { originalUrl } from '../library'
+import { originalUrl, paperHref } from '../library'
 import { VaultContext } from '../vault'
 
 interface Loaded {
@@ -91,6 +91,7 @@ export function ReaderPage() {
             {copied ? 'Скопировано' : 'Скопировать цитату'}
           </button>
           {original && <OriginalLink kind={p.kind} href={original} />}
+          {p.kind === 'paper' && <Link to={paperHref(p.path)}>Карточка статьи</Link>}
         </div>
       </header>
       {p.kind !== 'vault' && <CitationPanel passage={p} />}

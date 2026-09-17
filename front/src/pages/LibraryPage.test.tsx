@@ -60,6 +60,21 @@ function renderLibrary(url = '/library', pollMs = 20) {
 }
 
 describe('LibraryPage', () => {
+  it('lists publications, each opening its card, with its description and its PDF', async () => {
+    const calls = stubApi((url) => (url.pathname === '/api/sources'
+      ? { body: { sources: [book({ kind: 'paper', path: 'uploads/sculley2015.pdf', title: 'Hidden Technical Debt', description: 'draft' })] } }
+      : undefined))
+    renderLibrary('/library?kind=paper')
+
+    const rows = await screen.findAllByRole('row')
+    expect(calls.find((c) => c.pathname === '/api/sources')?.searchParams.get('kind')).toBe('paper')
+    expect(screen.getByRole('button', { name: 'Статьи' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(rows[1]).getByRole('link', { name: 'Hidden Technical Debt' })).toHaveAttribute('href', '/paper?path=uploads%2Fsculley2015.pdf')
+    expect(within(rows[1]).getByRole('link', { name: 'PDF: Hidden Technical Debt' })).toHaveAttribute('href', 'http://localhost:8082/papers/uploads/sculley2015.pdf')
+    expect(within(rows[1]).getByRole('link', { name: 'Описание: Hidden Technical Debt' })).toHaveAttribute('href', '/describe?kind=paper&path=uploads%2Fsculley2015.pdf')
+  })
+
+
   it('lists books with how far each has come', async () => {
     stubApi((url) => (url.pathname === '/api/sources'
       ? { body: { sources: [book(), book({ path: 'uploads/b.pdf', title: 'B', chunks: 10, embedded: 4, description: 'checked' })] } }
@@ -168,6 +183,20 @@ describe('LibraryPage', () => {
     expect(FakeXHR.last.url).toBe('/api/upload?kind=book')
     const recent = await screen.findByRole('region', { name: 'Загрузки' })
     expect(await within(recent).findByText('Ждёт индексации')).toBeInTheDocument()
+  })
+
+  it('uploads a PDF marked as a publication onto the papers shelf', async () => {
+    vi.stubGlobal('XMLHttpRequest', FakeXHR)
+    FakeXHR.answer = { status: 201, text: '{"kind":"paper","path":"uploads/MapReduce.pdf"}' }
+    stubApi(() => ({ body: { sources: [] } }))
+    renderLibrary()
+    const user = userEvent.setup()
+
+    await user.upload(screen.getByLabelText('Выбрать файлы'), new File(['%PDF-'], 'MapReduce.pdf', { type: 'application/pdf' }))
+    await user.selectOptions(screen.getByRole('combobox', { name: /Что это за файл/ }), 'paper')
+    await user.click(screen.getByRole('button', { name: 'Загрузить' }))
+
+    expect(FakeXHR.last.url).toBe('/api/upload?kind=paper')
   })
 
   it('says why an upload was refused', async () => {

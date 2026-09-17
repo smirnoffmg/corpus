@@ -11,7 +11,7 @@ import (
 func TestAScanIsListedWithItsRecognitionProgress(t *testing.T) {
 	st, _, ctx := open(t)
 
-	require.NoError(t, st.MarkScan(ctx, corpus.Scan{Hash: "aaaa0001", Path: "uploads/Руттен.pdf", Pages: 449}))
+	require.NoError(t, st.MarkScan(ctx, corpus.Scan{Kind: "book", Hash: "aaaa0001", Path: "uploads/Руттен.pdf", Pages: 449}))
 	require.NoError(t, st.ScanProgress(ctx, "aaaa0001", 120))
 
 	listed, err := st.Sources(ctx, "book", "uploads/")
@@ -26,7 +26,7 @@ func TestAScanIsListedWithItsRecognitionProgress(t *testing.T) {
 	require.False(t, got.ScanFailed)
 
 	// Marked again on the next pass: the progress is the book's, not the pass's.
-	require.NoError(t, st.MarkScan(ctx, corpus.Scan{Hash: "aaaa0001", Path: "uploads/Руттен.pdf", Pages: 449}))
+	require.NoError(t, st.MarkScan(ctx, corpus.Scan{Kind: "book", Hash: "aaaa0001", Path: "uploads/Руттен.pdf", Pages: 449}))
 	listed, err = st.Sources(ctx, "book", "uploads/")
 	require.NoError(t, err)
 	require.Equal(t, 120, listed[0].ScanRecognised)
@@ -38,8 +38,8 @@ func TestAScanIsListedWithItsRecognitionProgress(t *testing.T) {
 
 func TestScansAreRecognisedInTurnAndSetAsideAfterFailing(t *testing.T) {
 	st, _, ctx := open(t)
-	require.NoError(t, st.MarkScan(ctx, corpus.Scan{Hash: "bbbb0002", Path: "b.pdf", Pages: 10}))
-	require.NoError(t, st.MarkScan(ctx, corpus.Scan{Hash: "aaaa0001", Path: "a.pdf", Pages: 5}))
+	require.NoError(t, st.MarkScan(ctx, corpus.Scan{Kind: "book", Hash: "bbbb0002", Path: "b.pdf", Pages: 10}))
+	require.NoError(t, st.MarkScan(ctx, corpus.Scan{Kind: "book", Hash: "aaaa0001", Path: "a.pdf", Pages: 5}))
 
 	next, ok, err := st.NextScan(ctx)
 	require.NoError(t, err)
@@ -68,15 +68,15 @@ func TestScansAreRecognisedInTurnAndSetAsideAfterFailing(t *testing.T) {
 // row goes; so does the row of a file that left the library.
 func TestScansThatBecameSourcesOrLeftArePruned(t *testing.T) {
 	st, _, ctx := open(t)
-	require.NoError(t, st.MarkScan(ctx, corpus.Scan{Hash: "aaaa0001", Path: "done.pdf", Pages: 1}))
-	require.NoError(t, st.MarkScan(ctx, corpus.Scan{Hash: "bbbb0002", Path: "gone.pdf", Pages: 1}))
-	require.NoError(t, st.MarkScan(ctx, corpus.Scan{Hash: "cccc0003", Path: "waiting.pdf", Pages: 1}))
+	require.NoError(t, st.MarkScan(ctx, corpus.Scan{Kind: "book", Hash: "aaaa0001", Path: "done.pdf", Pages: 1}))
+	require.NoError(t, st.MarkScan(ctx, corpus.Scan{Kind: "book", Hash: "bbbb0002", Path: "gone.pdf", Pages: 1}))
+	require.NoError(t, st.MarkScan(ctx, corpus.Scan{Kind: "book", Hash: "cccc0003", Path: "waiting.pdf", Pages: 1}))
 
 	src := book("done.pdf", "Done", "aaaa0001")
 	src.Recognised = true
 	require.NoError(t, st.Replace(ctx, src, oneChunk("распознанный текст страницы")))
 
-	pruned, err := st.PruneScans(ctx, []string{"done.pdf", "waiting.pdf"})
+	pruned, err := st.PruneScans(ctx, "book", []string{"done.pdf", "waiting.pdf"})
 	require.NoError(t, err)
 	require.EqualValues(t, 2, pruned)
 
@@ -94,4 +94,22 @@ func TestScansThatBecameSourcesOrLeftArePruned(t *testing.T) {
 	hits, err := st.Search(ctx, corpus.Query{Text: "распознанный", Kind: "book", Limit: 5})
 	require.NoError(t, err)
 	require.True(t, find(t, hits, "done.pdf").OCR, "and so does every hit from it")
+}
+
+// Books and publications are pruned against their own walks: a pass over the
+// books must not wipe the queue of a shelf it never looked at.
+func TestPruningOneKindOfScanLeavesTheOtherAlone(t *testing.T) {
+	st, _, ctx := open(t)
+	require.NoError(t, st.MarkScan(ctx, corpus.Scan{Kind: "book", Hash: "aaaa0001", Path: "book.pdf", Pages: 1}))
+	require.NoError(t, st.MarkScan(ctx, corpus.Scan{Kind: "paper", Hash: "bbbb0002", Path: "paper.pdf", Pages: 1}))
+
+	pruned, err := st.PruneScans(ctx, "book", []string{"book.pdf"})
+	require.NoError(t, err)
+	require.Zero(t, pruned)
+
+	listed, err := st.Sources(ctx, "paper", "")
+	require.NoError(t, err)
+	require.Len(t, listed, 1)
+	require.Equal(t, "paper.pdf", listed[0].Path)
+	require.Equal(t, 1, listed[0].ScanPages)
 }

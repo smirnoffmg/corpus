@@ -51,7 +51,8 @@ name, which is what stops other web sites open in the browser from reaching
 them. See [architecture](docs/architecture.md).
 
 The library is one directory, `LIBRARY_DIR` (by default `~/.corpus/data`):
-`books/` for PDFs and `manuals/` for [reference manuals](docs/manuals.md).
+`books/` for PDFs, `papers/` for [publications](docs/publications.md) and
+`manuals/` for [reference manuals](docs/manuals.md).
 Uploads from the UI land there too, and so do the bibliographic descriptions
 (`bibliography/`), so it is the one place to back up besides the vault, which
 stays wherever Obsidian keeps it. Everything in the database is rebuilt from
@@ -91,7 +92,8 @@ As an MCP server:
 claude mcp add --transport http corpus http://localhost:8080/mcp
 ```
 
-`kind` is `book`, `vault`, `docs` (reference manuals), or empty for all. `mode` picks the retrieval method:
+`kind` is `book`, `paper` ([publications](docs/publications.md)), `vault`,
+`docs` (reference manuals), or empty for all. `mode` picks the retrieval method:
 
 | mode               | finds                         | good for                        |
 | ------------------ | ----------------------------- | ------------------------------- |
@@ -119,12 +121,14 @@ side.
 
 ```sh
 curl -F file=@book.pdf 'http://localhost:8080/upload?kind=book'
+curl -F file=@paper.pdf 'http://localhost:8080/upload?kind=paper'
 curl -F file=@site.zip 'http://localhost:8080/upload?kind=docs&manual=nltk'
 curl -s 'http://localhost:8080/sources?kind=book' | jq
 ```
 
-A PDF is saved to `uploads/` in the book library, a ZIP of a manual's built HTML
-is unpacked into the manuals directory, and the indexer starts on it at once.
+A PDF is saved to `uploads/` in the books or the papers directory, a ZIP of a
+manual's built HTML is unpacked into the manuals directory, and the indexer
+starts on it at once.
 `/sources` lists every source with how many of its chunks are stored, embedded
 and quarantined; `kind` and `prefix` narrow it. Uploads are limited to 300 MB
 (`mcpd --upload-max`).
@@ -146,6 +150,7 @@ The remaining quarter is fixed by renaming the file.
 ## Documentation
 
 - [Architecture](docs/architecture.md) — embeddings, Postgres, containers, design notes
+- [Publications](docs/publications.md) — papers, and the list of works each one cites
 - [Search evaluation](docs/search-evaluation.md) — the judged set and what it decided
 - [Reference manuals](docs/manuals.md) — indexing scikit-learn, NLTK and other Sphinx sites
 - [Citing sources](docs/citing.md) — descriptions, ГОСТ/APA/IEEE, BibLaTeX and Pandoc export

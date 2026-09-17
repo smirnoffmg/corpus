@@ -33,7 +33,9 @@ type Source struct {
 }
 
 // Scan is a PDF with no text layer, waiting for its pages to be recognised.
+// Kind is "book" or "paper": it says which library root the path is relative to.
 type Scan struct {
+	Kind       string
 	Hash       string
 	Path       string
 	Pages      int
@@ -45,7 +47,7 @@ type Scan struct {
 // apart.
 type Query struct {
 	Text      string
-	Kind      string // "book", "vault", "docs", or empty for all
+	Kind      string // "book", "paper", "vault", "docs", or empty for all
 	Mode      string // "fts", "vector", or "hybrid" (default)
 	Limit     int
 	PerSource int // at most this many hits from one source; 0 for no limit
@@ -132,12 +134,58 @@ type StyleXML struct {
 	XML   string
 }
 
-// Undescribed is a book without a bibliographic description, with the text
-// of its opening pages (the copyright page) and closing ones (the imprint of a
-// Russian book, and the references of any book).
+// Undescribed is a book or a publication without a bibliographic description,
+// with the text of its opening pages (the copyright page) and closing ones (the
+// imprint of a Russian book, and the references of any book).
 type Undescribed struct {
+	Kind              string
 	Path, Hash, Title string
 	Head, Tail        string
+}
+
+// Citation is one entry of a publication's list of references: the line as it
+// is printed, and what could be read out of it. Raw is the source of truth —
+// every other field is a reading, and a reading can be wrong.
+type Citation struct {
+	Ord       int    `json:"ord"`
+	Raw       string `json:"raw"`
+	Label     string `json:"label,omitempty"` // "[12]" or "12." as printed; empty when the list is unnumbered
+	DOI       string `json:"doi,omitempty"`
+	ArXiv     string `json:"arxiv,omitempty"`
+	ISBN      string `json:"isbn,omitempty"`
+	URL       string `json:"url,omitempty"`
+	Authors   string `json:"authors,omitempty"` // the author part as printed, not split into names
+	Title     string `json:"title,omitempty"`
+	Container string `json:"container,omitempty"` // the journal or proceedings it appeared in
+	Year      int    `json:"year,omitempty"`
+	// Fingerprint is what this entry points at, as one comparable string: the
+	// identifier when there is one, else the title and year, else the line
+	// itself. Two papers citing the same work agree on it, which is what makes
+	// the reverse lookup and the shared-references query a join.
+	Fingerprint string `json:"-"`
+	// Resolved is the bibliography key of the work when the library holds it,
+	// with how it was matched; empty rather than a guess.
+	Resolved  string `json:"resolved,omitempty"`
+	MatchedBy string `json:"matched_by,omitempty"`
+	// Where the library keeps the work, when it keeps it: what makes "and which
+	// of these do I already have" answerable in one call.
+	ResolvedKind  string `json:"resolved_kind,omitempty"`
+	ResolvedPath  string `json:"resolved_path,omitempty"`
+	ResolvedTitle string `json:"resolved_title,omitempty"`
+}
+
+// Unparsed is a publication whose list of references has not been read yet.
+type Unparsed struct {
+	Path, Hash string
+	Recognised bool // its text came from OCR, so the pages come from the cache
+}
+
+// CitingPaper is a publication that cites a given work, and the entry it cites
+// it by.
+type CitingPaper struct {
+	Path     string   `json:"path"`
+	Title    string   `json:"title"`
+	Citation Citation `json:"citation"`
 }
 
 // Pending is a text waiting for its vector: what the embedder is handed, and

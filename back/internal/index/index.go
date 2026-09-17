@@ -48,12 +48,15 @@ type Store interface {
 	PruneEmbeddings(ctx context.Context) (int64, error)
 	CleanTextIndex(ctx context.Context) (int64, error)
 	UndescribedBooks(ctx context.Context) ([]corpus.Undescribed, error)
+	UnparsedPapers(ctx context.Context, parser int) ([]corpus.Unparsed, error)
+	SaveCitations(ctx context.Context, paper string, parser int, cs []corpus.Citation) error
+	ResolveCitations(ctx context.Context) (int64, error)
 	EnsureDraft(ctx context.Context, key string, csl corpus.CSL) error
 	MarkScan(ctx context.Context, scan corpus.Scan) error
 	NextScan(ctx context.Context) (corpus.Scan, bool, error)
 	ScanProgress(ctx context.Context, hash string, recognised int) error
 	ScanFailed(ctx context.Context, hash, reason string) error
-	PruneScans(ctx context.Context, seen []string) (int64, error)
+	PruneScans(ctx context.Context, kind string, seen []string) (int64, error)
 }
 
 type Embedder interface {
@@ -64,6 +67,7 @@ type Options struct {
 	Books        string
 	Vault        string
 	Docs         string           // reference manuals, one directory per manual; empty skips them
+	Papers       string           // publications, PDFs like books; empty skips them
 	Batch        int              // chunks per embedding request
 	Parallel     int              // extraction workers; defaults to the core count, capped
 	BookSplitter extract.Splitter // how long a book page chunk may be
@@ -75,6 +79,10 @@ type Options struct {
 	// OCR recognises books that have no text layer; nil leaves scans out of
 	// the index, as before.
 	OCR Recognizer
+	// PaperText reads a publication's pages for its reference list. It is a
+	// field because the reader is an external binary, and a test cannot ship a
+	// PDF for every shape a bibliography comes in; nil uses poppler.
+	PaperText func(ctx context.Context, path string) ([]string, error)
 }
 
 // Recognizer reads the text of scanned PDFs and keeps it under the file's
@@ -125,6 +133,9 @@ func New(store Store, embedder Embedder, opts Options) *Indexer { //nolint:gocri
 	if opts.DocsSplitter == (extract.Splitter{}) {
 		opts.DocsSplitter = extract.DefaultNoteSplitter
 	}
+	if opts.PaperText == nil {
+		opts.PaperText = extract.PaperText
+	}
 	return &Indexer{store: store, embedder: embedder, opts: opts}
 }
 
@@ -159,7 +170,19 @@ func (ix *Indexer) Index(ctx context.Context) error {
 	}
 	// Same guard as Prune: no books walked means no mount, not an empty shelf.
 	if ix.opts.OCR != nil && len(bookFiles) > 0 {
-		if _, pruneErr := ix.store.PruneScans(ctx, bookFiles); pruneErr != nil {
+		if _, pruneErr := ix.store.PruneScans(ctx, "book", bookFiles); pruneErr != nil {
+			return pruneErr
+		}
+	}
+
+	papers, paperFiles, err := ix.indexKind(ctx, "paper", ix.opts.Papers, ".pdf", func(path string) ([]corpus.Chunk, error) {
+		return ix.opts.BookSplitter.Paper(ctx, path)
+	})
+	if err != nil {
+		return err
+	}
+	if ix.opts.OCR != nil && len(paperFiles) > 0 {
+		if _, pruneErr := ix.store.PruneScans(ctx, "paper", paperFiles); pruneErr != nil {
 			return pruneErr
 		}
 	}
@@ -177,7 +200,7 @@ func (ix *Indexer) Index(ctx context.Context) error {
 	// Rewritten chunks leave their lexemes in the text index's pending list,
 	// which searches scan until it is merged. Merging costs nothing when nothing
 	// changed, but a pass that found nothing new has no reason to ask.
-	if books+notes+docs > 0 {
+	if books+papers+notes+docs > 0 {
 		if _, cleanErr := ix.store.CleanTextIndex(ctx); cleanErr != nil {
 			slog.WarnContext(ctx, "merging the text index's pending list", "err", cleanErr)
 		}
@@ -195,6 +218,11 @@ func (ix *Indexer) Index(ctx context.Context) error {
 	if draftErr := ix.draft(ctx, docsManuals(ix.opts.Docs)); draftErr != nil && ctx.Err() == nil {
 		slog.WarnContext(ctx, "drafting descriptions", "err", draftErr)
 	}
+	// After drafting, so that a publication uploaded this pass can already be
+	// matched by the description drafted for it.
+	if citeErr := ix.readReferences(ctx); citeErr != nil && ctx.Err() == nil {
+		slog.WarnContext(ctx, "reading reference lists", "err", citeErr)
+	}
 	if ix.opts.Bibliography != nil {
 		if exportErr := ix.opts.Bibliography.Export(ctx); exportErr != nil {
 			slog.ErrorContext(ctx, "writing the bibliography file", "err", exportErr)
@@ -209,6 +237,7 @@ func (ix *Indexer) Index(ctx context.Context) error {
 	// judge the pass is on it, and passes can be compared field by field.
 	slog.InfoContext(ctx, "pass complete",
 		"books", books,
+		"papers", papers,
 		"notes", notes,
 		"docs", docs,
 		"vectors_pruned", pruned,
@@ -321,13 +350,13 @@ func (ix *Indexer) indexFile(
 	// than to keep an empty source around.
 	if len(chunks) == 0 {
 		dropped, err := ix.store.Forget(ctx, rel)
-		if err != nil || kind != "book" || ix.opts.OCR == nil {
+		if err != nil || (kind != "book" && kind != "paper") || ix.opts.OCR == nil {
 			if dropped {
 				slog.WarnContext(ctx, "no text, dropped (a scan without OCR?)", "path", rel)
 			}
 			return false, err
 		}
-		chunks, err = ix.scan(ctx, path, rel, hash)
+		chunks, err = ix.scan(ctx, kind, path, rel, hash)
 		if err != nil || len(chunks) == 0 {
 			return false, err
 		}
@@ -341,17 +370,30 @@ func (ix *Indexer) indexFile(
 	return true, ix.store.Replace(ctx, src, chunks)
 }
 
-// scan is a book with no text layer: the pages recognised from it once they
+// pdfRoot is the library directory a PDF of this kind is relative to. Books and
+// publications are separate shelves, and a scan's path is stored relative to its
+// own.
+func (ix *Indexer) pdfRoot(kind string) string {
+	if kind == "paper" {
+		return ix.opts.Papers
+	}
+	return ix.opts.Books
+}
+
+// scan is a PDF with no text layer: the pages recognised from it once they
 // all are, and until then no chunks and a place in the recognition queue.
-func (ix *Indexer) scan(ctx context.Context, path, rel, hash string) ([]corpus.Chunk, error) {
+func (ix *Indexer) scan(ctx context.Context, kind, path, rel, hash string) ([]corpus.Chunk, error) {
 	pages, err := ix.opts.OCR.Pages(ctx, path)
 	if err != nil {
 		return nil, err
 	}
 	if text, ok := ix.opts.OCR.Cached(hash, pages); ok {
+		if kind == "paper" {
+			return ix.opts.BookSplitter.PaperPages(text), nil
+		}
 		return ix.opts.BookSplitter.Pages(text), nil
 	}
-	return nil, ix.store.MarkScan(ctx, corpus.Scan{Hash: hash, Path: rel, Pages: pages})
+	return nil, ix.store.MarkScan(ctx, corpus.Scan{Kind: kind, Hash: hash, Path: rel, Pages: pages})
 }
 
 // Run indexes and embeds every interval, and starts a pass at once whenever
@@ -448,7 +490,7 @@ func (ix *Indexer) recognise(ctx context.Context, wake <-chan struct{}) bool {
 
 	start := time.Now()
 	slog.InfoContext(ctx, "recognising", "path", scan.Path, "pages", scan.Pages, "recognised", scan.Recognised)
-	complete, err := ix.opts.OCR.Recognize(ctx, scan.Hash, filepath.Join(ix.opts.Books, scan.Path), scan.Pages, stop,
+	complete, err := ix.opts.OCR.Recognize(ctx, scan.Hash, filepath.Join(ix.pdfRoot(scan.Kind), scan.Path), scan.Pages, stop,
 		func(done int) {
 			if progressErr := ix.store.ScanProgress(ctx, scan.Hash, done); progressErr != nil && ctx.Err() == nil {
 				slog.WarnContext(ctx, "recording recognition progress", "path", scan.Path, "err", progressErr)
@@ -474,17 +516,89 @@ func (ix *Indexer) recognise(ctx context.Context, wake <-chan struct{}) bool {
 	return complete || interrupted
 }
 
-// draft files a description for every book and manual that has none: title,
-// PDF author, ISBN or DOI for a book; title, version, address and publisher
-// for a manual. They are drafts, to be checked and completed by hand.
+// readReferences reads the list of references out of every publication that
+// has not been read yet, and then points the entries at the works the library
+// already holds.
+//
+// It is a pass of its own, not part of indexing a file: a reference list is
+// filed under the paper's content hash rather than its source row, so it
+// survives a re-index that rewrites every chunk, and reading one is worth doing
+// once per file rather than once per pass. A failure here costs the list, not
+// the pass.
+func (ix *Indexer) readReferences(ctx context.Context) error {
+	papers, err := ix.store.UnparsedPapers(ctx, extract.ReferenceParser)
+	if err != nil {
+		return err
+	}
+	var entries int
+	for _, p := range papers {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		pages, readErr := ix.paperPages(ctx, p)
+		if readErr != nil {
+			slog.WarnContext(ctx, "reading a publication for its references", "path", p.Path, "err", readErr)
+			continue
+		}
+		_, raw := extract.Bibliography(pages)
+		citations := make([]corpus.Citation, 0, len(raw))
+		for i, line := range raw {
+			c := cite.ParseCitation(line)
+			c.Ord = i + 1
+			citations = append(citations, c)
+		}
+		if saveErr := ix.store.SaveCitations(ctx, p.Hash, extract.ReferenceParser, citations); saveErr != nil {
+			return saveErr
+		}
+		entries += len(citations)
+	}
+	if len(papers) > 0 {
+		slog.InfoContext(ctx, "read reference lists", "papers", len(papers), "citations", entries)
+	}
+
+	resolved, err := ix.store.ResolveCitations(ctx)
+	if err != nil {
+		return err
+	}
+	if resolved > 0 {
+		slog.InfoContext(ctx, "citations matched to the library", "citations", resolved)
+	}
+	return nil
+}
+
+// paperPages is a publication's text: from the PDF itself, or from the OCR
+// cache when the paper is a scan and has no text layer of its own.
+func (ix *Indexer) paperPages(ctx context.Context, p corpus.Unparsed) ([]string, error) {
+	path := filepath.Join(ix.opts.Papers, p.Path)
+	if !p.Recognised || ix.opts.OCR == nil {
+		return ix.opts.PaperText(ctx, path)
+	}
+	count, err := ix.opts.OCR.Pages(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	pages, ok := ix.opts.OCR.Cached(p.Hash, count)
+	if !ok {
+		return nil, nil
+	}
+	return pages, nil
+}
+
+// draft files a description for every book, publication and manual that has
+// none: title, PDF author, ISBN or DOI for a book; title, version, address and
+// publisher for a manual. They are drafts, to be checked and completed by hand.
 func (ix *Indexer) draft(ctx context.Context, manuals []string) error {
 	books, err := ix.store.UndescribedBooks(ctx)
 	if err != nil {
 		return err
 	}
 	for _, b := range books {
-		author := extract.PDFAuthor(ctx, filepath.Join(ix.opts.Books, b.Path))
-		if err := ix.store.EnsureDraft(ctx, b.Hash, cite.BookDraft(b.Title, author, b.Head, b.Tail)); err != nil {
+		author := extract.PDFAuthor(ctx, filepath.Join(ix.pdfRoot(b.Kind), b.Path))
+		draft := cite.BookDraft(b.Title, author, b.Head, b.Tail)
+		if b.Kind == "paper" {
+			draft = cite.PaperDraft(b.Title, author, b.Head)
+		}
+		if err := ix.store.EnsureDraft(ctx, b.Hash, draft); err != nil {
 			return err
 		}
 	}
@@ -642,7 +756,7 @@ func (ix *Indexer) embed(ctx context.Context, wake <-chan struct{}) (interrupted
 func (ix *Indexer) title(ctx context.Context, kind, path, rel string) string {
 	name := strings.TrimSuffix(filepath.Base(rel), filepath.Ext(rel))
 	switch kind {
-	case "book":
+	case "book", "paper":
 		return extract.PDFTitle(ctx, path, name)
 	case "docs":
 		page := extract.HTMLTitle(path, name)

@@ -32,6 +32,7 @@ func run() error {
 		booksDir   = flag.String("books", "/data/books", "directory with PDF books")
 		vaultDir   = flag.String("vault", "/data/vault", "Obsidian vault root")
 		docsDir    = flag.String("docs", "/data/docs", "reference manuals, one directory of HTML per manual; empty skips them")
+		papersDir  = flag.String("papers", "/data/papers", "directory with PDF publications; empty skips them")
 		bibDir     = flag.String("bibliography", "/data/bibliography", "directory of the bibliography file, the descriptions' system of record; empty keeps them in the database alone")
 		interval   = flag.Duration("interval", 0, "reindex period; 0 means index once and exit")
 		ollama     = flag.String("ollama", "http://host.docker.internal:11434", "ollama base URL")
@@ -91,6 +92,7 @@ func run() error {
 		Books:        *booksDir,
 		Vault:        *vaultDir,
 		Docs:         *docsDir,
+		Papers:       *papersDir,
 		Batch:        *batch,
 		Parallel:     *parallel,
 		BookSplitter: extract.Splitter{Above: *bookAbove, Target: *bookTarget},

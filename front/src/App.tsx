@@ -3,6 +3,7 @@ import { Link, NavLink, Route, Routes } from 'react-router'
 import { status as fetchStatus, type Status } from './api'
 import { DescribePage } from './pages/DescribePage'
 import { LibraryPage } from './pages/LibraryPage'
+import { PaperPage } from './pages/PaperPage'
 import { ReaderPage } from './pages/ReaderPage'
 import { SearchPage } from './pages/SearchPage'
 import { VaultContext } from './vault'
@@ -43,6 +44,7 @@ export function App() {
           <Route path="/read/:id" element={<ReaderPage />} />
           <Route path="/library" element={<LibraryPage />} />
           <Route path="/describe" element={<DescribePage />} />
+          <Route path="/paper" element={<PaperPage />} />
           <Route
             path="*"
             element={

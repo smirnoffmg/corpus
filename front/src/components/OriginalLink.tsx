@@ -8,16 +8,18 @@ export function OriginalLink({
   kind,
   href,
   className,
+  label,
   children,
 }: {
   kind: Kind
   href: string
   className?: string
+  label?: string
   children?: ReactNode
 }) {
   const tab = kind === 'vault' ? {} : { target: '_blank', rel: 'noreferrer' }
   return (
-    <a href={href} className={className} {...tab}>
+    <a href={href} className={className} aria-label={label} {...tab}>
       {children ?? originalLabel(kind)}
     </a>
   )

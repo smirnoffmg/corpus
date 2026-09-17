@@ -40,6 +40,10 @@ func (f *fakeLibrary) AddBook(name string, r io.Reader) (string, error) {
 	return f.add("book", name, r, "uploads/"+name)
 }
 
+func (f *fakeLibrary) AddPaper(name string, r io.Reader) (string, error) {
+	return f.add("paper", name, r, "uploads/"+name)
+}
+
 func (f *fakeLibrary) AddManual(name string, r io.Reader) (string, error) {
 	return f.add("docs", name, r, name)
 }
@@ -82,6 +86,23 @@ func uploadServer(t *testing.T, store *fakeStore, lib api.Library, maxBytes int6
 	srv := httptest.NewServer(api.New(store, &fakeEmbedder{}, api.WithLibrary(lib, maxBytes)).Handler())
 	t.Cleanup(srv.Close)
 	return srv
+}
+
+func TestUploadingAPaperSavesItAmongThePapers(t *testing.T) {
+	store, lib := &fakeStore{}, &fakeLibrary{}
+	srv := uploadServer(t, store, lib, 1<<20)
+
+	body, ct := multipartBody(t, "file", "MapReduce.pdf", "%PDF-1.7 bytes")
+	resp, text := post(t, srv.URL+"/upload?kind=paper", ct, body)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d (%s), want 201", resp.StatusCode, text)
+	}
+	if lib.kind != "paper" || lib.name != "MapReduce.pdf" {
+		t.Errorf("library got %s %q, want paper MapReduce.pdf", lib.kind, lib.name)
+	}
+	if store.reindexRequests != 1 {
+		t.Errorf("reindex requested %d times, want 1", store.reindexRequests)
+	}
 }
 
 func TestUploadingABookSavesItAndWakesTheIndexer(t *testing.T) {

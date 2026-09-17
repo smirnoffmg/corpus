@@ -408,6 +408,7 @@ mark {
 .actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 0.6rem;
   margin-top: 1rem;
 }
@@ -882,4 +883,79 @@ td.description-draft a {
 .queued-unsuitable .queued-name {
   color: var(--muted);
   font-weight: 400;
+}
+
+/* References read out of a publication */
+
+.references {
+  margin-block: 2rem;
+  padding: 1rem 1.1rem;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+}
+
+.references h2 {
+  margin-block: 0 0.75rem;
+  font-size: 1.15rem;
+}
+
+.references h3 {
+  margin-block: 1.5rem 0.6rem;
+  font-size: 1rem;
+}
+
+.reference-list,
+.citing-list {
+  margin: 0;
+  padding-left: 1.4rem;
+  display: grid;
+  gap: 0.7rem;
+}
+
+.citing-list {
+  list-style: none;
+  padding-left: 0;
+}
+
+/* The line as printed is the text; what was matched to it is an aside. */
+.reference-raw {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.reference-parsed {
+  display: block;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.reference-parsed cite {
+  font-style: italic;
+}
+
+.paper-authors,
+.paper-venue,
+.paper-doi {
+  margin: 0.2rem 0;
+}
+
+.paper-enrich {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  margin-block: 1.5rem 0;
+}
+
+.paper-enrich p {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.reference-target,
+.citing-list .quiet {
+  display: block;
+  font-size: 0.9rem;
+  margin-top: 0.15rem;
 }

@@ -1,10 +1,11 @@
 import type { Kind, Mode } from './api'
 
-export const kindName: Record<Kind, string> = { book: 'Книга', vault: 'Заметка', docs: 'Мануал' }
+export const kindName: Record<Kind, string> = { book: 'Книга', paper: 'Статья', vault: 'Заметка', docs: 'Мануал' }
 
 export const kindFilters: { value: Kind | ''; label: string }[] = [
   { value: '', label: 'Всё' },
   { value: 'book', label: 'Книги' },
+  { value: 'paper', label: 'Статьи' },
   { value: 'vault', label: 'Заметки' },
   { value: 'docs', label: 'Мануалы' },
 ]

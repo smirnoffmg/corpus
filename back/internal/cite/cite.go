@@ -252,15 +252,7 @@ func plausibleAuthors(authors []map[string]any) bool {
 // opening pages only — the closing pages of a book are its references, full
 // of other works' DOIs. A DOI without an ISBN marks a paper rather than a book.
 func BookDraft(title, pdfAuthor, head, tail string) corpus.CSL {
-	if m := bracketedOnly.FindStringSubmatch(strings.TrimSpace(title)); m != nil {
-		title = m[1]
-	} else if cleaned := strings.TrimSpace(filenameTags.ReplaceAllString(title, "")); cleaned != "" {
-		title = cleaned
-	}
-	draft := corpus.CSL{"type": "book", "title": title}
-	if authors := ParseAuthors(pdfAuthor); plausibleAuthors(authors) {
-		draft["author"] = authors
-	}
+	draft := pdfDraft("book", title, pdfAuthor)
 	isbns := FindISBN(head + "\n" + tail)
 	if len(isbns) > 0 {
 		draft["ISBN"] = isbns[0]
@@ -270,6 +262,31 @@ func BookDraft(title, pdfAuthor, head, tail string) corpus.CSL {
 		if len(isbns) == 0 {
 			draft["type"] = "article-journal"
 		}
+	}
+	return draft
+}
+
+// PaperDraft is BookDraft for a publication: an article, identified by the DOI
+// on its opening pages, and never by an ISBN. The ISBN a paper prints is that
+// of its proceedings volume, shared with every other paper in it, and its
+// closing pages are other works entirely.
+func PaperDraft(title, pdfAuthor, head string) corpus.CSL {
+	draft := pdfDraft("article-journal", title, pdfAuthor)
+	if doi := FindDOI(head); doi != "" {
+		draft["DOI"] = doi
+	}
+	return draft
+}
+
+func pdfDraft(kind, title, pdfAuthor string) corpus.CSL {
+	if m := bracketedOnly.FindStringSubmatch(strings.TrimSpace(title)); m != nil {
+		title = m[1]
+	} else if cleaned := strings.TrimSpace(filenameTags.ReplaceAllString(title, "")); cleaned != "" {
+		title = cleaned
+	}
+	draft := corpus.CSL{"type": kind, "title": title}
+	if authors := ParseAuthors(pdfAuthor); plausibleAuthors(authors) {
+		draft["author"] = authors
 	}
 	return draft
 }

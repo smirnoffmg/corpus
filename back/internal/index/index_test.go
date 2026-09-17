@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/smirnoffmg/corpus/internal/corpus"
+	"github.com/smirnoffmg/corpus/internal/extract"
 	"github.com/smirnoffmg/corpus/internal/index"
 )
 
@@ -21,44 +22,50 @@ import (
 // locking has to be sound; otherwise the race detector would report the test
 // rather than the code under test.
 type recordingStore struct {
-	mu        sync.Mutex
-	replaced  map[string]int
-	sources   map[string]corpus.Source
-	chunks    map[string][]corpus.Chunk
-	titles    map[string]string
-	pruned    map[string][]string
-	indexed   map[string]string // path -> hash, as a real store would remember
-	byHash    map[string]string // hash -> path
-	renamed   []string
-	forgotten []string
-	unchanged bool
-	pending   []corpus.Pending
-	attempted []string
-	attempts  map[string]int
-	failures  map[string]string
-	embedded  []string
-	prunes    int
-	cleans    int
-	scans     map[string]corpus.Scan // by hash
-	scanSeen  []string
-	stats     int
-	drafts    map[string]corpus.CSL
-	onStats   func(calls int) // called with the lock held, once per finished Index
+	mu         sync.Mutex
+	replaced   map[string]int
+	sources    map[string]corpus.Source
+	chunks     map[string][]corpus.Chunk
+	titles     map[string]string
+	pruned     map[string][]string
+	indexed    map[string]string // path -> hash, as a real store would remember
+	byHash     map[string]string // hash -> path
+	renamed    []string
+	forgotten  []string
+	unchanged  bool
+	pending    []corpus.Pending
+	attempted  []string
+	attempts   map[string]int
+	failures   map[string]string
+	embedded   []string
+	prunes     int
+	cleans     int
+	scans      map[string]corpus.Scan // by hash
+	scanSeen   []string
+	scanPruned string
+	stats      int
+	drafts     map[string]corpus.CSL
+	citations  map[string][]corpus.Citation
+	parsers    map[string]int
+	resolves   int
+	onStats    func(calls int) // called with the lock held, once per finished Index
 }
 
 func newStore() *recordingStore {
 	return &recordingStore{
-		replaced: map[string]int{},
-		sources:  map[string]corpus.Source{},
-		attempts: map[string]int{},
-		scans:    map[string]corpus.Scan{},
-		failures: map[string]string{},
-		drafts:   map[string]corpus.CSL{},
-		chunks:   map[string][]corpus.Chunk{},
-		titles:   map[string]string{},
-		pruned:   map[string][]string{},
-		indexed:  map[string]string{},
-		byHash:   map[string]string{},
+		replaced:  map[string]int{},
+		sources:   map[string]corpus.Source{},
+		attempts:  map[string]int{},
+		scans:     map[string]corpus.Scan{},
+		failures:  map[string]string{},
+		drafts:    map[string]corpus.CSL{},
+		citations: map[string][]corpus.Citation{},
+		parsers:   map[string]int{},
+		chunks:    map[string][]corpus.Chunk{},
+		titles:    map[string]string{},
+		pruned:    map[string][]string{},
+		indexed:   map[string]string{},
+		byHash:    map[string]string{},
 	}
 }
 
@@ -228,10 +235,10 @@ func (s *recordingStore) ScanFailed(_ context.Context, hash, _ string) error {
 	return nil
 }
 
-func (s *recordingStore) PruneScans(_ context.Context, seen []string) (int64, error) {
+func (s *recordingStore) PruneScans(_ context.Context, kind string, seen []string) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.scanSeen = seen
+	s.scanSeen, s.scanPruned = seen, kind
 	return 0, nil
 }
 
@@ -256,7 +263,7 @@ func (s *recordingStore) UndescribedBooks(context.Context) ([]corpus.Undescribed
 	defer s.mu.Unlock()
 	var out []corpus.Undescribed
 	for path, src := range s.sources {
-		if src.Kind != "book" {
+		if src.Kind != "book" && src.Kind != "paper" {
 			continue
 		}
 		if _, ok := s.drafts[src.Hash]; ok {
@@ -266,9 +273,40 @@ func (s *recordingStore) UndescribedBooks(context.Context) ([]corpus.Undescribed
 		for _, c := range s.chunks[path] {
 			text.WriteString(c.Body + "\n")
 		}
-		out = append(out, corpus.Undescribed{Path: path, Hash: src.Hash, Title: src.Title, Head: text.String()})
+		out = append(out, corpus.Undescribed{Kind: src.Kind, Path: path, Hash: src.Hash, Title: src.Title, Head: text.String()})
 	}
 	return out, nil
+}
+
+func (s *recordingStore) UnparsedPapers(_ context.Context, parser int) ([]corpus.Unparsed, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []corpus.Unparsed
+	for path, src := range s.sources {
+		if src.Kind != "paper" {
+			continue
+		}
+		if _, ok := s.citations[src.Hash]; ok && s.parsers[src.Hash] >= parser {
+			continue
+		}
+		out = append(out, corpus.Unparsed{Path: path, Hash: src.Hash, Recognised: src.Recognised})
+	}
+	return out, nil
+}
+
+func (s *recordingStore) SaveCitations(_ context.Context, paper string, parser int, cs []corpus.Citation) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.citations[paper] = cs
+	s.parsers[paper] = parser
+	return nil
+}
+
+func (s *recordingStore) ResolveCitations(context.Context) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.resolves++
+	return 0, nil
 }
 
 func (s *recordingStore) EnsureDraft(_ context.Context, key string, csl corpus.CSL) error {
@@ -994,6 +1032,7 @@ func blankPDF(t *testing.T, dir, name string) {
 type fakeRecognizer struct {
 	mu         sync.Mutex
 	pages      int
+	lastPage   string // what the final page reads, when it is not ordinary text
 	recognised map[string]bool
 	calls      []string
 }
@@ -1009,6 +1048,9 @@ func (f *fakeRecognizer) Cached(hash string, pages int) ([]string, bool) {
 	out := make([]string, pages)
 	for i := range out {
 		out[i] = fmt.Sprintf("Распознанная страница %d. %s", i+1, strings.Repeat("Текст книги со сканированной страницы. ", 6))
+	}
+	if f.lastPage != "" {
+		out[pages-1] = f.lastPage
 	}
 	return out, true
 }
@@ -1096,5 +1138,135 @@ func TestRunRecognisesAScanAndIndexesItsPages(t *testing.T) {
 	defer recognizer.mu.Unlock()
 	if len(recognizer.calls) != 1 || recognizer.calls[0] != filepath.Join(books, "scan.pdf") {
 		t.Errorf("recognised %v, want the scan once, by its path in the library", recognizer.calls)
+	}
+}
+
+// A publication's reference list is read once per file, into entries of its
+// own, and matched against the library afterwards.
+func TestPapersHaveTheirReferenceListsRead(t *testing.T) {
+	notes, books := vault(t, 1)
+	store := newStore()
+	store.sources["mapreduce.pdf"] = corpus.Source{Kind: "paper", Path: "mapreduce.pdf", Title: "MapReduce", Hash: "pa"}
+
+	pages := []string{
+		"Заключение. Мы показали, что модель работает на больших кластерах.",
+		"References\n\n" +
+			"[1] M. Kleppmann. Designing Data-Intensive Applications. O'Reilly, 2017.\n" +
+			"[2] L. Lamport. Time, clocks, and the ordering of events in a distributed\n" +
+			"    system. CACM, 1978.\n",
+	}
+	ix := index.New(store, nopEmbedder{}, index.Options{
+		Books: books, Vault: notes,
+		PaperText: func(context.Context, string) ([]string, error) { return pages, nil },
+	})
+	if err := ix.Index(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	cs := store.citations["pa"]
+	if len(cs) != 2 {
+		t.Fatalf("read %d citations, want 2: %+v", len(cs), cs)
+	}
+	if cs[0].Ord != 1 || cs[0].Year != 2017 || cs[0].Title != "Designing Data-Intensive Applications" {
+		t.Errorf("citation 1 = %+v", cs[0])
+	}
+	if cs[1].Ord != 2 || cs[1].Year != 1978 {
+		t.Errorf("citation 2 = %+v", cs[1])
+	}
+	if store.resolves != 1 {
+		t.Errorf("resolved %d times, want once a pass", store.resolves)
+	}
+}
+
+func TestAPaperIsReadForItsReferencesOnlyOnce(t *testing.T) {
+	notes, books := vault(t, 1)
+	store := newStore()
+	store.sources["empty.pdf"] = corpus.Source{Kind: "paper", Path: "empty.pdf", Title: "Empty", Hash: "pe"}
+
+	reads := 0
+	ix := index.New(store, nopEmbedder{}, index.Options{
+		Books: books, Vault: notes,
+		PaperText: func(context.Context, string) ([]string, error) {
+			reads++
+			return []string{"Статья без списка литературы."}, nil
+		},
+	})
+	for range 2 {
+		if err := ix.Index(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if reads != 1 {
+		t.Errorf("read the paper %d times, want 1 — a paper with no references was still read", reads)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if _, ok := store.citations["pe"]; !ok {
+		t.Error("a paper with no references needs a record saying so, or it is read again every pass")
+	}
+}
+
+func TestAPaperReadByAnOlderParserIsReadAgain(t *testing.T) {
+	notes, books := vault(t, 1)
+	store := newStore()
+	store.sources["old.pdf"] = corpus.Source{Kind: "paper", Path: "old.pdf", Title: "Old", Hash: "po"}
+	store.citations["po"] = []corpus.Citation{{Ord: 1, Raw: "whole list read as one entry"}}
+	store.parsers["po"] = extract.ReferenceParser - 1
+
+	ix := index.New(store, nopEmbedder{}, index.Options{
+		Books: books, Vault: notes,
+		PaperText: func(context.Context, string) ([]string, error) {
+			return []string{"References\n[1] A. Author. First. V, 2020.\n[2] B. Author. Second. V, 2021.\n"}, nil
+		},
+	})
+	if err := ix.Index(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if n := len(store.citations["po"]); n != 2 {
+		t.Errorf("citations = %d, want the list read again into 2", n)
+	}
+}
+
+// A scanned paper is a paper once recognised: read from its own shelf, and with
+// its reference list kept out of the text index like any other paper's.
+func TestARecognisedPaperLeavesItsReferencesOut(t *testing.T) {
+	notes, books := vault(t, 1)
+	papers := t.TempDir()
+	blankPDF(t, papers, "naur.pdf")
+	store := newStore()
+	recognizer := &fakeRecognizer{pages: 3, lastPage: "References\n\n" +
+		"Brooks, R. E. Studying programmer behaviour experimentally. Comm. ACM 23(4): 207-213, 1980.\n\n" +
+		"Ryle, G. The Concept of Mind. Harmondsworth, England, Penguin, 1963.\n"}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	store.onStats = func(int) {
+		if src, ok := store.sources["naur.pdf"]; ok && src.Recognised {
+			cancel()
+		}
+	}
+	ix := index.New(store, nopEmbedder{}, index.Options{Books: books, Vault: notes, Papers: papers, OCR: recognizer})
+
+	runFor(t, ix, ctx, time.Hour, nil)
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if src := store.sources["naur.pdf"]; src.Kind != "paper" {
+		t.Errorf("source = %+v, want a paper", src)
+	}
+	for _, c := range store.chunks["naur.pdf"] {
+		if strings.Contains(c.Body, "Concept of Mind") {
+			t.Errorf("chunk on page %d holds the references: %q", c.Page, c.Body)
+		}
+	}
+	recognizer.mu.Lock()
+	defer recognizer.mu.Unlock()
+	if len(recognizer.calls) != 1 || recognizer.calls[0] != filepath.Join(papers, "naur.pdf") {
+		t.Errorf("recognised %v, want the paper by its path on the papers shelf", recognizer.calls)
 	}
 }

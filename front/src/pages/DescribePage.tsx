@@ -31,7 +31,7 @@ export function DescribePage() {
     getReference(kind, path, request.signal)
       .then(({ reference }) => {
         setLoaded({ reference })
-        const record = reference?.csl ?? { type: kind === 'docs' ? 'webpage' : 'book' }
+        const record = reference?.csl ?? { type: kind === 'docs' ? 'webpage' : kind === 'paper' ? 'article-journal' : 'book' }
         setCSL(record)
         setIdentifier(String(record.DOI ?? record.ISBN ?? ''))
       })

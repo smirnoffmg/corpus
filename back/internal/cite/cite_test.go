@@ -148,3 +148,20 @@ func TestBibLaTeX(t *testing.T) {
 		}
 	}
 }
+
+// The ISBN a paper prints is its proceedings volume's, shared with every other
+// paper in it; it identifies no paper, and matching by it would make one paper
+// of a volume every other.
+func TestPaperDraftIsAnArticleWithoutAnISBN(t *testing.T) {
+	draft := cite.PaperDraft("Identifying self-admitted technical debt", "",
+		"ICSE '18. ACM, ISBN 978-1-4503-5663-3/18/05. https://doi.org/10.1145/3183440.3183478")
+	if draft["type"] != "article-journal" {
+		t.Errorf("type = %v", draft["type"])
+	}
+	if _, ok := draft["ISBN"]; ok {
+		t.Errorf("draft = %v, want no ISBN", draft)
+	}
+	if draft["DOI"] != "10.1145/3183440.3183478" {
+		t.Errorf("doi = %v", draft["DOI"])
+	}
+}

@@ -22,9 +22,9 @@ func (s *Store) ReferenceKey(ctx context.Context, kind, path string) (string, er
 	case "docs":
 		manual, _, _ := strings.Cut(path, "/")
 		return "manual:" + manual, nil
-	case "book":
+	case "book", "paper":
 		var hash string
-		err := s.pool.QueryRow(ctx, `SELECT hash FROM sources WHERE kind = 'book' AND path = $1`, path).Scan(&hash)
+		err := s.pool.QueryRow(ctx, `SELECT hash FROM sources WHERE kind = $1 AND path = $2`, kind, path).Scan(&hash)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", ErrNoReference
 		}
@@ -109,26 +109,26 @@ func (s *Store) citekey(ctx context.Context, key string, csl corpus.CSL) (string
 	return cite.UniqueKey(base, func(k string) bool { return set[k] }), nil
 }
 
-// UndescribedBooks lists books without a description, with the text of their
+// UndescribedBooks lists books and publications without a description, with the text of their
 // first and last pages: the copyright page is at the front of a book and the
 // imprint of a Russian one at the back.
 func (s *Store) UndescribedBooks(ctx context.Context) ([]corpus.Undescribed, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT s.path, s.hash, s.title,
+		SELECT s.kind, s.path, s.hash, s.title,
 		       coalesce((SELECT string_agg(body, E'\n' ORDER BY ord) FROM
 		           (SELECT ord, body FROM chunks WHERE source_id = s.id ORDER BY ord LIMIT 8) head), ''),
 		       coalesce((SELECT string_agg(body, E'\n' ORDER BY ord) FROM
 		           (SELECT ord, body FROM chunks WHERE source_id = s.id ORDER BY ord DESC LIMIT 4) tail), '')
 		FROM sources s
 		LEFT JOIN bibliography b ON b.key = s.hash
-		WHERE s.kind = 'book' AND b.key IS NULL
+		WHERE s.kind IN ('book', 'paper') AND b.key IS NULL
 		ORDER BY s.path`)
 	if err != nil {
 		return nil, err
 	}
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (corpus.Undescribed, error) {
 		var u corpus.Undescribed
-		err := row.Scan(&u.Path, &u.Hash, &u.Title, &u.Head, &u.Tail)
+		err := row.Scan(&u.Kind, &u.Path, &u.Hash, &u.Title, &u.Head, &u.Tail)
 		return u, err
 	})
 }

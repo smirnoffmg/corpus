@@ -41,9 +41,10 @@ services:
     environment:
       DATABASE_URL: postgres://corpus:${POSTGRES_PASSWORD:-corpus}@db:5432/corpus
     volumes:
-      # The library is one directory holding books/ and manuals/; the vault
+      # The library is one directory holding books/, papers/ and manuals/; the vault
       # stays where Obsidian keeps it.
       - ${LIBRARY_DIR:-${HOME}/.corpus/data}/books:/data/books:ro
+      - ${LIBRARY_DIR:-${HOME}/.corpus/data}/papers:/data/papers:ro
       - ${LIBRARY_DIR:-${HOME}/.corpus/data}/manuals:/data/docs:ro
       - ${VAULT_DIR:?set VAULT_DIR in .env}:/data/vault:ro
       # The bibliography's system of record: imported each pass, written after
@@ -82,6 +83,7 @@ services:
     # indexer finds them where it already looks.
     volumes:
       - ${LIBRARY_DIR:-${HOME}/.corpus/data}/books:/data/books
+      - ${LIBRARY_DIR:-${HOME}/.corpus/data}/papers:/data/papers
       - ${LIBRARY_DIR:-${HOME}/.corpus/data}/manuals:/data/docs
       - ${LIBRARY_DIR:-${HOME}/.corpus/data}/bibliography:/data/bibliography
     ports:
@@ -112,6 +114,7 @@ services:
       - "127.0.0.1:8082:8082"
     volumes:
       - ${LIBRARY_DIR:-${HOME}/.corpus/data}/books:/data/books:ro
+      - ${LIBRARY_DIR:-${HOME}/.corpus/data}/papers:/data/papers:ro
       - ${LIBRARY_DIR:-${HOME}/.corpus/data}/manuals:/data/docs:ro
     depends_on:
       mcpd:

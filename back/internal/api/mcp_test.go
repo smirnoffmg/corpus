@@ -33,8 +33,8 @@ func TestToolsTellTheModelHowToTreatWhatTheyReturn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tools.Tools) != 2 {
-		t.Fatalf("tools = %d, want corpus_search and corpus_read", len(tools.Tools))
+	if len(tools.Tools) != 3 {
+		t.Fatalf("tools = %d, want corpus_search, corpus_read and corpus_citations", len(tools.Tools))
 	}
 	for _, tool := range tools.Tools {
 		// A client may run a read-only tool without asking each time.

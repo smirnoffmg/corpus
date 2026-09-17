@@ -36,13 +36,14 @@ type QueueState = 'waiting' | 'sending' | 'refused' | 'unsuitable'
 interface Queued {
   id: string
   file: File
+  kind: 'book' | 'paper'
   manual: string
   state: QueueState
   sent: number
   reason?: string
 }
 
-const unsuitable = 'не подойдёт: загружаются только .pdf (книга) и .zip со сборкой HTML-мануала'
+const unsuitable = 'не подойдёт: загружаются только .pdf (книга или статья) и .zip со сборкой HTML-мануала'
 
 const isZip = (f: File) => /\.zip$/i.test(f.name)
 
@@ -52,7 +53,8 @@ const isZip = (f: File) => /\.zip$/i.test(f.name)
 // no different upload.
 const identity = (f: File) => `${f.name}\u0000${f.size}`
 
-// UploadPanel sends books and manuals and then follows them through indexing.
+// UploadPanel sends books, publications and manuals and then follows them
+// through indexing.
 // Files are queued and sent one at a time: a shelf of books at once would
 // multiply the load on the disk and on the indexer for nothing, and a file the
 // server refuses stops only itself. A file that is uploaded but not yet indexed
@@ -73,6 +75,7 @@ export function UploadPanel({ pollMs, onSettled }: { pollMs: number; onSettled: 
         .map((f): Queued => ({
           id: identity(f),
           file: f,
+          kind: 'book',
           manual: manualName(f.name),
           state: accepted.test(f.name) ? 'waiting' : 'unsuitable',
           sent: 0,
@@ -99,7 +102,7 @@ export function UploadPanel({ pollMs, onSettled }: { pollMs: number; onSettled: 
     for (const item of ready) {
       update(item.id, { state: 'sending', sent: 0, reason: undefined })
       try {
-        const target = isZip(item.file) ? { kind: 'docs' as const, manual: item.manual.trim() } : { kind: 'book' as const }
+        const target = isZip(item.file) ? { kind: 'docs' as const, manual: item.manual.trim() } : { kind: item.kind }
         const done = await upload(item.file, target, (sent) => update(item.id, { sent }))
         const prefix = done.kind === 'docs' ? `${done.path}/` : done.path
         setRecent((r) => [{ path: done.path, label: item.file.name, prefix, settled: false }, ...r])
@@ -145,7 +148,7 @@ export function UploadPanel({ pollMs, onSettled }: { pollMs: number; onSettled: 
         onDragLeave={() => setOver(false)}
         onDrop={drop}
       >
-        <p>Перетащите сюда PDF книг или ZIP со сборками мануалов — можно несколько сразу.</p>
+        <p>Перетащите сюда PDF книг и статей или ZIP со сборками мануалов — можно несколько сразу.</p>
         <label className="file-button">
           Выбрать файлы
           <input
@@ -170,7 +173,27 @@ export function UploadPanel({ pollMs, onSettled }: { pollMs: number; onSettled: 
               <li key={item.id} className={`queued queued-${item.state}`}>
                 <div className="queued-head">
                   <span className="queued-name">{item.file.name}</span>
-                  <span className="queued-kind">{isZip(item.file) ? 'Мануал' : accepted.test(item.file.name) ? 'Книга' : ''}</span>
+                  {isZip(item.file) ? (
+                    <span className="queued-kind">Мануал</span>
+                  ) : accepted.test(item.file.name) ? (
+                    <>
+                      <label htmlFor={`kind-${item.id}`} className="visually-hidden">
+                        Что это за файл: «{item.file.name}»
+                      </label>
+                      <select
+                        id={`kind-${item.id}`}
+                        className="queued-kind"
+                        value={item.kind}
+                        disabled={item.state === 'sending'}
+                        onChange={(e) => update(item.id, { kind: e.target.value as 'book' | 'paper' })}
+                      >
+                        <option value="book">Книга</option>
+                        <option value="paper">Статья</option>
+                      </select>
+                    </>
+                  ) : (
+                    <span className="queued-kind" />
+                  )}
                   {item.state !== 'sending' && (
                     <button type="button" className="queued-remove" onClick={() => setQueue((q) => q.filter((other) => other.id !== item.id))} aria-label={`Убрать «${item.file.name}»`} disabled={sending && item.state === 'waiting'}>
                       Убрать
