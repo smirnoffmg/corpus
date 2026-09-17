@@ -77,17 +77,27 @@ func pdfPages(ctx context.Context, path, mode string) ([]string, error) {
 // list, does. A page where neither can be found is kept whole — indexing a few
 // references is a lesser fault than losing a page of text.
 func withoutBibliography(layout, reading []string) []string {
-	span, _, ok := locate(reading)
-	if !ok || len(layout) != len(reading) {
+	if len(layout) != len(reading) {
 		return layout
 	}
 	kept := make([]string, len(layout))
 	copy(kept, layout)
-	for i := span.fromPage; i < len(layout) && i <= span.toPage; i++ {
-		lines := strings.Split(layout[i], "\n")
+	for _, kind := range listKinds {
+		span, _, ok := locate(reading, kind)
+		if !ok {
+			continue
+		}
+		blankSpan(kept, reading, span, kind)
+	}
+	return kept
+}
+
+func blankSpan(kept, reading []string, span listSpan, kind listKind) {
+	for i := span.fromPage; i < len(kept) && i <= span.toPage; i++ {
+		lines := strings.Split(kept[i], "\n")
 		from, to := 0, len(lines)
 		if i == span.fromPage {
-			if from = headingLine(lines); from < 0 {
+			if from = headingLine(lines, kind.heading); from < 0 {
 				continue
 			}
 		}
@@ -99,12 +109,11 @@ func withoutBibliography(layout, reading []string) []string {
 		}
 		kept[i] = strings.Join(append(lines[:from:from], lines[to:]...), "\n")
 	}
-	return kept
 }
 
-func headingLine(lines []string) int {
+func headingLine(lines []string, heading func(string) bool) int {
 	for i, line := range lines {
-		if isBibHeading(line) || isBibHeading(leftColumn(line)) {
+		if heading(line) || heading(leftColumn(line)) {
 			return i
 		}
 	}

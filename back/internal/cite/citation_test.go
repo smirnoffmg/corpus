@@ -237,3 +237,26 @@ func TestParseCitationIgnoresADOIWithNoSuffixToSpeakOf(t *testing.T) {
 		t.Errorf("fingerprint = %q", c.Fingerprint)
 	}
 }
+
+// A review labels its studies with a letter or two before the number.
+func TestParseCitationReadsAStudyLabel(t *testing.T) {
+	c := cite.ParseCitation("[PS3] Yue Zhou, Yue Yu, and Bo Ding. Towards mlops: A case study of ml pipeline platform. In ICAICE, pages 494–500. IEEE, 2020.")
+	if c.Label != "[PS3]" {
+		t.Errorf("label = %q", c.Label)
+	}
+	if c.Title != "Towards mlops: A case study of ml pipeline platform" || c.Year != 2020 {
+		t.Errorf("title = %q, year = %d", c.Title, c.Year)
+	}
+}
+
+// Elsevier's numbered style runs authors, title and journal together with
+// commas, and a parse that lands on the journal must not offer it as the
+// title: every paper of that journal prints its name at the top of page one.
+func TestParseCitationNeverTakesAVenueForATitle(t *testing.T) {
+	for _, venue := range []string{"Journal of Systems and Software", "The Journal of Systems and Software", "International Journal of Software Engineering", "Proceedings of the IEEE", "IEEE Transactions on Software Engineering", "ACM Computing Surveys", "Communications of the ACM"} {
+		c := cite.ParseCitation("[SP36] J. M. Conejero, R. Rodríguez-Echeverría. " + venue + ". 142 (2018) 1–16.")
+		if c.Title == venue {
+			t.Errorf("title = %q, a venue", c.Title)
+		}
+	}
+}

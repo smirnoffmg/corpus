@@ -143,10 +143,13 @@ type Undescribed struct {
 	Head, Tail        string
 }
 
-// Citation is one entry of a publication's list of references: the line as it
+// Citation is one entry of a list a publication prints: the line as it
 // is printed, and what could be read out of it. Raw is the source of truth —
 // every other field is a reading, and a reading can be wrong.
 type Citation struct {
+	// List is the list the entry is printed in: "references", or "primary" for
+	// the studies a systematic review reviewed.
+	List      string `json:"list"`
 	Ord       int    `json:"ord"`
 	Raw       string `json:"raw"`
 	Label     string `json:"label,omitempty"` // "[12]" or "12." as printed; empty when the list is unnumbered

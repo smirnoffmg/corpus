@@ -516,9 +516,9 @@ func (ix *Indexer) recognise(ctx context.Context, wake <-chan struct{}) bool {
 	return complete || interrupted
 }
 
-// readReferences reads the list of references out of every publication that
-// has not been read yet, and then points the entries at the works the library
-// already holds.
+// readReferences reads the lists of works out of every publication that has not
+// been read yet — its references, and a review's primary studies — and then
+// points the entries at the works the library already holds.
 //
 // It is a pass of its own, not part of indexing a file: a reference list is
 // filed under the paper's content hash rather than its source row, so it
@@ -540,12 +540,13 @@ func (ix *Indexer) readReferences(ctx context.Context) error {
 			slog.WarnContext(ctx, "reading a publication for its references", "path", p.Path, "err", readErr)
 			continue
 		}
-		_, raw := extract.Bibliography(pages)
-		citations := make([]corpus.Citation, 0, len(raw))
-		for i, line := range raw {
-			c := cite.ParseCitation(line)
-			c.Ord = i + 1
-			citations = append(citations, c)
+		var citations []corpus.Citation
+		for _, list := range extract.ReferenceLists(pages) {
+			for i, line := range list.Entries {
+				c := cite.ParseCitation(line)
+				c.List, c.Ord = list.Kind, i+1
+				citations = append(citations, c)
+			}
 		}
 		if saveErr := ix.store.SaveCitations(ctx, p.Hash, extract.ReferenceParser, citations); saveErr != nil {
 			return saveErr

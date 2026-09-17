@@ -15,7 +15,7 @@ import (
 const minDOISuffix = 4
 
 var (
-	citationLabel = regexp.MustCompile(`^(\[\d{1,3}\]|\(\d{1,3}\)|\d{1,3}\.)\s+`)
+	citationLabel = regexp.MustCompile(`^(\[[A-Z]{0,3}\d{1,3}\]|\(\d{1,3}\)|\d{1,3}\.)\s+`)
 	arxivRe       = regexp.MustCompile(`(?i)arxiv[:/\s]\s*(\d{4}\.\d{4,5}(v\d+)?|[a-z-]+(\.[A-Z]{2})?/\d{7})`)
 	urlRe         = regexp.MustCompile(`https?://[^\s,;]+`)
 	yearRe        = regexp.MustCompile(`\b(1[5-9]\d{2}|20\d{2})\b`)
@@ -25,6 +25,10 @@ var (
 	// IEEE and Chicago quote the title of an article: “Title,” — straight
 	// quotes and doubled single ones are the same mark after extraction.
 	quotedTitle = regexp.MustCompile(`^(.*?)[,.]?\s*(?:“|"|‘‘|'')(.{8,}?)[,.]?(?:”|"|’’|'')`)
+	// What a venue is called, and a work never is: a parse that lands on one has
+	// missed the title, and every paper of that venue prints its name at the top
+	// of page one.
+	venueName = regexp.MustCompile(`(?i)^(?:the\s+)?(?:(?:international\s+)?journal\s+of\b|proceedings\s+of\b|communications\s+of\s+the\b|(?:ieee|acm)\s|.*\btransactions\s+on\b)`)
 	// An initial written with a hyphen: "J.-F.", "J-P".
 	hyphenInitial = regexp.MustCompile(`^\p{Lu}\.?-\p{Lu}$`)
 	// The first year in an entry, with what an author–year style puts around it:
@@ -77,6 +81,9 @@ func ParseCitation(raw string) corpus.Citation {
 
 	identified := c.DOI != "" || c.ArXiv != "" || c.ISBN != "" || c.URL != ""
 	c.Authors, c.Title, c.Year = readParts(prose, identified)
+	if venueName.MatchString(c.Title) {
+		c.Title = ""
+	}
 	c.Fingerprint = fingerprint(&c)
 	return c
 }

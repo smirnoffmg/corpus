@@ -1270,3 +1270,44 @@ func TestARecognisedPaperLeavesItsReferencesOut(t *testing.T) {
 		t.Errorf("recognised %v, want the paper by its path on the papers shelf", recognizer.calls)
 	}
 }
+
+// A review's studies are read with its references, each list numbered from one.
+func TestAReviewHasItsPrimaryStudiesRead(t *testing.T) {
+	notes, books := vault(t, 1)
+	store := newStore()
+	store.sources["review.pdf"] = corpus.Source{Kind: "paper", Path: "review.pdf", Title: "Review", Hash: "pr"}
+
+	pages := []string{
+		"A systematic mapping study of technical debt in AI-based systems.",
+		"References\n[1] M. Kleppmann. Designing Data-Intensive Applications. O'Reilly, 2017.\n" +
+			"PRIMARY STUDIES\n" +
+			"[P1] A. Agarwal, “Making contextual decisions with low technical debt,” 2016.\n" +
+			"[P2] G. A. Lewis, “Component mismatches are a critical bottleneck,” 2019.\n" +
+			"[P3] D. Sculley, “Hidden technical debt in machine learning systems,” 2015.\n",
+	}
+	ix := index.New(store, nopEmbedder{}, index.Options{
+		Books: books, Vault: notes,
+		PaperText: func(context.Context, string) ([]string, error) { return pages, nil },
+	})
+	if err := ix.Index(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	var refs, studies []corpus.Citation
+	for _, c := range store.citations["pr"] {
+		switch c.List {
+		case "references":
+			refs = append(refs, c)
+		case "primary":
+			studies = append(studies, c)
+		}
+	}
+	if len(refs) != 1 || len(studies) != 3 {
+		t.Fatalf("references %d, studies %d; want 1 and 3: %+v", len(refs), len(studies), store.citations["pr"])
+	}
+	if studies[0].Ord != 1 || studies[2].Ord != 3 || studies[2].Title != "Hidden technical debt in machine learning systems" {
+		t.Errorf("studies = %+v", studies)
+	}
+}

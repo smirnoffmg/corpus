@@ -15,8 +15,17 @@ var (
 	// of an entry can begin with "Index" too.
 	bibEnd = regexp.MustCompile(`(?i)^\s*(?:(?:appendix|приложение)(?:\s+[A-ZА-Я0-9]{1,3}\b.*)?|index|предметный указатель|acknowledge?ments?|благодарности|об авторах|about the authors?|author biograph(?:y|ies)|сведения об авторах)\s*:?\s*$`)
 	// A numbered entry opens with its label. Three digits at most, so that a
-	// continuation line starting "2004." is not read as entry 2004.
-	bibLabel = regexp.MustCompile(`^(\[\d{1,3}\]|\(\d{1,3}\)|\d{1,3}\.)\s+\S`)
+	// continuation line starting "2004." is not read as entry 2004. A review
+	// labels the studies it lists with a letter or two: [P1], [PS1], [SP1].
+	bibLabel = regexp.MustCompile(`^(\[[A-Z]{0,3}\d{1,3}\]|\(\d{1,3}\)|\d{1,3}\.)\s+\S`)
+	// The heading of the list of studies a review reviewed, often an appendix:
+	// "PRIMARY STUDIES", "Appendix B. The selected papers (Ps)", "Appendix A:
+	// The Primary Studies (PSs)".
+	primaryHeading = regexp.MustCompile(`(?i)^\s*(?:(?:appendix|приложение)(?:\s+[A-ZА-Я0-9]{1,3})?\s*[.:]?\s*)?(?:\d+(?:\.\d+)*\.?\s+)?` +
+		`(?:(?:the\s+)?(?:list\s+of\s+(?:the\s+)?)?(?:primary|selected|included|reviewed)\s+(?:studies|papers|articles|sources|literature)` +
+		`|(?:первичные|отобранные|включённые|включенные|рассмотренные)\s+(?:исследования|статьи|работы|источники))` +
+		`(?:\s*\([^)]{0,16}\))?\s*:?\s*$`)
+	yearIn = regexp.MustCompile(`\b(?:1[5-9]|20)\d{2}\b`)
 	// The run of bare page numbers a book's bibliography ends with: the pages
 	// the work is cited on, which belong to that book and not to this work.
 	// Two numbers at least, and no full stop after them, so a year ending the
@@ -28,11 +37,13 @@ var (
 	// "Breiman L (1996)", "Клеппман, М.".
 	//
 	// Chicago spells the given names out: "Marsden, Peter V., and", "Neuman,
-	// William Lawrence.".
+	// William Lawrence."; grey literature has an organisation and a year:
+	// "Analytics India Magazine, 2020.".
 	authorStart = regexp.MustCompile(`^(?:(?:van|von|de|der|den|da|di|du|del|la|le|dos|ten|ter)\s+)*\p{Lu}[\p{L}'’\-]+(?:[\s\-]\p{Lu}[\p{L}'’\-]+)*` +
 		`(?:,\s*\p{Lu}\p{Ll}{0,2}\.` +
 		`|,?\s+\p{Lu}{1,3}(?:[\s,(]|$)` +
-		`|,\s*\p{Lu}\p{Ll}+(?:\s+\p{Lu}\p{Ll}+)?(?:\s+\p{Lu}\.)?(?:[.,]|\s+(?:and|&)))`)
+		`|,\s*\p{Lu}\p{Ll}+(?:\s+\p{Lu}\p{Ll}+)?(?:\s+\p{Lu}\.)?(?:[.,]|\s+(?:and|&))` +
+		`|,\s*(?:1[5-9]|20)\d{2}[a-z]?\.)`)
 	// What a line of an author list ends with when the list goes on to the next.
 	listGoesOn  = regexp.MustCompile(`(?:[,&;\-]|\s(?:and|и))$|\p{Ll}$`)
 	labelNumber = regexp.MustCompile(`\d+`)
@@ -55,13 +66,21 @@ var (
 
 // isBibHeading also reads a heading set in small capitals, which a PDF gives
 // back letter-spaced: "R EFERENCES".
-func isBibHeading(line string) bool {
-	if bibHeading.MatchString(line) {
+func isBibHeading(line string) bool { return headingMatches(bibHeading, line) }
+
+func isPrimaryHeading(line string) bool { return headingMatches(primaryHeading, line) }
+
+func headingMatches(re *regexp.Regexp, line string) bool {
+	if re.MatchString(line) {
 		return true
 	}
 	m := letterSpaced.FindStringSubmatch(line)
-	return len(m) == 3 && bibHeading.MatchString(m[1]+strings.ReplaceAll(m[2], " ", ""))
+	return len(m) == 3 && re.MatchString(m[1]+strings.ReplaceAll(m[2], " ", ""))
 }
+
+// isListHeading is the heading of either list: one list ends where the other
+// begins, whichever comes first.
+func isListHeading(line string) bool { return isBibHeading(line) || isPrimaryHeading(line) }
 
 // capitalsHeading is a heading set in capitals: several words, no digits and
 // no punctuation a reference would carry.
@@ -90,68 +109,129 @@ func listOver(line string) bool {
 // ReferenceParser is the version of what Bibliography and cite.ParseCitation
 // make of a list. Raise it whenever either reads a list differently, and every
 // paper read before is read again on the next pass.
-const ReferenceParser = 4
+const ReferenceParser = 6
 
 // minReferenceListChars is what a section has to hold before it is offered as
 // one unparsed entry: less than this is a stray heading, not a list.
 const minReferenceListChars = 100
 
-// Bibliography finds a publication's list of references and cuts it into
-// entries. start is the index of the page the list begins on, so the pages from
-// there can be kept out of the text index — a bibliography answers no query and
-// matches every one — and -1 when the publication has no list.
-//
-// Each entry is returned as printed, with its lines joined: what is parsed out
-// of it can be wrong, and the line itself is what a reader corrects it against.
+// ReferenceList is one list of works a publication prints: its references, or
+// — in a systematic review — the primary studies it reviewed.
+type ReferenceList struct {
+	Kind    string // "references" or "primary"
+	Entries []string
+}
+
+// listKind is what tells one list from the other: its heading, and how sure the
+// reading has to be before the list is taken. "Primary studies" is also a
+// caption, and "Selected papers" a heading of prose, so that list is taken only
+// when it is cut into entries that read as citations. A references heading is
+// never anything else, and its list is taken even when it cannot be cut.
+type listKind struct {
+	name    string
+	heading func(string) bool
+	strict  bool
+}
+
+var listKinds = []listKind{
+	{name: "references", heading: isBibHeading},
+	{name: "primary", heading: isPrimaryHeading, strict: true},
+}
+
+// ReferenceLists finds the lists a publication prints and cuts each into
+// entries. Each entry is returned as printed, with its lines joined: what is
+// parsed out of it can be wrong, and the line itself is what a reader corrects
+// it against.
+func ReferenceLists(pages []string) []ReferenceList {
+	var lists []ReferenceList
+	for _, kind := range listKinds {
+		if _, entries, ok := locate(pages, kind); ok {
+			lists = append(lists, ReferenceList{Kind: kind.name, Entries: entries})
+		}
+	}
+	return lists
+}
+
+// Bibliography is the references alone. start is the index of the page the
+// list begins on, and -1 when the publication has none.
 func Bibliography(pages []string) (start int, entries []string) {
-	span, entries, ok := locate(pages)
+	span, entries, ok := locate(pages, listKinds[0])
 	if !ok {
 		return -1, nil
 	}
 	return span.fromPage, entries
 }
 
-// listSpan is where a reference list sits: from its heading to the first line
-// of whatever follows it, as page and line indexes. A list that runs to the end
+// listSpan is where a list sits: from its heading to the first line of
+// whatever follows it, as page and line indexes. A list that runs to the end
 // of the document ends at page len(pages).
 type listSpan struct {
 	fromPage, fromLine int
 	toPage, toLine     int
 }
 
-func locate(pages []string) (listSpan, []string, bool) {
-	span, lines, found := referenceLines(pages)
-	if !found {
-		return span, nil, false
+// minCitingEntries and the share of entries with a year are what a list of
+// studies has to show before it is taken as one.
+const minCitingEntries = 3
+
+// locate finds a list of the kind, trying its headings from the last one back:
+// a list is printed at the end, and an earlier heading of the same words is
+// more likely a caption.
+func locate(pages []string, kind listKind) (listSpan, []string, bool) {
+	headings := headingsOf(pages, kind)
+	for i := len(headings) - 1; i >= 0; i-- {
+		span, lines := listLines(pages, kind, headings[i])
+		entries, shaped := cut(lines)
+		switch {
+		case !kind.strict && len(entries) > 0:
+			return span, entries, true
+		case !kind.strict:
+			// The heading is there and the cut did not take. Handing the section
+			// back whole is worse than entries and better than losing it.
+			if whole := join(lines); len(whole) >= minReferenceListChars {
+				return span, []string{whole}, true
+			}
+			return span, nil, false
+		case shaped && readsAsCitations(entries):
+			return span, entries, true
+		}
 	}
-	entries := cut(lines)
-	if len(entries) > 0 {
-		return span, entries, true
-	}
-	// The heading is there and the cut did not take. Handing the section back
-	// whole is worse than entries and better than losing it.
-	whole := join(lines)
-	if len(whole) < minReferenceListChars {
-		return span, nil, false
-	}
-	return span, []string{whole}, true
+	return listSpan{}, nil, false
 }
 
-// referenceLines is the text of the list: from the last bibliography heading in
-// the document to the next section or the end.
-func referenceLines(pages []string) (listSpan, []string, bool) {
-	span := listSpan{fromPage: -1, toPage: len(pages)}
+func readsAsCitations(entries []string) bool {
+	if len(entries) < minCitingEntries {
+		return false
+	}
+	dated := 0
+	for _, e := range entries {
+		if yearIn.MatchString(e) {
+			dated++
+		}
+	}
+	return dated*2 >= len(entries)
+}
+
+func headingsOf(pages []string, kind listKind) []listSpan {
+	var found []listSpan
 	for i, page := range pages {
 		for j, line := range strings.Split(page, "\n") {
-			if isBibHeading(line) {
-				span.fromPage, span.fromLine = i, j
+			if kind.heading(line) {
+				found = append(found, listSpan{fromPage: i, fromLine: j})
 			}
 		}
 	}
-	if span.fromPage < 0 {
-		return span, nil, false
+	// A references heading is taken where it last stands, as it always was.
+	if !kind.strict && len(found) > 1 {
+		found = found[len(found)-1:]
 	}
+	return found
+}
 
+// listLines is the text of a list: from its heading to the next section, the
+// other list's heading, or the end.
+func listLines(pages []string, kind listKind, span listSpan) (listSpan, []string) {
+	span.toPage, span.toLine = len(pages), 0
 	running := runningLines(pages[span.fromPage:])
 	var lines []string
 	previous := ""
@@ -161,13 +241,13 @@ func referenceLines(pages []string) (listSpan, []string, bool) {
 				continue
 			}
 			text := strings.TrimSpace(line)
-			if bibEnd.MatchString(line) || (endsEntry.MatchString(previous) && listOver(text)) {
-				span.toPage, span.toLine = i, j
-				return span, lines, true
-			}
 			// A running head repeats the heading on every page of the list.
-			if isBibHeading(line) || pageNumberOnly.MatchString(line) || running[pageFree(line)] {
+			if kind.heading(line) || pageNumberOnly.MatchString(line) || running[pageFree(line)] {
 				continue
+			}
+			if bibEnd.MatchString(line) || isListHeading(line) || (endsEntry.MatchString(previous) && listOver(text)) {
+				span.toPage, span.toLine = i, j
+				return span, lines
 			}
 			lines = append(lines, strings.TrimRight(line, " \t"))
 			if text != "" {
@@ -175,7 +255,7 @@ func referenceLines(pages []string) (listSpan, []string, bool) {
 			}
 		}
 	}
-	return span, lines, true
+	return span, lines
 }
 
 // maxRunningLine is longer than any header or footer a paper prints; a longer
@@ -250,16 +330,27 @@ func visible(s string) string {
 	}, s)
 }
 
-// cut splits the list into entries by whichever of the three shapes a
-// bibliography comes in explains it: numbered labels, a hanging indent, or a
-// blank line between entries.
-func cut(lines []string) []string {
-	for _, shape := range []func([]string) []int{labelled, hanging, authorYear} {
-		if starts := shape(lines); len(starts) > 1 {
-			return entriesAt(lines, starts)
-		}
+// cut splits the list into entries by whichever shape a bibliography comes in
+// explains it: numbered labels, a hanging indent, names opening lines, or a
+// blank line between entries. shaped says it was one of the first three — a
+// blank line also separates paragraphs of prose.
+func cut(lines []string) (entries []string, shaped bool) {
+	if starts := labelled(lines); len(starts) > 1 {
+		return entriesAt(lines, starts), true
 	}
-	return entriesAt(lines, blankSeparated(lines))
+	if starts := hanging(lines); len(starts) > 1 {
+		return entriesAt(lines, starts), true
+	}
+	if starts := authorYear(lines); len(starts) > 1 {
+		// An entry whose line opens with a title or an organisation is not
+		// recognised as a start; before the first recognised one it would be
+		// lost, and later it joins the entry before it.
+		if first := starts[0]; join(lines[:first]) != "" {
+			starts = append([]int{0}, starts...)
+		}
+		return entriesAt(lines, starts), true
+	}
+	return entriesAt(lines, blankSeparated(lines)), false
 }
 
 // authorYear reads an unnumbered list with no indent left to go by, which is

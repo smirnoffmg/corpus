@@ -478,3 +478,131 @@ func TestWithoutBibliographyFindsTheListInReadingOrderAndCutsTheLayout(t *testin
 		t.Errorf("the list is still indexed: %q / %q", kept[1], kept[2])
 	}
 }
+
+func listOf(lists []ReferenceList, kind string) []string {
+	for _, l := range lists {
+		if l.Kind == kind {
+			return l.Entries
+		}
+	}
+	return nil
+}
+
+// A systematic review prints the studies it reviewed as a list of its own,
+// before or after its references, under a heading of its own. Each shape here
+// is from a review in the library.
+func TestReferenceListsReadAReviewsPrimaryStudies(t *testing.T) {
+	refs := "References\n" +
+		"[1] M. Kleppmann. Designing Data-Intensive Applications. O'Reilly, 2017.\n" +
+		"[2] L. Lamport. Time, clocks. CACM, 1978.\n"
+	cases := map[string]struct {
+		pages   []string
+		labels  []string
+		refsLen int
+	}{
+		"after the references, in capitals": {
+			pages: []string{filler, refs +
+				"PRIMARY STUDIES\n" +
+				"[P1] A. Agarwal, S. Bird, and J. Li, “Making contextual decisions\n" +
+				"with low technical debt,” 2016.\n" +
+				"[P2] G. A. Lewis, S. Bellomo, and A. Galyardt, “Component Mismatches\n" +
+				"Are a Critical Bottleneck,” in AAAI Fall Symposium, 2019.\n" +
+				"[P3] D. Sculley, G. Holt, “Hidden technical debt in machine learning systems,” 2015.\n"},
+			labels: []string{"[P1]", "[P2]", "[P3]"}, refsLen: 2,
+		},
+		"an appendix before the references": {
+			pages: []string{filler,
+				"Appendix B. The selected papers (Ps)\n" +
+					"[SP1] A. Nugroho, J. Visser, and T. Kuipers. An empirical model\n" +
+					"of technical debt and interest. MTD ’11. pp. 1–8, 2011.\n" +
+					"[SP2] N. Zazworka, M. A. Shaw. Investigating the impact of design debt. MTD ’11, 2011.\n" +
+					"[SP3] N. Zazworka, C. Seaman. Prioritizing design debt investment opportunities. 2011.\n",
+				refs},
+			labels: []string{"[SP1]", "[SP2]", "[SP3]"}, refsLen: 2,
+		},
+		"an appendix after the references": {
+			pages: []string{filler, refs,
+				"Appendix A PRIMARY STUDIES\n" +
+					"[PS1] Sasu Mäkinen, Henrik Skogström. Who needs mlops. In WAIN, pages 109–112, 2021.\n" +
+					"[PS2] Damian A Tamburri. Sustainable mlops: Trends and challenges. In SYNASC, 2020.\n" +
+					"[PS3] Yue Zhou, Yue Yu, and Bo Ding. Towards mlops. In ICAICE, 2020.\n"},
+			labels: []string{"[PS1]", "[PS2]", "[PS3]"}, refsLen: 2,
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			lists := ReferenceLists(c.pages)
+			primary := listOf(lists, "primary")
+			if len(primary) != len(c.labels) {
+				t.Fatalf("primary studies = %q, want %d", primary, len(c.labels))
+			}
+			for i, label := range c.labels {
+				if !strings.HasPrefix(primary[i], label) {
+					t.Errorf("study %d = %.40q, want it labelled %s", i+1, primary[i], label)
+				}
+			}
+			if got := listOf(lists, "references"); len(got) != c.refsLen {
+				t.Errorf("references = %q, want %d — neither list may swallow the other", got, c.refsLen)
+			}
+		})
+	}
+}
+
+// A multivocal review lists grey literature by organisation and year, and its
+// first entry opens with a title rather than a name.
+func TestReferenceListsKeepTheEntryBeforeTheFirstRecognisedOne(t *testing.T) {
+	pages := []string{filler, "Appendix A: The Primary Studies (PS\U0001D494)\n" +
+		"AI Code Generation: Benefits, Tools & Challenges, SonarSource. Available at: https:\n" +
+		"//www.sonarsource.com/learn/ai-code-generation/.\n" +
+		"Alahdab, M., Çalıklı, G., 2019. Empirical analysis of hidden technical debt patterns\n" +
+		"in machine learning software. In: PROFES 2019. Springer, pp. 195–202.\n" +
+		"Analytics India Magazine, 2020. How to handle hidden technical debt in a machine\n" +
+		"learning pipeline, SwissCognitive.\n" +
+		"Barocas, S., 2016. What Is Machine Learning Debt?. O’Reilly Radar.\n"}
+	primary := listOf(ReferenceLists(pages), "primary")
+	if len(primary) != 4 {
+		t.Fatalf("primary studies = %q, want 4", primary)
+	}
+	if !strings.HasPrefix(primary[0], "AI Code Generation") || !strings.HasPrefix(primary[2], "Analytics India Magazine") {
+		t.Errorf("primary studies = %q", primary)
+	}
+}
+
+// What only looks like a list of studies: a figure caption before prose, a
+// numbered list of criteria, a table of products labelled P1, P2.
+func TestReferenceListsIgnoreWhatOnlyLooksLikePrimaryStudies(t *testing.T) {
+	cases := map[string]string{
+		"a caption before prose": "Primary Studies\n" +
+			"First, we performed a metadata screening of titles, abstracts, and keywords.\n" +
+			"Second, we screened studies for research methodology and eligibility.\n",
+		"numbered criteria": "Selected papers\n" +
+			"1. The article must be peer-reviewed and published at a venue.\n" +
+			"2. The article must be accessible online.\n" +
+			"3. The article must be written in English.\n",
+		"a table without a heading": "P1 Text Fairy OCR scanner app 751 5 10M+\n" +
+			"P2 Seek by iNaturalist App to identify plants 92 8 1M+\n",
+		"a sentence": "We read the primary studies. The study highlights the influence of debt.\n",
+	}
+	for name, page := range cases {
+		t.Run(name, func(t *testing.T) {
+			if primary := listOf(ReferenceLists([]string{filler, page, "References\n[1] A. Author. Work. V, 2020.\n[2] B. Author. Work. V, 2021.\n"}), "primary"); primary != nil {
+				t.Errorf("primary studies = %q, want none", primary)
+			}
+		})
+	}
+}
+
+// The studies a review lists answer no query either, so they leave the text
+// index with the references.
+func TestWithoutBibliographyLeavesThePrimaryStudiesOut(t *testing.T) {
+	pages := []string{filler,
+		"Appendix. The selected papers\n[P1] F. Zampetti. Recommending when debt should be self-admitted. ICSME, 2017.\n" +
+			"[P2] E. Maldonado. Using NLP to detect self-admitted technical debt. TSE, 2017.\n" +
+			"[P3] Q. Huang. Identifying self-admitted technical debt. EMSE, 2018.\n",
+		"References\n[1] A. Author. Work. V, 2020.\n[2] B. Author. Work. V, 2021.\n",
+	}
+	kept := withoutBibliography(pages, pages)
+	if strings.Contains(kept[1], "Zampetti") {
+		t.Errorf("page 2 = %q, want the selected papers out of the index", kept[1])
+	}
+}

@@ -102,6 +102,8 @@ export type CSLRecord = Record<string, unknown>
 // what could be read out of it, and where the library keeps that work when it
 // has it.
 export interface Citation {
+  // references, or the primary studies a systematic review reviewed
+  list?: 'references' | 'primary'
   ord: number
   raw: string
   label?: string

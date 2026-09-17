@@ -953,6 +953,12 @@ td.description-draft a {
   margin: 0;
 }
 
+.citing-as {
+  margin-left: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
 .reference-target,
 .citing-list .quiet {
   display: block;

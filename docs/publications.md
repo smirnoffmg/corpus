@@ -107,6 +107,34 @@ shared the DOI `10.1016/j`; and two papers matched themselves through an ISBN.
   names; otherwise the entry is cut at its full stops, with initials kept
   whole.
 
+### Primary studies
+
+A systematic review prints a second list: the studies it reviewed, labelled
+`[P1]`, `[PS1]` or `[SP1]`, or unnumbered in a multivocal review. It is read
+like the references, kept as a list of its own (`list: primary`), numbered from
+one, and left out of the text index with them. On the card it is a section of
+its own, and a work a review included says so in the list of what cites it.
+
+- **The heading** is what finds it — `PRIMARY STUDIES`, `Appendix B. The
+  selected papers (Ps)`, `Appendix A: The Primary Studies (PSs)`, `Selected
+  papers`, `Первичные исследования` — never the labels: `P1` also labels the
+  rows of a table of products, and `S1` the statements of a survey.
+- **The list has to read as citations.** The same words are a caption
+  (`Primary Studies` over a figure of the selection steps) or the heading of a
+  numbered list of inclusion criteria. So it is taken only when it is cut by
+  labels, indents or names, holds three entries at least, and at least half of
+  them carry a year; headings are tried from the last one back.
+- **Each list ends where the other begins**, before or after it.
+
+On the five reviews in the library every count agrees with the review's own
+labels or tables: 21, 27, 44 and 198 studies, and 60 of the 62 a multivocal
+review reports — two of its grey-literature entries open with a title rather
+than a name and join the entry before them.
+
+An entry whose first line opens with a title or an organisation is no longer
+dropped when it comes before the first recognised one: that had been losing
+the first reference of two papers as well.
+
 ### What is not
 
 - Anything the shapes above do not explain: the section is then kept as one
@@ -116,10 +144,6 @@ shared the DOI `10.1016/j`; and two papers matched themselves through an ISBN.
   bibliography writes them in half a dozen orders, and a wrong split reads worse
   than none.
 - A citation in the body (`[12]` in a paragraph) is not linked to entry 12.
-- A second list after the first — the primary studies of a systematic review,
-  `PRIMARY STUDIES [P1] …` — ends the reading. Those are citations too, and
-  for a literature review the ones that matter most; reading them is the next
-  step.
 - On a two-column page a few lines of the list can stay in the text index: the
   layout text puts the other column's references beside the conclusion above
   the heading, or beside the first line after the list, and a page whose cut
@@ -159,6 +183,17 @@ first page 111 more — Sculley et al. 2015 is now cited by 16 papers in the
 library, Cunningham 1992 by 13. Where several files match, an identifier wins
 over a title, a title over a page, and a publication over a book-shelf copy of
 the same file.
+
+What the top of a first page says can be wider than its title. A review of 2025
+states that it "is a revised and expanded version of a conference paper
+entitled …", so a citation of that conference paper is matched to the
+expanded version — which is the file the library holds of it. A journal's name,
+which heads every first page of that journal, is never a title: when a parse
+lands on `Journal of …`, `Proceedings of …` or `… Transactions on …`, the entry
+is left without one. The years a first page prints were tried as a check and
+dropped: an arXiv id reads as a year (`1706.03762`), a preprint is cited years
+before its journal version, and on these papers the check lost eight true
+matches to stop one false one.
 
 Matching runs on every pass, not once when the list is read, because **the
 library grows**: an entry that found nothing today should find the book uploaded

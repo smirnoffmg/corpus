@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { describe, expect, it } from 'vitest'
 import type { Citation, CitingPaper } from '../api'
@@ -77,6 +77,24 @@ describe('ReferencesPanel', () => {
   it('counts the publications that cite, not their entries', async () => {
     renderPanel({ citing: [...citing, { path: 'other.pdf', title: 'Другая статья', citation: { ord: 9, raw: '[9] The same work again.' } }] })
     expect(await screen.findByRole('heading', { name: 'На эту работу ссылаются: 1 публикация' })).toBeInTheDocument()
+  })
+
+  it('shows a review’s primary studies as a list of their own', async () => {
+    renderPanel({ cited: [
+      { list: 'references', ord: 1, raw: '[1] M. Kleppmann. Designing Data-Intensive Applications. 2017.' },
+      { list: 'primary', ord: 1, raw: '[P1] A. Agarwal. Making contextual decisions. 2016.', label: '[P1]' },
+      { list: 'primary', ord: 2, raw: '[P2] G. A. Lewis. Component mismatches. 2019.', label: '[P2]' },
+    ] })
+    const studies = await screen.findByRole('region', { name: 'Первичные исследования: 2' })
+    expect(within(studies).getAllByRole('listitem')).toHaveLength(2)
+    const refs = screen.getByRole('region', { name: 'Ссылается на' })
+    expect(within(refs).queryByText(/Agarwal/)).toBeNull()
+    expect(within(refs).getByText(/Kleppmann/)).toBeInTheDocument()
+  })
+
+  it('says when a review included this work as a primary study', async () => {
+    renderPanel({ citing: [{ path: 'review.pdf', title: 'Обзор', citation: { list: 'primary', ord: 3, raw: '[P3] D. Sculley et al.' } }] })
+    expect(await screen.findByText('включила как первичное исследование')).toBeInTheDocument()
   })
 
   it('says plainly when nothing was read out of the paper', async () => {

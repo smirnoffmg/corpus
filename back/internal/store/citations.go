@@ -11,7 +11,7 @@ import (
 
 // Qualified, because the reverse lookup joins citations to sources and both
 // tables have a title.
-const citationColumns = `c.ord, c.raw, coalesce(c.label, ''), coalesce(c.doi, ''), coalesce(c.arxiv, ''), ` +
+const citationColumns = `c.list, c.ord, c.raw, coalesce(c.label, ''), coalesce(c.doi, ''), coalesce(c.arxiv, ''), ` +
 	`coalesce(c.isbn, ''), coalesce(c.url, ''), coalesce(c.authors, ''), coalesce(c.title, ''), ` +
 	`coalesce(c.container, ''), coalesce(c.year, 0), c.fingerprint, coalesce(c.resolved, ''), coalesce(c.matched_by, ''), ` +
 	`coalesce(r.kind, ''), coalesce(r.path, ''), coalesce(r.title, '')`
@@ -29,7 +29,7 @@ const resolvedSource = ` LEFT JOIN LATERAL (
 
 func scanCitation(row pgx.CollectableRow) (corpus.Citation, error) {
 	var c corpus.Citation
-	err := row.Scan(&c.Ord, &c.Raw, &c.Label, &c.DOI, &c.ArXiv, &c.ISBN, &c.URL,
+	err := row.Scan(&c.List, &c.Ord, &c.Raw, &c.Label, &c.DOI, &c.ArXiv, &c.ISBN, &c.URL,
 		&c.Authors, &c.Title, &c.Container, &c.Year, &c.Fingerprint, &c.Resolved, &c.MatchedBy,
 		&c.ResolvedKind, &c.ResolvedPath, &c.ResolvedTitle)
 	return c, err
@@ -111,12 +111,12 @@ func replaceCitations(ctx context.Context, tx pgx.Tx, paper string, cs []corpus.
 		c := &cs[i]
 		batch.Queue(`
 			INSERT INTO citations (paper, ord, raw, label, doi, arxiv, isbn, url, authors, title, container, year,
-			                       fingerprint, resolved, matched_by)
+			                       fingerprint, resolved, matched_by, list)
 			VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''),
 			        NULLIF($8, ''), NULLIF($9, ''), NULLIF($10, ''), NULLIF($11, ''), NULLIF($12, 0),
-			        $13, NULLIF($14, ''), NULLIF($15, ''))`,
+			        $13, NULLIF($14, ''), NULLIF($15, ''), coalesce(NULLIF($16, ''), 'references'))`,
 			paper, c.Ord, c.Raw, c.Label, c.DOI, c.ArXiv, c.ISBN, c.URL, c.Authors, c.Title, c.Container, c.Year,
-			c.Fingerprint, c.Resolved, c.MatchedBy)
+			c.Fingerprint, c.Resolved, c.MatchedBy, c.List)
 	}
 	if err := tx.SendBatch(ctx, batch).Close(); err != nil {
 		return err
@@ -127,7 +127,7 @@ func replaceCitations(ctx context.Context, tx pgx.Tx, paper string, cs []corpus.
 // Citations is what a publication cites, in the order its list prints them.
 func (s *Store) Citations(ctx context.Context, paper string) ([]corpus.Citation, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT `+citationColumns+` FROM citations c`+resolvedSource+` WHERE c.paper = $1 ORDER BY c.ord`, paper)
+		`SELECT `+citationColumns+` FROM citations c`+resolvedSource+` WHERE c.paper = $1 ORDER BY c.list <> 'references', c.ord`, paper)
 	if err != nil {
 		return nil, err
 	}
@@ -147,14 +147,14 @@ func (s *Store) Citing(ctx context.Context, key, fingerprint string) ([]corpus.C
 		    ORDER BY x.path
 		    LIMIT 1) s ON true`+resolvedSource+`
 		WHERE ($1 <> '' AND c.resolved = $1) OR ($2 <> '' AND c.fingerprint = $2)
-		ORDER BY s.path, c.ord`, key, fingerprint)
+		ORDER BY s.path, c.list, c.ord`, key, fingerprint)
 	if err != nil {
 		return nil, err
 	}
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (corpus.CitingPaper, error) {
 		var p corpus.CitingPaper
 		c := &p.Citation
-		err := row.Scan(&p.Path, &p.Title, &c.Ord, &c.Raw, &c.Label, &c.DOI, &c.ArXiv, &c.ISBN,
+		err := row.Scan(&p.Path, &p.Title, &c.List, &c.Ord, &c.Raw, &c.Label, &c.DOI, &c.ArXiv, &c.ISBN,
 			&c.URL, &c.Authors, &c.Title, &c.Container, &c.Year, &c.Fingerprint, &c.Resolved, &c.MatchedBy,
 			&c.ResolvedKind, &c.ResolvedPath, &c.ResolvedTitle)
 		return p, err
@@ -169,7 +169,7 @@ func (s *Store) SharedCitations(ctx context.Context, a, b string) ([]corpus.Cita
 		FROM citations c`+resolvedSource+`
 		WHERE c.paper = $1
 		  AND EXISTS (SELECT 1 FROM citations o WHERE o.paper = $2 AND o.fingerprint = c.fingerprint)
-		ORDER BY c.ord`, a, b)
+		ORDER BY c.list <> 'references', c.ord`, a, b)
 	if err != nil {
 		return nil, err
 	}
@@ -190,6 +190,12 @@ func (s *Store) SharedCitations(ctx context.Context, a, b string) ([]corpus.Cita
 // words and more counts there, since "Natural language processing" is a phrase
 // any abstract can hold; and only the top of the page, where the title is.
 //
+// The years a first page prints were tried as a check and dropped: an arXiv id
+// reads as a year (1706.03762), a preprint is cited years before its journal
+// version, and on 41 papers the check lost eight true matches to stop one false
+// one — which came from a journal's name taken for a title, and is stopped
+// where the entry is read.
+//
 // "Discrepancies can occur for many reasons, such as misspellings" (Ullman,
 // Database Systems: The Complete Book, printed p. 1079), and a work that merely
 // looks alike is not the same work: anything softer is left unresolved rather
@@ -207,11 +213,11 @@ func (s *Store) ResolveCitations(ctx context.Context) (int64, error) {
 		    WHERE s.kind IN ('paper', 'book')
 		    GROUP BY s.hash, s.kind, s.path
 		), titled AS (
-		    SELECT c.paper, c.ord, corpus_normalize_title(c.title) AS title
+		    SELECT c.paper, c.list, c.ord, corpus_normalize_title(c.title) AS title
 		    FROM citations c
 		    WHERE c.title IS NOT NULL
 		), candidate AS (
-		    SELECT c.paper, c.ord, b.key, x.how, x.rank, 0 AS shelf, '' AS path
+		    SELECT c.paper, c.list, c.ord, b.key, x.how, x.rank, 0 AS shelf, '' AS path
 		    FROM citations c
 		    JOIN bibliography b ON b.key <> c.paper
 		    CROSS JOIN LATERAL (
@@ -228,18 +234,18 @@ func (s *Store) ResolveCitations(ctx context.Context) (int64, error) {
 		          AND (b.csl#>>'{issued,date-parts,0,0}')::int = c.year
 		    ) x
 		    UNION ALL
-		    SELECT t.paper, t.ord, h.hash, 'page', 4, CASE h.kind WHEN 'paper' THEN 0 ELSE 1 END, h.path
+		    SELECT t.paper, t.list, t.ord, h.hash, 'page', 4, CASE h.kind WHEN 'paper' THEN 0 ELSE 1 END, h.path
 		    FROM titled t
 		    JOIN head h ON h.hash <> t.paper AND position(t.title IN h.text) > 0
 		    WHERE array_length(string_to_array(t.title, ' '), 1) >= $2
 		), picked AS (
-		    SELECT DISTINCT ON (paper, ord) paper, ord, key, how
+		    SELECT DISTINCT ON (paper, list, ord) paper, list, ord, key, how
 		    FROM candidate
-		    ORDER BY paper, ord, rank, shelf, path
+		    ORDER BY paper, list, ord, rank, shelf, path
 		)
 		UPDATE citations c SET resolved = p.key, matched_by = p.how
 		FROM picked p
-		WHERE c.paper = p.paper AND c.ord = p.ord
+		WHERE c.paper = p.paper AND c.list = p.list AND c.ord = p.ord
 		  AND (c.resolved IS DISTINCT FROM p.key OR c.matched_by IS DISTINCT FROM p.how)`,
 		titleHead, minPageTitleWords)
 	if err != nil {

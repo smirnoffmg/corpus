@@ -55,9 +55,26 @@ function Parsed({ c }: { c: Citation }) {
   )
 }
 
-// ReferencesPanel shows what a publication cites and who cites it. The entry as
-// printed is the text: everything parsed out of it can be wrong, and a reader
-// checking a citation wants the line they would find on the page.
+function Entries({ entries }: { entries: Citation[] }) {
+  return (
+    <ol className="reference-list">
+      {entries.map((c) => (
+        <li key={`${c.list}-${c.ord}`}>
+          <span className="reference-raw">{c.raw}</span>
+          <Parsed c={c} />
+          <span className="reference-target">
+            <Target c={c} />
+          </span>
+        </li>
+      ))}
+    </ol>
+  )
+}
+
+// ReferencesPanel shows what a publication cites and who cites it — and, for a
+// systematic review, the studies it reviewed, as a list of their own. The entry
+// as printed is the text: everything parsed out of it can be wrong, and a
+// reader checking a citation wants the line they would find on the page.
 export function ReferencesPanel({ path }: { path: string }) {
   const [loaded, setLoaded] = useState<Loaded>()
   const [failed, setFailed] = useState(false)
@@ -77,40 +94,42 @@ export function ReferencesPanel({ path }: { path: string }) {
   if (failed) return null
   if (!loaded) return <p className="quiet">Читаю список литературы…</p>
 
-  return (
-    <section className="references" aria-labelledby="references-title">
-      <h2 id="references-title">Ссылается на</h2>
-      {loaded.cited.length === 0 ? (
-        <p className="quiet">Список литературы не распознан — или статья его не печатает.</p>
-      ) : (
-        <ol className="reference-list">
-          {loaded.cited.map((c) => (
-            <li key={c.ord}>
-              <span className="reference-raw">{c.raw}</span>
-              <Parsed c={c} />
-              <span className="reference-target">
-                <Target c={c} />
-              </span>
-            </li>
-          ))}
-        </ol>
-      )}
+  const references = loaded.cited.filter((c) => c.list !== 'primary')
+  const studies = loaded.cited.filter((c) => c.list === 'primary')
 
-      {loaded.citing.length > 0 && (
-        <section aria-labelledby="citing-title">
-          <h3 id="citing-title">
-            На эту работу ссылаются: {citingPapers} {plural(citingPapers, ['публикация', 'публикации', 'публикаций'])}
-          </h3>
-          <ul className="citing-list">
-            {loaded.citing.map((p) => (
-              <li key={`${p.path}-${p.citation.ord}`}>
-                <Link to={libraryLink('paper', p.path)}>{p.title}</Link>
-                <span className="quiet">{p.citation.raw}</span>
-              </li>
-            ))}
-          </ul>
+  return (
+    <>
+      {studies.length > 0 && (
+        <section className="references" aria-labelledby="studies-title">
+          <h2 id="studies-title">Первичные исследования: {studies.length}</h2>
+          <Entries entries={studies} />
         </section>
       )}
-    </section>
+      <section className="references" aria-labelledby="references-title">
+        <h2 id="references-title">Ссылается на</h2>
+        {references.length === 0 ? (
+          <p className="quiet">Список литературы не распознан — или статья его не печатает.</p>
+        ) : (
+          <Entries entries={references} />
+        )}
+
+        {loaded.citing.length > 0 && (
+          <section aria-labelledby="citing-title">
+            <h3 id="citing-title">
+              На эту работу ссылаются: {citingPapers} {plural(citingPapers, ['публикация', 'публикации', 'публикаций'])}
+            </h3>
+            <ul className="citing-list">
+              {loaded.citing.map((p) => (
+                <li key={`${p.path}-${p.citation.list}-${p.citation.ord}`}>
+                  <Link to={libraryLink('paper', p.path)}>{p.title}</Link>
+                  {p.citation.list === 'primary' && <span className="citing-as">включила как первичное исследование</span>}
+                  <span className="quiet">{p.citation.raw}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+      </section>
+    </>
   )
 }

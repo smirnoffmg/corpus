@@ -341,3 +341,20 @@ func TestAWorkKeptOnTwoShelvesIsListedOnce(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, citing, 1)
 }
+
+// A review's two lists are numbered each from one, and kept apart.
+func TestAReviewKeepsItsTwoListsApart(t *testing.T) {
+	st, _, ctx := open(t)
+	require.NoError(t, st.SaveCitations(ctx, "pa", 1, []corpus.Citation{
+		{List: "references", Ord: 1, Raw: "[1] A reference.", Fingerprint: "fp-1"},
+		{List: "primary", Ord: 1, Raw: "[P1] A study.", Label: "[P1]", Fingerprint: "fp-2"},
+		{List: "primary", Ord: 2, Raw: "[P2] Another study.", Label: "[P2]", Fingerprint: "fp-3"},
+	}))
+
+	got, err := st.Citations(ctx, "pa")
+	require.NoError(t, err)
+	require.Len(t, got, 3)
+	require.Equal(t, "references", got[0].List)
+	require.Equal(t, "primary", got[1].List)
+	require.Equal(t, "[P2] Another study.", got[2].Raw)
+}

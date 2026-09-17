@@ -317,8 +317,8 @@ func (s *Service) MCP() *mcp.Server {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "corpus_citations",
 		Annotations: readOnly,
-		Description: "What a publication cites, and what cites it. With direction 'cited' (the default) it returns the reference list read out of the publication's own PDF, each entry as printed and, where the library holds that work, the source it was matched to. " +
-			"With 'citing' it returns the publications in the corpus whose reference lists point at this source." +
+		Description: "What a publication cites, and what cites it. With direction 'cited' (the default) it returns the lists read out of the publication's own PDF — its references (list 'references') and, for a systematic review, the primary studies it reviewed (list 'primary') — each entry as printed and, where the library holds that work, the source it was matched to. " +
+			"With 'citing' it returns the publications in the corpus whose lists point at this source; an entry in list 'primary' means a review included this source as a primary study." +
 			sourceText,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in citationsInput) (*mcp.CallToolResult, citationsOutput, error) {
 		out, err := s.citationsTool(ctx, in)
