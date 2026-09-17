@@ -152,6 +152,7 @@ The remaining quarter is fixed by renaming the file.
 - [Architecture](docs/architecture.md) — embeddings, Postgres, containers, design notes
 - [Publications](docs/publications.md) — papers, and the list of works each one cites
 - [Search evaluation](docs/search-evaluation.md) — the judged set and what it decided
+- [Model benchmark](docs/model-benchmark.md) — how the embedding and language models for fully local operation are to be chosen
 - [Reference manuals](docs/manuals.md) — indexing scikit-learn, NLTK and other Sphinx sites
 - [Citing sources](docs/citing.md) — descriptions, ГОСТ/APA/IEEE, BibLaTeX and Pandoc export
 - [Working offline](docs/offline.md) — what to do before a flight
