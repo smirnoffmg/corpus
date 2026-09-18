@@ -39,7 +39,7 @@ where a containerised ollama cannot reach the GPU; elsewhere, point
 `--ollama` at wherever ollama runs.
 
 ```sh
-cp .env.example .env   # point VAULT_DIR at the vault; the library defaults to ~/.corpus/data
+cp .env.example .env   # VAULT_DIR, if you keep notes in Obsidian; the library defaults to ~/.corpus/data
 docker compose up -d --build
 docker compose logs -f indexer
 ```
@@ -57,6 +57,9 @@ Uploads from the UI land there too, and so do the bibliographic descriptions
 (`bibliography/`), so it is the one place to back up besides the vault, which
 stays wherever Obsidian keeps it. Everything in the database is rebuilt from
 these two.
+
+The vault is optional. Without `VAULT_DIR` notes are read from `vault/` in the
+library, which starts empty, and search covers books, papers and manuals alone.
 
 The indexer re-scans every 15 minutes and skips files whose SHA-256 is unchanged,
 so the vault stays current while obsidian-git commits into it.

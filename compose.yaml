@@ -46,7 +46,9 @@ services:
       - ${LIBRARY_DIR:-${HOME}/.corpus/data}/books:/data/books:ro
       - ${LIBRARY_DIR:-${HOME}/.corpus/data}/papers:/data/papers:ro
       - ${LIBRARY_DIR:-${HOME}/.corpus/data}/manuals:/data/docs:ro
-      - ${VAULT_DIR:?set VAULT_DIR in .env}:/data/vault:ro
+      # Optional: without an Obsidian vault, notes come from vault/ in the library,
+      # which Docker creates empty.
+      - ${VAULT_DIR:-${LIBRARY_DIR:-${HOME}/.corpus/data}/vault}:/data/vault:ro
       # The bibliography's system of record: imported each pass, written after
       # drafting. Read-write, unlike the library itself.
       - ${LIBRARY_DIR:-${HOME}/.corpus/data}/bibliography:/data/bibliography
@@ -77,7 +79,7 @@ services:
     command: ["mcpd"]
     environment:
       DATABASE_URL: postgres://corpus:${POSTGRES_PASSWORD:-corpus}@db:5432/corpus
-      CORPUS_VAULT_DIR: ${VAULT_DIR:?set VAULT_DIR in .env}
+      CORPUS_VAULT_DIR: ${VAULT_DIR:-}
     # Read-write, unlike the indexer's: uploads are saved into the library
     # itself (uploads/ under the books, one directory per manual), so that the
     # indexer finds them where it already looks.
