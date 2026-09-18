@@ -33,7 +33,8 @@ describe('CitationPanel', () => {
     renderPanel()
 
     expect(await screen.findByText(/Клеппман, М\. Высоконагруженные приложения/)).toBeInTheDocument()
-    expect(screen.getByText('[1, с. 189]')).toBeInTheDocument()
+    expect(screen.getByText('[N, с. 189]')).toBeInTheDocument()
+    expect(screen.getByText(/N — номер источника в вашем списке литературы/)).toBeInTheDocument()
     expect(screen.getByText('\\autocite[189]{kleppman2018}')).toBeInTheDocument()
     expect(screen.getByText('[@kleppman2018, p. 189]')).toBeInTheDocument()
     expect(screen.getByText('Описание не проверено')).toBeInTheDocument()
@@ -45,6 +46,7 @@ describe('CitationPanel', () => {
 
     await user.selectOptions(screen.getByRole('combobox', { name: 'Стиль' }), 'apa')
     expect(await screen.findByText('(Клеппман, 2018, p. 189)')).toBeInTheDocument()
+    expect(screen.queryByText(/N — номер источника/)).toBeNull()
     expect(localStorage.getItem('corpus.citationStyle')).toBe('apa')
     localStorage.clear()
   })

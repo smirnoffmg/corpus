@@ -5,7 +5,7 @@
     <id>corpus-gost-r-7-0-100-2018</id>
     <summary>Bibliographic references after the templates of GOST R 7.0.100-2018 for books, articles, chapters and web pages. Written for corpus; the community styles either follow the older 7.0.5-2008 or misplace the standard's punctuation.</summary>
     <category citation-format="numeric"/>
-    <updated>2026-09-14T00:00:00+00:00</updated>
+    <updated>2026-09-18T00:00:00+00:00</updated>
     <rights license="http://creativecommons.org/licenses/by-sa/3.0/">This work is licensed under a Creative Commons Attribution-ShareAlike 3.0 License</rights>
   </info>
   <locale>
@@ -188,6 +188,13 @@
     </layout>
   </citation>
   <bibliography entry-spacing="0">
+    <!-- 4.8: a description is in the language of the resource, so an English
+         book is «312 p.», not «312 с.». citeproc-js picks this layout by the
+         item's language and takes its terms from that locale. -->
+    <layout suffix="." locale="en">
+      <text variable="citation-number" suffix=". "/>
+      <text macro="bibliography"/>
+    </layout>
     <layout suffix=".">
       <text variable="citation-number" suffix=". "/>
       <text macro="bibliography"/>

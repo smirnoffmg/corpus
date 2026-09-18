@@ -1,4 +1,4 @@
-import { useContext, useEffect, useState } from 'react'
+import { useContext, useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router'
 import { ApiError, read, type Passage } from '../api'
 import { Blocks } from '../components/Blocks'
@@ -8,6 +8,14 @@ import { RecognisedBadge } from '../components/RecognisedBadge'
 import { kindName } from '../kinds'
 import { originalUrl, paperHref } from '../library'
 import { VaultContext } from '../vault'
+
+// selectedIn is the text selected inside el, whitespace folded, or '' when the
+// selection is empty or reaches outside it.
+function selectedIn(el: HTMLElement | null): string {
+  const selection = window.getSelection()
+  if (!el || !selection || selection.isCollapsed || !el.contains(selection.anchorNode) || !el.contains(selection.focusNode)) return ''
+  return selection.toString().replace(/\s+/g, ' ').trim()
+}
 
 interface Loaded {
   id: string
@@ -22,6 +30,7 @@ export function ReaderPage() {
   const [loaded, setLoaded] = useState<Loaded>()
   const [copied, setCopied] = useState(false)
   const vault = useContext(VaultContext)
+  const body = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const request = new AbortController()
@@ -72,7 +81,9 @@ export function ReaderPage() {
   const p = current.passage
   const original = originalUrl(p, vault)
   const copy = async () => {
-    await navigator.clipboard.writeText(`${p.title}, ${p.locator}`)
+    const place = `${p.title}, ${p.locator}`
+    const quote = selectedIn(body.current)
+    await navigator.clipboard.writeText(quote ? `«${quote}»\n— ${place}` : place)
     setCopied(true)
   }
 
@@ -87,7 +98,8 @@ export function ReaderPage() {
           {p.ocr && <RecognisedBadge />}
         </p>
         <div className="actions">
-          <button type="button" onClick={copy}>
+          {/* Pressing a button collapses the selection it is to quote. */}
+          <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={copy} title="Выделенный текст фрагмента войдёт в цитату">
             {copied ? 'Скопировано' : 'Скопировать цитату'}
           </button>
           {original && <OriginalLink kind={p.kind} href={original} />}
@@ -103,7 +115,7 @@ export function ReaderPage() {
           <Blocks body={p.previous} />
         </section>
       )}
-      <div className="passage">
+      <div className="passage" ref={body}>
         <Blocks body={p.body} />
       </div>
       {p.next && (

@@ -29,12 +29,22 @@ export function printedPage(locator: string): string | undefined {
   return /^с\. (\d+)/.exec(locator)?.[1]
 }
 
+// titleLanguage guesses a source's language from its title, for descriptions
+// that do not state one — which is every draft. A majority rather than a share,
+// because a Russian shelf tag in an English title is common in this library.
+export function titleLanguage(title: string): 'ru' | 'en' {
+  const cyrillic = title.match(/\p{Script=Cyrillic}/gu)?.length ?? 0
+  const latin = title.match(/\p{Script=Latin}/gu)?.length ?? 0
+  return cyrillic > latin ? 'ru' : 'en'
+}
+
 // citationItem is what is cited for a passage: the book itself at the printed
 // page, or — for a manual — the page the passage is on, as a web page of the
 // manual, at its section.
 export function citationItem(ref: Reference, passage: Passage): Citable {
   if (passage.kind !== 'docs') {
-    return { item: { ...ref.csl, id: ref.citekey }, locator: printedPage(passage.locator) }
+    const language = ref.csl.language ?? titleLanguage(String(ref.csl.title ?? ''))
+    return { item: { ...ref.csl, language, id: ref.citekey }, locator: printedPage(passage.locator) }
   }
   const manual = ref.csl
   const [name, ...rest] = passage.path.split('/')
@@ -57,6 +67,9 @@ export function citationItem(ref: Reference, passage: Passage): Citable {
 export interface Rendered {
   reference: string
   inText: string
+  // numbered: the in-text reference carries a number that only a list of
+  // references can give, shown as N.
+  numbered: boolean
 }
 
 export function render(style: string, lang: string, { item, locator }: Citable): Rendered {
@@ -72,8 +85,12 @@ export function render(style: string, lang: string, { item, locator }: Citable):
   engine.updateItems([item.id])
   const bibliography = engine.makeBibliography()
   const reference = bibliography ? bibliography[1].join('').trim().replace(/^\d+\.\s+/, '').replace(/^\[\d+\]\s+/, '') : ''
-  const inText = engine.makeCitationCluster([{ id: item.id, ...(locator ? { locator, label: 'page' } : {}) }])
-  return { reference, inText }
+  const cited = engine.makeCitationCluster([{ id: item.id, ...(locator ? { locator, label: 'page' } : {}) }])
+  // Cited alone, every source is number 1; the number precedes the page, so
+  // the first standalone 1 is the source's even when the page is 1 too.
+  const numbered = /citation-format="numeric"/.test(style)
+  const inText = numbered ? cited.replace(/(?<!\d)1(?!\d)/, 'N') : cited
+  return { reference, inText, numbered }
 }
 
 export function describeHref(kind: string, path: string): string {

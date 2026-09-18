@@ -14,6 +14,14 @@ const passage: Passage = {
   previous: 'The advantages of support vector machines are:', next: 'Multi-class classification follows.',
 }
 
+function select(el: HTMLElement) {
+  const range = document.createRange()
+  range.selectNodeContents(el)
+  const selection = window.getSelection()!
+  selection.removeAllRanges()
+  selection.addRange(range)
+}
+
 function renderReader(id = '7') {
   return render(
     <MemoryRouter initialEntries={[`/read/${id}`]}>
@@ -64,6 +72,56 @@ describe('ReaderPage', () => {
     expect(writeText).toHaveBeenCalledWith('Concurrency in Go, с. 189 (PDF 203)')
     expect(await screen.findByRole('button', { name: 'Скопировано' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Открыть оригинал' })).toHaveAttribute('href', 'http://localhost:8082/books/Concurrency%20in%20Go.pdf#page=203')
+  })
+
+  it('quotes the text selected in the passage before its place', async () => {
+    stubApi(() => ({ body: { ...passage, kind: 'book', title: 'Concurrency in Go', locator: 'с. 189 (PDF 203)', page: 203, anchor: undefined } }))
+    const user = userEvent.setup()
+    const writeText = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue()
+    renderReader()
+
+    select(await screen.findByText('SVC is a class capable of classification.'))
+    await user.click(screen.getByRole('button', { name: 'Скопировать цитату' }))
+    expect(writeText).toHaveBeenCalledWith('«SVC is a class capable of classification.»\n— Concurrency in Go, с. 189 (PDF 203)')
+  })
+
+  // The neighbouring passages are other pages: quoted under this page's number,
+  // the quote would be cited at the wrong page.
+  it('leaves out text selected in a neighbouring passage', async () => {
+    stubApi(() => ({ body: { ...passage, kind: 'book', title: 'Concurrency in Go', locator: 'с. 189 (PDF 203)', page: 203, anchor: undefined } }))
+    const user = userEvent.setup()
+    const writeText = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue()
+    renderReader()
+
+    select(await screen.findByText(passage.previous!))
+    await user.click(screen.getByRole('button', { name: 'Скопировать цитату' }))
+    expect(writeText).toHaveBeenCalledWith('Concurrency in Go, с. 189 (PDF 203)')
+  })
+
+  it('leaves out a selection that runs on into the next passage', async () => {
+    stubApi(() => ({ body: { ...passage, kind: 'book', title: 'Concurrency in Go', locator: 'с. 189 (PDF 203)', page: 203, anchor: undefined } }))
+    const user = userEvent.setup()
+    const writeText = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue()
+    renderReader()
+
+    const range = document.createRange()
+    range.setStart((await screen.findByText('SVC is a class capable of classification.')).firstChild!, 0)
+    range.setEnd(screen.getByText(passage.next!).firstChild!, 5)
+    window.getSelection()!.removeAllRanges()
+    window.getSelection()!.addRange(range)
+    await user.click(screen.getByRole('button', { name: 'Скопировать цитату' }))
+    expect(writeText).toHaveBeenCalledWith('Concurrency in Go, с. 189 (PDF 203)')
+  })
+
+  it('folds the line breaks of a quote into spaces', async () => {
+    stubApi(() => ({ body: { ...passage, kind: 'book', title: 'Concurrency in Go', locator: 'с. 189 (PDF 203)', page: 203, anchor: undefined, body: '```\nfor {\n  select {}\n}\n```' } }))
+    const user = userEvent.setup()
+    const writeText = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue()
+    renderReader()
+
+    select(await screen.findByText(/select \{\}/, { selector: 'pre code' }))
+    await user.click(screen.getByRole('button', { name: 'Скопировать цитату' }))
+    expect(writeText).toHaveBeenCalledWith('«for { select {} }»\n— Concurrency in Go, с. 189 (PDF 203)')
   })
 
   it('warns that a passage read from a scan may carry misread letters', async () => {

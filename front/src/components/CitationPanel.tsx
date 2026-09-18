@@ -121,6 +121,9 @@ export function CitationPanel({ passage }: { passage: Passage }) {
           </div>
         ))}
       </dl>
+      {rendered && 'numbered' in rendered && rendered.numbered && (
+        <p className="quiet">N — номер источника в вашем списке литературы: его даёт список, а не отдельная ссылка.</p>
+      )}
       <p className="attribution">
         Оформление: <a href="https://github.com/Juris-M/citeproc-js">citeproc-js</a> © Frank Bennett, CPAL 1.0
       </p>

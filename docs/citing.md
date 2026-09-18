@@ -52,14 +52,21 @@ file does not remove it from the table.
 The reader shows, in the chosen style:
 
 - the bibliography entry;
-- the in-text reference with the page, e.g. `[1, с. 189]` or
+- the in-text reference with the page, e.g. `[N, с. 189]` or
   `(Клеппман, 2018, p. 189)`. The page is the one *printed* in the book,
   never the PDF's own count; when the printed number was not recognised there
-  is no page, and it has to be added by hand;
+  is no page, and it has to be added by hand. In a numeric style the source's
+  number is `N`: it is its place in the paper's list of references, which one
+  passage cannot know — cited alone, every source would be number 1;
 - `\autocite[189]{kleppmann2018}` for BibLaTeX and `[@kleppmann2018, p. 189]`
   for Pandoc.
 
 A passage from a manual is cited as a web page of that manual, at its section.
+
+«Скопировать цитату» copies the place — `Concurrency in Go, с. 189 (PDF 203)` —
+and, when text in the passage is selected, the text before it as a quote. Text
+selected in the neighbouring passages is left out: they are other pages, and
+would be quoted under this one's number.
 
 Formatting is citeproc-js — Zotero's engine — with the styles and locales
 bundled into the UI, so it works offline.
@@ -72,6 +79,11 @@ bundled into the UI, so it works offline.
   responsibility, the spaces around `:` and `//` before the site of a web page.
   It covers books, articles, chapters and conference papers, theses, reports
   and web pages, and is checked by a test against the standard's book form.
+  A description is in the language of the resource (4.8), so an English book's
+  extent is «312 p.» and an English article's pages «P. 377–387»: the language
+  is the description's `language`, or, where it states none, the script most of
+  the title is written in. Only English has a layout of its own; other
+  languages still get Russian terms.
   Not covered: omitting the heading for four or more authors (CSL cannot count
   names), and the genitive in «под редакцией».
 - **APA 7** and **IEEE** — from the official CSL repository, unchanged.
