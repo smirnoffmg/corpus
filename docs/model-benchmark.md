@@ -62,13 +62,13 @@ part. On the target machine it is not, which opens larger models.
 
 Multilingual embedding models in the Ollama library as of September 2026:
 
-| model | sizes | context | notes |
-| --- | --- | --- | --- |
-| `bge-m3` (baseline) | 567m | — | current model |
-| `qwen3-embedding` | 0.6b, 4b, 8b (639 MB, 2.5 GB, 4.7 GB) | 32K–40K | output dimension configurable from 32 to 4096; the 8b ranked first on the multilingual MTEB leaderboard in June 2025 |
-| `snowflake-arctic-embed2` | 568m | — | multilingual |
-| `nomic-embed-text-v2-moe` | — | — | multilingual mixture of experts |
-| `embeddinggemma` | 300m | — | — |
+| model                     | sizes                                 | context | notes                                                                                                                |
+| ------------------------- | ------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------- |
+| `bge-m3` (baseline)       | 567m                                  | —       | current model                                                                                                        |
+| `qwen3-embedding`         | 0.6b, 4b, 8b (639 MB, 2.5 GB, 4.7 GB) | 32K–40K | output dimension configurable from 32 to 4096; the 8b ranked first on the multilingual MTEB leaderboard in June 2025 |
+| `snowflake-arctic-embed2` | 568m                                  | —       | multilingual                                                                                                         |
+| `nomic-embed-text-v2-moe` | —                                     | —       | multilingual mixture of experts                                                                                      |
+| `embeddinggemma`          | 300m                                  | —       | —                                                                                                                    |
 
 ### Procedure
 
@@ -127,14 +127,14 @@ that easily passes 64K tokens.
 
 From the Ollama library as of September 2026, all with tool calling:
 
-| model | parameters, total / active | size | notes |
-| --- | --- | --- | --- |
-| `qwen3.5:122b` | 125B / 10B (Qwen3.5-122B-A10B) | 81 GB, Q4_K_M | hybrid linear and full attention, cheap on long context; vision |
-| `gpt-oss:120b` | 117B, MoE | 65 GB, MXFP4 | configurable reasoning effort; the one with published figures on this hardware (below) |
-| `qwen3.8:27b` | 27B, dense | 18 GB | aimed at long-horizon agentic work; dense, so slower per token |
-| `qwen3.6` | 27b, 35b | 18 GB, 23 GB | aimed at agentic coding |
-| `qwen3.5:35b` | 36B / 3B (Qwen3.5-35B-A3B) | 24 GB | fast; leaves room for long context and the embedder |
-| `gemma4:26b` | 25.2B / 3.8B | 19 GB | sliding-window attention over most layers |
+| model          | parameters, total / active     | size          | notes                                                                                  |
+| -------------- | ------------------------------ | ------------- | -------------------------------------------------------------------------------------- |
+| `qwen3.5:122b` | 125B / 10B (Qwen3.5-122B-A10B) | 81 GB, Q4_K_M | hybrid linear and full attention, cheap on long context; vision                        |
+| `gpt-oss:120b` | 117B, MoE                      | 65 GB, MXFP4  | configurable reasoning effort; the one with published figures on this hardware (below) |
+| `qwen3.8:27b`  | 27B, dense                     | 18 GB         | aimed at long-horizon agentic work; dense, so slower per token                         |
+| `qwen3.6`      | 27b, 35b                       | 18 GB, 23 GB  | aimed at agentic coding                                                                |
+| `qwen3.5:35b`  | 36B / 3B (Qwen3.5-35B-A3B)     | 24 GB         | fast; leaves room for long context and the embedder                                    |
+| `gemma4:26b`   | 25.2B / 3.8B                   | 19 GB         | sliding-window attention over most layers                                              |
 
 A reference point for speed: llama.cpp's published run of `gpt-oss:120b` on a
 DGX Spark processed prompts at 1854 tokens/s on an empty context and 849 at
@@ -184,12 +184,12 @@ task that does not get delegated.
 
 ## What exists, and what is to be built
 
-| piece | state |
-| --- | --- |
-| judged query sets and `cmd/eval` | exist |
-| query-by-query comparison against a baseline | exists within one server (`-against`); across two servers, one per embedding model, it is to be built |
-| the embedder's address in `compose.yaml` | to be built: `indexer` and `mcpd` take Ollama's address from a flag default, not from `.env` |
-| an output dimension sent to the embedder | to be built, and Ollama's support for it checked; `internal/embed` does not send one |
-| a script that raises a candidate stack on its own database | to be built |
-| the agent client | to be chosen: it needs files and a terminal, this MCP server, and a model served by Ollama over the network |
-| the task set and the citation checker | to be built |
+| piece                                                      | state                                                                                                       |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| judged query sets and `cmd/eval`                           | exist                                                                                                       |
+| query-by-query comparison against a baseline               | exists within one server (`-against`); across two servers, one per embedding model, it is to be built       |
+| the embedder's address in `compose.yaml`                   | to be built: `indexer` and `mcpd` take Ollama's address from a flag default, not from `.env`                |
+| an output dimension sent to the embedder                   | to be built, and Ollama's support for it checked; `internal/embed` does not send one                        |
+| a script that raises a candidate stack on its own database | to be built                                                                                                 |
+| the agent client                                           | to be chosen: it needs files and a terminal, this MCP server, and a model served by Ollama over the network |
+| the task set and the citation checker                      | to be built                                                                                                 |

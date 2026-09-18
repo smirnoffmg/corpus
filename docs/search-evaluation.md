@@ -89,12 +89,12 @@ and a change worth making needs a reason beyond the judged set.
 approximate, and what it loses happens before ranking starts. `-recall`
 compares each query's 20 nearest chunks from the index with an exact scan:
 
-| ef_search | recall@20, private (31) | recall@20, public (52) | full recall, public |
-| --- | --- | --- | --- |
-| 40 (pgvector's default) | 0.831 | 0.789 | 19/52 |
-| 100 | 0.900 | 0.892 | 29/52 |
-| **200** | **0.947** | **0.959** | **35/52** |
-| 400 | 0.968 | 0.982 | 42/52 |
+| ef_search               | recall@20, private (31) | recall@20, public (52) | full recall, public |
+| ----------------------- | ----------------------- | ---------------------- | ------------------- |
+| 40 (pgvector's default) | 0.831                   | 0.789                  | 19/52               |
+| 100                     | 0.900                   | 0.892                  | 29/52               |
+| **200**                 | **0.947**               | **0.959**              | **35/52**           |
+| 400                     | 0.968                   | 0.982                  | 42/52               |
 
 At 40 some queries got back almost none of their true neighbours. Latency did
 not move — about 340 ms a vector search at 40, 200 and 400 alike, most of it
@@ -133,14 +133,14 @@ which is how the alternative was measured.
 mask for document length; `go run ./cmd/eval -norm N` sweeps it, and `norm=N` on
 `/search` tries one without a restart:
 
-| norm | fts MRR | found@10 |
-| --- | --- | --- |
-| **0** (default) | **0.419** | **42%** |
-| 1 — divide by 1+log(length) | 0.403 | 42% |
-| 2 — divide by length | 0.398 | 42% |
-| 4 — divide by extent distance | 0.324 | 39% |
-| 8 / 16 — divide by unique words | 0.398 / 0.403 | 42% |
-| 32 — divide by itself+1 | 0.419 | 42% |
+| norm                            | fts MRR       | found@10 |
+| ------------------------------- | ------------- | -------- |
+| **0** (default)                 | **0.419**     | **42%**  |
+| 1 — divide by 1+log(length)     | 0.403         | 42%      |
+| 2 — divide by length            | 0.398         | 42%      |
+| 4 — divide by extent distance   | 0.324         | 39%      |
+| 8 / 16 — divide by unique words | 0.398 / 0.403 | 42%      |
+| 32 — divide by itself+1         | 0.419         | 42%      |
 
 Ignoring length wins. Book pages are near enough the same size for it not to
 matter, and notes are short enough that penalising length throws away the long
