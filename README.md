@@ -4,6 +4,8 @@ Full-text search over the PDF library and reference manuals in `~/.corpus/data`,
 the Obsidian vault
 and reference manuals such as scikit-learn and NLTK. Exposed as an MCP server and as plain HTTP.
 
+![A question asked in Russian finds the pages of English books that answer it](docs/img/search.png)
+
 The unit of a hit is a **citable location** — a page for a book, a heading path
 for a note — because the point is to quote a source in a note, not to learn that
 some book mentions the word. Book pages are cited by the number *printed on the
@@ -82,6 +84,8 @@ purpose) — search, read the passage behind a
 hit and copy its citation, open the book's PDF at the page, the manual's
 original section or the note in Obsidian at its heading, and add books and
 manuals on the library page. It works offline; see [working offline](docs/offline.md).
+
+![A passage from a book cited in ГОСТ Р 7.0.100–2018, with the page printed in the book](docs/img/citation.png)
 
 From a shell:
 
