@@ -5,6 +5,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/smirnoffmg/corpus/internal/corpus"
 )
@@ -113,16 +114,20 @@ func joinTrail(trail []string) string {
 // The sizes are settings because the right ones depend on the embedding model's
 // window, and the judged set is what decides between them.
 // The zero value never splits, which is the right default for a book page.
+// Both sizes count characters, not bytes: a Cyrillic letter is two bytes, and
+// counting bytes cut Russian sections at half the length of English ones.
 type Splitter struct {
-	Above  int // length past which a section is cut into parts; 0 never splits
-	Target int // size a part aims for before the next blank line ends it
+	Above  int // characters past which a section is cut into parts; 0 never splits
+	Target int // characters a part aims for before the next blank line ends it
 }
 
 // The defaults differ by kind, and the difference was measured rather than
 // guessed. A book page is already one thought — the author laid it out that way
 // — and cutting it in half cost hybrid found@10 74% -> 68% across the judged set.
 // A note's section often holds six thoughts under one heading, and cutting those
-// lifted vector MRR from 0.459 to 0.478. The rule is not "smaller is better" but
+// lifted vector MRR from 0.459 to 0.478 (measured while sizes still counted
+// bytes; counting characters kept vector MRR and lifted hybrid, see
+// docs/search-evaluation.md). The rule is not "smaller is better" but
 // "one chunk, one thought".
 var (
 	DefaultSplitter     = Splitter{}                          // book pages stay whole
@@ -133,28 +138,31 @@ var (
 // fenced block — half a code listing is worse than none.
 func (sp Splitter) splitSection(section string) []string {
 	section = strings.TrimSpace(section)
-	if sp.Above <= 0 || len(section) <= sp.Above {
+	if sp.Above <= 0 || utf8.RuneCountInString(section) <= sp.Above {
 		return []string{section}
 	}
 
 	var (
 		parts   []string
 		current strings.Builder
+		size    int // characters in current
 		inFence bool
 	)
 	for _, line := range strings.Split(section, "\n") {
 		if strings.HasPrefix(strings.TrimSpace(line), "```") {
 			inFence = !inFence
 		}
-		if !inFence && strings.TrimSpace(line) == "" && current.Len() >= sp.Target {
+		if !inFence && strings.TrimSpace(line) == "" && size >= sp.Target {
 			if part := strings.TrimSpace(current.String()); part != "" {
 				parts = append(parts, part)
 			}
 			current.Reset()
+			size = 0
 			continue
 		}
 		current.WriteString(line)
 		current.WriteByte('\n')
+		size += utf8.RuneCountInString(line) + 1
 	}
 	if part := strings.TrimSpace(current.String()); part != "" {
 		parts = append(parts, part)

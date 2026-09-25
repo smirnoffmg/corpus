@@ -150,6 +150,32 @@ func TestLongSectionIsSplitAtParagraphs(t *testing.T) {
 	}
 }
 
+// The sizes are characters, and a Cyrillic letter is two bytes in UTF-8: when
+// the splitter counted bytes, a Russian section was cut at half the length of
+// an English one (issue #2).
+func TestSplitCountsCharactersSoRussianAndEnglishCutAlike(t *testing.T) {
+	parts := func(word string, paragraphs int) int {
+		t.Helper()
+		para := strings.Repeat(word+" ", 100) // 600 characters in either alphabet
+		body := "# Заметка\n\n## Раздел\n\n" + strings.Repeat(para+"\n\n", paragraphs)
+		chunks, err := extract.DefaultNoteSplitter.Markdown(write(t, body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(chunks)
+	}
+
+	// 1200 characters is under the 1600 threshold in both languages.
+	if ru, en := parts("слово", 2), parts("words", 2); ru != 1 || en != 1 {
+		t.Errorf("1200 characters: russian in %d parts, english in %d; both should stay whole", ru, en)
+	}
+	// 3600 characters in 600-character paragraphs: two paragraphs reach the
+	// 1000-character target, so both languages come out in three parts.
+	if ru, en := parts("слово", 6), parts("words", 6); ru != en || en != 3 {
+		t.Errorf("3600 characters: russian in %d parts, english in %d; want 3 each", ru, en)
+	}
+}
+
 func TestCodeFenceIsNeverCutInHalf(t *testing.T) {
 	filler := strings.Repeat("Текст перед кодом, чтобы набрать длину. ", 45) // > partTarget
 	code := "```python\n" + strings.Repeat("x = 1\n\ny = 2\n\n", 40) + "```"

@@ -115,6 +115,16 @@ instead of twice the page before RRF changed nothing: private set all ties,
 public 3 wins and 2 losses with ΔMRR +0.001. RRF's constant was not tuned
 either — Cormack et al. found k = 60 near-optimal and the choice not critical.
 
+**Note sections are measured in characters, not bytes.** The splitter compared
+`len()` against its sizes, and a Cyrillic letter is two bytes, so a Russian
+section was cut at ~800 characters and an English one at 1600 (issue #2). The
+0.459 → 0.478 that chose 1600 was measured that way. Counting characters made
+the vault's Russian parts twice as long and left 670 fewer chunks; on the 15
+vault queries of the private set vector MRR went 0.612 → 0.608 (3 wins, 2
+losses, p = 1.0), hybrid 0.606 → 0.674 (4 wins, 1 loss, p = 0.38) and full text
+0.300 → 0.400 (2 wins, no losses). No loss, and the whole private hybrid went
+0.516 → 0.549; the public set, English manuals, did not move.
+
 **The vector cache migration moved the numbers, not the ranking.** Moving
 vectors into their own table rebuilt the HNSW index in one pass, where it had
 grown through many deletions; private vector MRR went 0.442 → 0.504 with

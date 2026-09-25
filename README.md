@@ -32,6 +32,8 @@ and it lost: hybrid found@10 fell from 74% to 68% across the judged set. A page
 is already one thought — the author laid it out that way — and half a page is
 half an argument. So book pages stay whole and note sections are cut at 1600
 characters, and those are the defaults in code, with the numbers beside them.
+The splitter counted bytes until it was measured again, which cut a Russian
+section at half an English one; see [search evaluation](docs/search-evaluation.md).
 
 ## Run
 
