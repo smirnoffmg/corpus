@@ -18,6 +18,7 @@ import (
 	"github.com/smirnoffmg/corpus/internal/bibfile"
 	"github.com/smirnoffmg/corpus/internal/cite"
 	"github.com/smirnoffmg/corpus/internal/embed"
+	"github.com/smirnoffmg/corpus/internal/rerank"
 	"github.com/smirnoffmg/corpus/internal/store"
 	"github.com/smirnoffmg/corpus/internal/upload"
 )
@@ -43,6 +44,10 @@ func run() error {
 	addr := flag.String("addr", ":8080", "listen address")
 	ollama := flag.String("ollama", "http://host.docker.internal:11434", "ollama base URL")
 	model := flag.String("model", "bge-m3", "embedding model")
+	// llama-server with a reranker model, on the host like ollama. A search
+	// asks for it with rerank=1; when it is not there the search answers in the
+	// fused order and says so.
+	reranker := flag.String("reranker", "http://host.docker.internal:8012", "llama-server base URL for rerank=1; empty turns reranking off")
 	// 200, not pgvector's 40: at 40 the index returned 79–83% of the true 20
 	// nearest chunks on the judged sets, and a few queries almost none; at 200,
 	// 95–96%, with no measurable change in latency, which the query's embedding
@@ -81,6 +86,9 @@ func run() error {
 	}
 
 	opts := []api.Option{api.WithVault(*vaultName), api.WithBibliography(st, cite.NewLookup()), api.WithCitations(st)}
+	if *reranker != "" {
+		opts = append(opts, api.WithReranker(rerank.New(*reranker)))
+	}
 	if *bibliography != "" {
 		opts = append(opts, api.WithBibliographyExport(bibfile.New(st, *bibliography).Export))
 	}

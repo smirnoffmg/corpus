@@ -51,8 +51,10 @@ func isEmbedderDown(err error) bool { return errors.Is(err, errEmbedderUnavailab
 // trace is what one search did, for the event it logs.
 type trace struct {
 	vector     string // "unused", "ok", "failed" or "skipped"
+	rerank     string // "unused", "ok", "failed" or "unavailable"
 	textTook   time.Duration
 	vectorTook time.Duration
+	rerankTook time.Duration
 }
 
 // embedQuery embeds a query, or declines at once while the embedder is known
@@ -144,6 +146,8 @@ func logSearch(ctx context.Context, q corpus.Query, mode string, hits int, tr *t
 		slog.String("vector", tr.vector),
 		slog.Int64("text_ms", tr.textTook.Milliseconds()),
 		slog.Int64("vector_ms", tr.vectorTook.Milliseconds()),
+		slog.String("rerank", tr.rerank),
+		slog.Int64("rerank_ms", tr.rerankTook.Milliseconds()),
 		slog.Int64("took_ms", took.Milliseconds()),
 	}
 	if err != nil {

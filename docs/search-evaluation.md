@@ -125,6 +125,26 @@ losses, p = 1.0), hybrid 0.606 → 0.674 (4 wins, 1 loss, p = 0.38) and full tex
 0.300 → 0.400 (2 wins, no losses). No loss, and the whole private hybrid went
 0.516 → 0.549; the public set, English manuals, did not move.
 
+**A cross-encoder reranks when asked, 20 candidates of 1500 characters.**
+Reranking the fused list with bge-reranker-v2-m3 was measured first as a
+script over both sets, 83 queries, before any code:
+
+| candidates × characters | MRR 0.526 → | wins / losses | p | median / p95 |
+| --- | --- | --- | --- | --- |
+| 50 × 4000 | 0.612 | 29 / 12 | 0.012 | 3.3 s / 6.6 s |
+| 50 × 1500 | 0.610 | 29 / 14 | 0.032 | 3.0 s / 3.7 s |
+| 20 × 4000 | 0.600 | 27 / 12 | 0.024 | 1.3 s / 2.4 s |
+| 20 × 1500 | 0.593 | 28 / 13 | 0.028 | 1.2 s / 1.5 s |
+
+The gain is real in every row and largest for paraphrases (MRR 0.47 → 0.57 at
+50 × 4000) and books (6 wins, no losses). Latency is what separates them, and
+the smallest keeps most of the gain, so that is what `rerank=1` does. Built in
+and measured with `-set rerank=1 -against default`, hybrid: private 0.549 →
+0.631 (8 wins, 3 losses), public 0.512 → 0.570 (21 wins, 10 losses); together
+29 / 13, p = 0.020. Reranking took 1.16 s median and 1.54 s at p95 over 252
+searches. It stays opt-in: a second a search is fine for an agent asking a
+question in its own words and too much for typing into the UI.
+
 **The vector cache migration moved the numbers, not the ranking.** Moving
 vectors into their own table rebuilt the HNSW index in one pass, where it had
 grown through many deletions; private vector MRR went 0.442 → 0.504 with

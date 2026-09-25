@@ -42,6 +42,39 @@ vector, and each pass drops vectors no chunk uses any more. The key is computed
 in Go when chunks are written and in SQL by the migration that moved the
 existing vectors; a store test holds the two together.
 
+## Reranking
+
+`rerank=1` on `/search`, or `rerank` on the MCP tool, sends the first 20
+candidates — the source's title and the first 1500 characters of each chunk,
+not the snippet — to a cross-encoder, which reads the query and the passage
+together and reorders them. The two retrieval legs cannot: each scores a
+passage without the query in view. It is opt-in because it costs about a second
+a search; the measurement is in [search evaluation](search-evaluation.md).
+
+The model is **bge-reranker-v2-m3**, the multilingual reranker from the family
+of the embedder, served by `llama-server` from llama.cpp **on the host** for the
+same reason as ollama: the GPU. ollama itself has no rerank endpoint. `mcpd
+--reranker` points at it, `http://host.docker.internal:8012` by default, and an
+empty value turns reranking off.
+
+```sh
+brew install llama.cpp
+llama-server -hf gpustack/bge-reranker-v2-m3-GGUF:Q8_0 --rerank \
+  --host 127.0.0.1 --port 8012 -c 32768 -np 4 -b 8192 -ub 8192
+```
+
+`-c 32768 -np 4` gives each of four parallel requests 8192 tokens, the model's
+window; a non-causal model needs `-ub` as large as the longest input. Q8_0 is
+636 MB on disk and about 200 MB resident. To keep it running across reboots,
+register it with launchd the way `brew services` does ollama, adding
+`--offline` so a start never waits on the network.
+
+When the reranker is unreachable or fails, the search answers in the fused
+order and its `notice` says it was not reranked; each search logs `rerank` and
+`rerank_ms` on its wide event. There is no breaker as there is for the
+embedder: a refused connection costs nothing, and a hung server is bounded at
+five seconds.
+
 ## Why Postgres
 
 Half the corpus is Russian, and Russian is inflected: `агрегат` has to match

@@ -66,6 +66,9 @@ type Query struct {
 	// Exact scans every vector instead of walking the index: slow, and the
 	// reference an approximate search's recall is measured against.
 	Exact bool
+	// Rerank has a cross-encoder reorder the first candidates. It costs about a
+	// second a search, so it is asked for rather than on by default.
+	Rerank bool
 }
 
 // Hit is one search result: enough to judge it and to cite it.

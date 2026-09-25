@@ -229,6 +229,27 @@ func storableChunks(chunks []corpus.Chunk) []corpus.Chunk {
 	return out
 }
 
+// Bodies returns the first chars characters of each chunk, by id; an id that
+// is gone is left out. A reranker reads these rather than the snippets, which
+// are cut around the query's words and so already agree with the search.
+func (s *Store) Bodies(ctx context.Context, ids []int64, chars int) (map[int64]string, error) {
+	rows, err := s.pool.Query(ctx, `SELECT id, left(body, $2) FROM chunks WHERE id = ANY($1)`, ids, chars)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[int64]string, len(ids))
+	for rows.Next() {
+		var id int64
+		var body string
+		if err := rows.Scan(&id, &body); err != nil {
+			return nil, err
+		}
+		out[id] = body
+	}
+	return out, rows.Err()
+}
+
 // Forget removes a source entirely. A file with no text layer is not a source
 // of anything: keeping the row would only inflate the corpus with something no
 // search can ever return.

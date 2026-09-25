@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -34,6 +35,7 @@ type Store interface {
 	EfSearch(ctx context.Context) (int, error)
 	Sources(ctx context.Context, kind, prefix string) ([]corpus.SourceStatus, error)
 	RequestReindex(ctx context.Context) error
+	Bodies(ctx context.Context, ids []int64, chars int) (map[int64]string, error)
 }
 
 // Library is where uploads go: books, publications and manuals, into the
@@ -51,6 +53,7 @@ type Embedder interface {
 type Service struct {
 	store     Store
 	embedder  Embedder
+	reranker  Reranker
 	library   Library
 	maxUpload int64
 	vault     string
@@ -111,6 +114,7 @@ type searchInput struct {
 	Mode      string `json:"mode,omitempty" jsonschema:"'hybrid' (default), 'fts' for exact wording, 'vector' for meaning"`
 	PerSource int    `json:"per_source,omitempty" jsonschema:"at most this many hits from one book or note; 0 means no limit. Use 1 to see which sources match at all"`
 	Limit     int    `json:"limit,omitempty" jsonschema:"maximum hits to return, default 10"`
+	Rerank    bool   `json:"rerank,omitempty" jsonschema:"reorder the first 20 candidates with a cross-encoder that reads the query and each passage together: a better order, most of all for a question in your own words, at about a second more. Ignored, with a notice, when the server has no reranker"`
 }
 
 type searchOutput struct {
@@ -126,9 +130,14 @@ const textAloneNotice = "The embedder is unavailable, so these hits come from 'f
 
 func outputOf(hits []corpus.Hit, tr *trace) searchOutput {
 	out := searchOutput{Hits: hits}
+	var notices []string
 	if tr.vector == "failed" || tr.vector == "skipped" {
-		out.Notice = textAloneNotice
+		notices = append(notices, textAloneNotice)
 	}
+	if tr.rerank == "failed" || tr.rerank == "unavailable" {
+		notices = append(notices, rerankNotice)
+	}
+	out.Notice = strings.Join(notices, " ")
 	return out
 }
 
@@ -146,7 +155,7 @@ func (s *Service) Search(ctx context.Context, q corpus.Query) ([]corpus.Hit, err
 // say it ran on text alone.
 func (s *Service) searchTraced(ctx context.Context, q corpus.Query) ([]corpus.Hit, *trace, error) {
 	start := time.Now()
-	tr := &trace{vector: "unused"}
+	tr := &trace{vector: "unused", rerank: "unused"}
 	mode := q.Mode
 	if mode != "fts" && mode != "vector" {
 		mode = "hybrid"
@@ -166,6 +175,9 @@ func (s *Service) search(ctx context.Context, q corpus.Query, tr *trace) ([]corp
 	if q.PerSource > 0 {
 		q.Limit = min(limit*5, 50)
 	}
+	if q.Rerank {
+		q.Limit = max(q.Limit, rerankDepth)
+	}
 
 	var hits []corpus.Hit
 	var err error
@@ -179,6 +191,9 @@ func (s *Service) search(ctx context.Context, q corpus.Query, tr *trace) ([]corp
 	}
 	if err != nil {
 		return nil, err
+	}
+	if q.Rerank {
+		hits = s.rerank(ctx, q.Text, hits, tr)
 	}
 	return truncate(capPerSource(hits, q.PerSource), limit), nil
 }
@@ -293,7 +308,7 @@ func (s *Service) MCP() *mcp.Server {
 		hits, tr, err := s.searchTraced(ctx, corpus.Query{
 			Text: in.Query, Kind: in.Kind, Mode: in.Mode,
 			Limit: in.Limit, PerSource: in.PerSource,
-			TitleBoost: defaultTitleBoost,
+			TitleBoost: defaultTitleBoost, Rerank: in.Rerank,
 		})
 		if err != nil {
 			return nil, searchOutput{}, err
@@ -532,6 +547,7 @@ func queryFromURL(v url.Values) corpus.Query {
 		Depth:      atoiOrZero(v.Get("depth")),
 		EfSearch:   atoiOrZero(v.Get("ef_search")),
 		Exact:      v.Get("exact") == "1" || v.Get("exact") == "true",
+		Rerank:     v.Get("rerank") == "1" || v.Get("rerank") == "true",
 	}
 }
 

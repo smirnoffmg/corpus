@@ -42,6 +42,11 @@ with the model pulled (`ollama pull bge-m3`). It is built and used on macOS,
 where a containerised ollama cannot reach the GPU; elsewhere, point
 `--ollama` at wherever ollama runs.
 
+Optional: `rerank=1` on a search has a cross-encoder reorder the first 20
+candidates, which needs `llama-server` from llama.cpp running on the host with
+a reranker model — see [architecture](docs/architecture.md#reranking). Without
+it such a search answers unreranked and says so.
+
 ```sh
 cp .env.example .env   # VAULT_DIR, if you keep notes in Obsidian; the library defaults to ~/.corpus/data
 docker compose up -d --build

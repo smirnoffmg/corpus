@@ -157,6 +157,29 @@ func TestReplaceKeepsASourceWhoseTextHasNULBytes(t *testing.T) {
 	}, got)
 }
 
+// A reranker reads the passage, not the snippet, and a bounded part of it:
+// the cut counts characters, so a Russian page is not cut at half the length.
+func TestBodiesReturnsTheStartOfEachChunkByID(t *testing.T) {
+	st, pool, ctx := open(t)
+
+	src := corpus.Source{Kind: "vault", Path: "__test__/bodies.md", Title: "note", Hash: "h1"}
+	chunks := []corpus.Chunk{
+		{Ord: 1, Heading: "A", Lang: "russian", Body: "Агрегат задаёт границу"},
+		{Ord: 2, Heading: "B", Lang: "english", Body: "consistency boundary"},
+	}
+	require.NoError(t, st.Replace(ctx, src, chunks), "replace")
+	rows, err := pool.Query(ctx, `
+		SELECT c.id FROM chunks c JOIN sources s ON s.id = c.source_id
+		WHERE s.path = $1 ORDER BY c.ord`, src.Path)
+	require.NoError(t, err)
+	chunkIDs, err := pgx.CollectRows(rows, pgx.RowTo[int64])
+	require.NoError(t, err)
+
+	got, err := st.Bodies(ctx, append(chunkIDs, 1<<40), 7)
+	require.NoError(t, err)
+	require.Equal(t, map[int64]string{chunkIDs[0]: "Агрегат", chunkIDs[1]: "consist"}, got)
+}
+
 func TestReplaceIsIdempotentPerSource(t *testing.T) {
 	st, pool, ctx := open(t)
 

@@ -24,6 +24,17 @@ type fakeStore struct {
 	lastKind        string
 	lastPrefix      string
 	reindexRequests int
+	bodies          map[int64]string
+	lastBodyChars   int
+}
+
+func (f *fakeStore) Bodies(_ context.Context, ids []int64, chars int) (map[int64]string, error) {
+	f.lastBodyChars = chars
+	out := make(map[int64]string, len(ids))
+	for _, id := range ids {
+		out[id] = f.bodies[id]
+	}
+	return out, nil
 }
 
 func (f *fakeStore) Sources(_ context.Context, kind, prefix string) ([]corpus.SourceStatus, error) {
