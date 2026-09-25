@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -123,6 +124,37 @@ func TestReplaceAndSearchRussianIsStemmed(t *testing.T) {
 	// The locator is composed from the page, not stored with the chunk.
 	require.Equal(t, "с. 42", got.Locator)
 	require.Contains(t, got.Snippet, "<<", "snippet is not highlighted")
+}
+
+// Postgres cannot store a NUL in text, and one NUL used to reject the whole
+// batch: a 144-page survey was lost to a single figure whose font maps glyphs
+// to control codes (issue #1).
+func TestReplaceKeepsASourceWhoseTextHasNULBytes(t *testing.T) {
+	st, pool, ctx := open(t)
+
+	src := corpus.Source{Kind: "book", Path: "__test__/nul.pdf", Title: "Sur\x00vey", Hash: "h1"}
+	chunks := []corpus.Chunk{
+		{Ord: 1, Page: 1, Lang: "english", Body: "a clean page corpusnul"},
+		{Ord: 2, Page: 2, Heading: "Fig\x00ure", Lang: "english", Body: "*37\x00\x00//D0$ corpus\x00nul"},
+	}
+	require.NoError(t, st.Replace(ctx, src, chunks), "replace")
+
+	type row struct {
+		Title   string `db:"title"`
+		Heading string `db:"heading"`
+		Body    string `db:"body"`
+	}
+	rows, err := pool.Query(ctx, `
+		SELECT s.title, coalesce(c.heading, '') AS heading, c.body
+		FROM chunks c JOIN sources s ON s.id = c.source_id
+		WHERE s.path = $1 ORDER BY c.ord`, src.Path)
+	require.NoError(t, err)
+	got, err := pgx.CollectRows(rows, pgx.RowToStructByName[row])
+	require.NoError(t, err)
+	require.Equal(t, []row{
+		{Title: "Survey", Heading: "", Body: "a clean page corpusnul"},
+		{Title: "Survey", Heading: "Figure", Body: "*37//D0$ corpusnul"},
+	}, got)
 }
 
 func TestReplaceIsIdempotentPerSource(t *testing.T) {

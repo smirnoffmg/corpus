@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"strconv"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -180,7 +181,7 @@ func (s *Store) Replace(ctx context.Context, src corpus.Source, chunks []corpus.
 		    SET kind = EXCLUDED.kind, title = EXCLUDED.title,
 		        hash = EXCLUDED.hash, recognised = EXCLUDED.recognised, indexed_at = now()
 		RETURNING id`,
-		src.Kind, src.Path, src.Title, src.Hash, src.Recognised).Scan(&id)
+		src.Kind, src.Path, storable(src.Title), src.Hash, src.Recognised).Scan(&id)
 	if err != nil {
 		return fmt.Errorf("upsert source %s: %w", src.Path, err)
 	}
@@ -189,6 +190,7 @@ func (s *Store) Replace(ctx context.Context, src corpus.Source, chunks []corpus.
 		return err
 	}
 
+	chunks = storableChunks(chunks)
 	keys := s.embedKeys(chunks)
 	batch := &pgx.Batch{}
 	for i, c := range chunks {
@@ -202,6 +204,29 @@ func (s *Store) Replace(ctx context.Context, src corpus.Source, chunks []corpus.
 		return fmt.Errorf("insert chunks for %s: %w", src.Path, err)
 	}
 	return tx.Commit(ctx)
+}
+
+// storable drops NUL bytes, which Postgres cannot keep in text: a single one
+// rejected the whole batch, and with it every page of the source (issue #1).
+// They carry nothing a reader or a search could use — they come from fonts
+// that map glyphs to control codes.
+func storable(s string) string { return strings.ReplaceAll(s, "\x00", "") }
+
+// storableChunks cleans a copy, leaving the caller's chunks as they were.
+func storableChunks(chunks []corpus.Chunk) []corpus.Chunk {
+	out := make([]corpus.Chunk, len(chunks))
+	for i, c := range chunks {
+		c.Heading, c.Anchor, c.Body = storable(c.Heading), storable(c.Anchor), storable(c.Body)
+		if c.Tags != nil {
+			tags := make([]string, len(c.Tags))
+			for j, tag := range c.Tags {
+				tags[j] = storable(tag)
+			}
+			c.Tags = tags
+		}
+		out[i] = c
+	}
+	return out
 }
 
 // Forget removes a source entirely. A file with no text layer is not a source
@@ -238,7 +263,7 @@ func (s *Store) PathByHash(ctx context.Context, kind, hash string) (string, bool
 func (s *Store) Rename(ctx context.Context, oldPath, newPath, title string) error {
 	_, err := s.pool.Exec(ctx,
 		`UPDATE sources SET path = $2, title = $3, indexed_at = now() WHERE path = $1`,
-		oldPath, newPath, title)
+		oldPath, newPath, storable(title))
 	return err
 }
 
@@ -246,7 +271,7 @@ func (s *Store) Rename(ctx context.Context, oldPath, newPath, title string) erro
 // recognising a better title never costs the embeddings.
 func (s *Store) SetTitle(ctx context.Context, path, title string) error {
 	_, err := s.pool.Exec(ctx,
-		`UPDATE sources SET title = $2 WHERE path = $1 AND title <> $2`, path, title)
+		`UPDATE sources SET title = $2 WHERE path = $1 AND title <> $2`, path, storable(title))
 	return err
 }
 
