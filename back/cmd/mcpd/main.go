@@ -85,7 +85,8 @@ func run() error {
 		return fmt.Errorf("schema is at version %d and this build needs %d: the indexer applies migrations on start", current, target)
 	}
 
-	opts := []api.Option{api.WithVault(*vaultName), api.WithBibliography(st, cite.NewLookup()), api.WithCitations(st)}
+	lookup := cite.NewLookup()
+	opts := []api.Option{api.WithVault(*vaultName), api.WithBibliography(st, lookup), api.WithCitations(st), api.WithBookFinder(lookup)}
 	if *reranker != "" {
 		opts = append(opts, api.WithReranker(rerank.New(*reranker)))
 	}

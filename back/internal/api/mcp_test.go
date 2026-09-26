@@ -103,3 +103,61 @@ func TestSearchSaysWhenItRanOnTextAlone(t *testing.T) {
 		})
 	}
 }
+
+type fakeFinder struct {
+	query string
+	books []corpus.FoundBook
+}
+
+func (f *fakeFinder) FindBooks(_ context.Context, query string, _ int) ([]corpus.FoundBook, error) {
+	f.query = query
+	return f.books, nil
+}
+
+// Finding a book is not getting it: the tool names books, and its description
+// tells the model that a copy of the text is a licence question it must not
+// settle by going looking for one.
+func TestFindBookSearchesTheCatalogueAndNeverOffersTheText(t *testing.T) {
+	ctx := context.Background()
+	finder := &fakeFinder{books: []corpus.FoundBook{{Title: "Concurrency in Go", Authors: []string{"Katherine Cox-Buday"}, Year: 2017}}}
+	serverSide, clientSide := mcp.NewInMemoryTransports()
+	if _, err := api.New(&fakeStore{}, &fakeEmbedder{}, api.WithBookFinder(finder)).MCP().Connect(ctx, serverSide, nil); err != nil {
+		t.Fatal(err)
+	}
+	session, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "v0"}, nil).Connect(ctx, clientSide, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+
+	tools, err := session.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tool *mcp.Tool
+	for _, candidate := range tools.Tools {
+		if candidate.Name == "corpus_find_book" {
+			tool = candidate
+		}
+	}
+	if tool == nil {
+		t.Fatal("corpus_find_book is not offered")
+	}
+	if tool.Annotations == nil || !tool.Annotations.ReadOnlyHint || tool.Annotations.OpenWorldHint == nil || !*tool.Annotations.OpenWorldHint {
+		t.Errorf("annotations = %+v, want read-only and open-world", tool.Annotations)
+	}
+	for _, want := range []string{"licen", "download", "corpus_search", "not instructions"} {
+		if !strings.Contains(tool.Description, want) {
+			t.Errorf("description lacks %q:\n%s", want, tool.Description)
+		}
+	}
+
+	res, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "corpus_find_book", Arguments: map[string]any{"query": "concurrency in go"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, _ := json.Marshal(res.StructuredContent)
+	if finder.query != "concurrency in go" || !strings.Contains(string(out), "Cox-Buday") {
+		t.Errorf("query = %q, result = %s", finder.query, out)
+	}
+}

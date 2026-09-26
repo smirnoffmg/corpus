@@ -5,7 +5,13 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"strings"
+	"sync"
 	"testing"
+	"time"
+
+	"golang.org/x/time/rate"
 
 	"github.com/smirnoffmg/corpus/internal/cite"
 )
@@ -15,7 +21,8 @@ func lookupAgainst(t *testing.T, h http.HandlerFunc) *cite.Lookup {
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	l := cite.NewLookup()
-	l.DOIBase, l.OpenLibraryBase = srv.URL, srv.URL
+	l.DOIBase, l.OpenLibraryBase, l.StylesBase = srv.URL, srv.URL, srv.URL
+	l.OpenLibraryRate = rate.NewLimiter(rate.Inf, 1)
 	return l
 }
 
@@ -176,5 +183,131 @@ func TestParseStyle(t *testing.T) {
 	}
 	if _, err := cite.ParseStyle("<html/>"); !errors.Is(err, cite.ErrNotAStyle) {
 		t.Errorf("err = %v, want ErrNotAStyle", err)
+	}
+}
+
+// The search asks Open Library for the description alone: whether a scan can
+// be borrowed or read is not in the fields requested, so nothing that leads to
+// the text can reach the answer. Getting the text is a licence question, and
+// this lookup does not answer it.
+func TestFindBooksAsksForTheDescriptionAlone(t *testing.T) {
+	l := lookupAgainst(t, func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if r.URL.Path != "/search.json" || q.Get("q") != "designing data-intensive" || q.Get("limit") != "5" {
+			http.Error(w, "unexpected "+r.URL.String(), http.StatusBadRequest)
+			return
+		}
+		for _, access := range []string{"ia", "ebook_access", "has_fulltext", "public_scan_b", "lending"} {
+			if strings.Contains(q.Get("fields"), access) {
+				http.Error(w, "asked for "+access, http.StatusBadRequest)
+				return
+			}
+		}
+		_, _ = w.Write([]byte(`{"numFound":1,"docs":[{"key":"/works/OL19293745W","title":"Designing Data-Intensive Applications","subtitle":"The Big Ideas","author_name":["Martin Kleppmann"],"first_publish_year":2015,"publisher":["O'Reilly Media"],"isbn":["9781449373320","1449373321"],"language":["eng"],"edition_count":12,"ia":["designingdatainte0000klep"],"ebook_access":"borrowable"}]}`))
+	})
+	found, err := l.FindBooks(context.Background(), "designing data-intensive", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(found) != 1 {
+		t.Fatalf("found = %+v", found)
+	}
+	b := found[0]
+	if b.Title != "Designing Data-Intensive Applications : The Big Ideas" || b.Year != 2015 || b.Editions != 12 ||
+		len(b.Authors) != 1 || b.Authors[0] != "Martin Kleppmann" || b.Publishers[0] != "O'Reilly Media" ||
+		b.ISBN[0] != "9781449373320" || b.Languages[0] != "eng" || !strings.HasSuffix(b.Catalog, "/works/OL19293745W") {
+		t.Errorf("book = %+v", b)
+	}
+}
+
+// A popular work has hundreds of editions; the answer names a few of each so
+// that a list of ten books stays readable.
+func TestFindBooksKeepsAFewIdentifiersPerWork(t *testing.T) {
+	l := lookupAgainst(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"docs":[{"key":"/works/OL1W","title":"T","isbn":["1","2","3","4","5","6","7"],"publisher":["a","b","c","d","e","f"]}]}`))
+	})
+	found, err := l.FindBooks(context.Background(), "t", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(found[0].ISBN) != 5 || len(found[0].Publishers) != 5 {
+		t.Errorf("book = %+v", found[0])
+	}
+}
+
+func TestFindBooksFindingNothingIsNotAFailure(t *testing.T) {
+	l := lookupAgainst(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"numFound":0,"docs":[]}`))
+	})
+	found, err := l.FindBooks(context.Background(), "no such book", 10)
+	if err != nil || len(found) != 0 {
+		t.Errorf("found = %v, err = %v", found, err)
+	}
+}
+
+// Open Library answers unidentified clients at one request a second and drops
+// the connection beyond it. A model calls tools in parallel, so three searches
+// at once were a real case: one of them failed with EOF.
+func TestOpenLibraryRequestsAreSpacedOut(t *testing.T) {
+	var mu sync.Mutex
+	var arrived []time.Time
+	l := lookupAgainst(t, func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		arrived = append(arrived, time.Now())
+		mu.Unlock()
+		_, _ = w.Write([]byte(`{"docs":[]}`))
+	})
+	const interval = 50 * time.Millisecond
+	l.OpenLibraryRate = rate.NewLimiter(rate.Every(interval), 1)
+
+	var wg sync.WaitGroup
+	for range 3 {
+		wg.Go(func() {
+			if _, err := l.FindBooks(context.Background(), "q", 1); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	wg.Wait()
+
+	slices.SortFunc(arrived, time.Time.Compare)
+	if len(arrived) != 3 {
+		t.Fatalf("requests = %d", len(arrived))
+	}
+	// Some slack for the clock: the limiter spaces reservations, not arrivals.
+	if gap := arrived[2].Sub(arrived[0]); gap < 2*interval-10*time.Millisecond {
+		t.Errorf("three requests arrived within %v, want at least %v", gap, 2*interval)
+	}
+}
+
+func TestOpenLibraryWaitGivesUpWithTheContext(t *testing.T) {
+	l := lookupAgainst(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Error("a request went out after its context was cancelled")
+	})
+	l.OpenLibraryRate = rate.NewLimiter(rate.Every(time.Hour), 1)
+	l.OpenLibraryRate.Allow() // the one token is spent
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if _, err := l.FindBooks(ctx, "q", 1); err == nil {
+		t.Error("want an error while the limiter holds the request back")
+	}
+}
+
+// The services asked are public and free; naming the program is what they ask
+// of a client in return.
+func TestLookupsNameThemselves(t *testing.T) {
+	var agents []string
+	l := lookupAgainst(t, func(w http.ResponseWriter, r *http.Request) {
+		agents = append(agents, r.UserAgent())
+		_, _ = w.Write([]byte(`{"docs":[]}`))
+	})
+	_, _ = l.FindBooks(context.Background(), "q", 1)
+	_, _ = l.DOI(context.Background(), "10.1/x")
+	_, _, _, _ = l.Style(context.Background(), "x")
+	for _, ua := range agents {
+		if !strings.HasPrefix(ua, "corpus/") {
+			t.Errorf("User-Agent = %q", ua)
+		}
 	}
 }

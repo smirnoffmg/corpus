@@ -61,6 +61,7 @@ type Service struct {
 	citations          Citations
 	bibliography       Bibliography
 	lookup             Lookup
+	finder             BookFinder
 	exportBibliography func(context.Context) error
 
 	queryTimeout   time.Duration
@@ -342,6 +343,8 @@ func (s *Service) MCP() *mcp.Server {
 		}
 		return nil, out, nil
 	})
+
+	s.addFindBook(server)
 
 	return server
 }

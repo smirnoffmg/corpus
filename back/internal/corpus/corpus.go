@@ -242,3 +242,17 @@ func Locator(heading string, page, printed int) string {
 		return fmt.Sprintf("с. %d", page)
 	}
 }
+
+// FoundBook is a catalogue record of a book the library may not hold: what it
+// takes to recognise the book and ask for it, and nothing that leads to a copy
+// of its text.
+type FoundBook struct {
+	Title      string   `json:"title"`
+	Authors    []string `json:"authors,omitempty"`
+	Year       int      `json:"year,omitempty"` // of the first edition
+	Publishers []string `json:"publishers,omitempty"`
+	ISBN       []string `json:"isbn,omitempty"`
+	Languages  []string `json:"languages,omitempty"` // MARC codes: eng, rus
+	Editions   int      `json:"editions,omitempty"`
+	Catalog    string   `json:"catalog"` // the record's page in the catalogue
+}

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/time/rate"
+
 	"github.com/smirnoffmg/corpus/internal/corpus"
 )
 
@@ -26,10 +28,24 @@ type Lookup struct {
 	OpenLibraryBase string // https://openlibrary.org
 	StylesBase      string // the CSL styles repository; empty for the official one
 	HTTP            *http.Client
+	// OpenLibraryRate spaces out requests to Open Library, which serves a
+	// client that sends no contact address one request a second and drops
+	// the connection beyond it. Tool calls arrive in parallel, so the limit is
+	// kept here, shared by every caller, rather than by any one of them.
+	OpenLibraryRate *rate.Limiter
 }
 
+// userAgent names the program to the services it asks. Open Library would
+// raise its limit for an address added here; none is, so as not to hand the
+// user's out.
+const userAgent = "corpus/0.3.0 (+https://github.com/smirnoffmg/corpus)"
+
 func NewLookup() *Lookup {
-	return &Lookup{DOIBase: "https://doi.org", OpenLibraryBase: "https://openlibrary.org", HTTP: &http.Client{Timeout: 20 * time.Second}}
+	return &Lookup{
+		DOIBase: "https://doi.org", OpenLibraryBase: "https://openlibrary.org",
+		HTTP:            &http.Client{Timeout: 20 * time.Second},
+		OpenLibraryRate: rate.NewLimiter(rate.Every(time.Second), 1),
+	}
 }
 
 // DOI asks doi.org for CSL-JSON directly: content negotiation hands back the
@@ -105,7 +121,7 @@ func (l *Lookup) ISBN(ctx context.Context, isbn string) (corpus.CSL, error) {
 		return nil, err
 	}
 	var found map[string]openLibraryBook
-	if err := l.get(req, &found); err != nil {
+	if err := l.getOpenLibrary(req, &found); err != nil {
 		return nil, err
 	}
 	book, ok := found["ISBN:"+digits]
@@ -138,7 +154,75 @@ func (l *Lookup) ISBN(ctx context.Context, isbn string) (corpus.CSL, error) {
 	return record, nil
 }
 
+// foundFields is every field FindBooks asks for. Open Library also knows
+// whether a scan of the book can be read or borrowed; that is left out on
+// purpose, since getting the text is a licence question this search does not
+// answer.
+const foundFields = "key,title,subtitle,author_name,first_publish_year,publisher,isbn,language,edition_count"
+
+// foundPerWork caps the ISBNs and publishers listed for one work: a popular
+// book has hundreds of editions.
+const foundPerWork = 5
+
+type openLibraryWork struct {
+	Key          string   `json:"key"`
+	Title        string   `json:"title"`
+	Subtitle     string   `json:"subtitle"`
+	Authors      []string `json:"author_name"`
+	Year         int      `json:"first_publish_year"`
+	Publishers   []string `json:"publisher"`
+	ISBN         []string `json:"isbn"`
+	Languages    []string `json:"language"`
+	EditionCount int      `json:"edition_count"`
+}
+
+// FindBooks searches Open Library's catalogue by title, author or any words
+// of them, for books the library may not hold. limit <= 0 means 10.
+func (l *Lookup) FindBooks(ctx context.Context, query string, limit int) ([]corpus.FoundBook, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	q := url.Values{"q": {strings.TrimSpace(query)}, "fields": {foundFields}, "limit": {strconv.Itoa(limit)}}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, l.OpenLibraryBase+"/search.json?"+q.Encode(), http.NoBody)
+	if err != nil {
+		return nil, err
+	}
+	var result struct {
+		Docs []openLibraryWork `json:"docs"`
+	}
+	if err := l.getOpenLibrary(req, &result); err != nil {
+		return nil, err
+	}
+	found := make([]corpus.FoundBook, 0, len(result.Docs))
+	for i := range result.Docs {
+		w := &result.Docs[i]
+		book := corpus.FoundBook{
+			Title: w.Title, Authors: w.Authors, Year: w.Year,
+			Publishers: firstFew(w.Publishers), ISBN: firstFew(w.ISBN),
+			Languages: w.Languages, Editions: w.EditionCount,
+			Catalog: l.OpenLibraryBase + w.Key,
+		}
+		if w.Subtitle != "" {
+			book.Title = w.Title + " : " + w.Subtitle
+		}
+		found = append(found, book)
+	}
+	return found, nil
+}
+
+func firstFew(s []string) []string {
+	return s[:min(len(s), foundPerWork)]
+}
+
+func (l *Lookup) getOpenLibrary(req *http.Request, into any) error {
+	if err := l.OpenLibraryRate.Wait(req.Context()); err != nil {
+		return err
+	}
+	return l.get(req, into)
+}
+
 func (l *Lookup) get(req *http.Request, into any) error {
+	req.Header.Set("User-Agent", userAgent)
 	resp, err := l.HTTP.Do(req)
 	if err != nil {
 		return err
@@ -201,6 +285,7 @@ func (l *Lookup) raw(ctx context.Context, address string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	req.Header.Set("User-Agent", userAgent)
 	resp, err := l.HTTP.Do(req)
 	if err != nil {
 		return "", err
