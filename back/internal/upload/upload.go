@@ -19,6 +19,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -84,30 +85,47 @@ func (l *Library) Close() error {
 	return errors.Join(l.books.Close(), l.docs.Close(), l.papers.Close())
 }
 
-// AddBook saves a PDF as uploads/<name> under the books root and returns that
-// path, which is the path the indexer will give the source.
+// AddBook saves a PDF, EPUB or FB2 as uploads/<name> under the books root and
+// returns that path, which is the path the indexer will give the source.
 func (l *Library) AddBook(name string, r io.Reader) (string, error) {
-	return addPDF(l.books, name, r)
+	return addFile(l.books, name, r, pdfFormat, epubFormat, fb2Format)
 }
 
 // AddPaper saves a publication the same way, under the papers root. A paper is
 // kept apart from the books rather than tagged among them because a pass prunes
 // every source of a kind missing from that kind's root.
 func (l *Library) AddPaper(name string, r io.Reader) (string, error) {
-	return addPDF(l.papers, name, r)
+	return addFile(l.papers, name, r, pdfFormat)
 }
 
-func addPDF(root *os.Root, name string, r io.Reader) (string, error) {
+// format is a kind of file a shelf takes, known by its extension and by how
+// it begins.
+type format struct {
+	ext    string
+	starts func(head []byte) bool
+}
+
+var (
+	pdfFormat  = format{".pdf", func(h []byte) bool { return string(h) == "%PDF-" }}
+	epubFormat = format{".epub", func(h []byte) bool { return string(h[:4]) == "PK\x03\x04" }}
+	// FictionBook is XML, often after a byte-order mark.
+	fb2Format = format{".fb2", func(h []byte) bool {
+		return h[0] == '<' || string(h[:3]) == "\xef\xbb\xbf"
+	}}
+)
+
+func addFile(root *os.Root, name string, r io.Reader, formats ...format) (string, error) {
 	name = baseName(name)
-	if !strings.EqualFold(filepath.Ext(name), ".pdf") || strings.HasPrefix(name, ".") {
-		return "", fmt.Errorf("%w: %q is not a .pdf file name", ErrInvalid, name)
+	i := slices.IndexFunc(formats, func(f format) bool { return strings.EqualFold(filepath.Ext(name), f.ext) })
+	if i < 0 || strings.HasPrefix(name, ".") {
+		return "", fmt.Errorf("%w: %q is not a file this shelf takes", ErrInvalid, name)
 	}
 
-	// The name says PDF; the first bytes have to agree, or pdftotext fails on
-	// every pass for as long as the file sits there.
+	// The name says what the file is; the first bytes have to agree, or the
+	// reader fails on every pass for as long as the file sits there.
 	head := make([]byte, 5)
-	if _, err := io.ReadFull(r, head); err != nil || string(head) != "%PDF-" {
-		return "", fmt.Errorf("%w: %s is not a PDF", ErrInvalid, name)
+	if _, err := io.ReadFull(r, head); err != nil || !formats[i].starts(head) {
+		return "", fmt.Errorf("%w: %s is not a %s file", ErrInvalid, name, formats[i].ext)
 	}
 
 	final := path.Join(booksDir, name)
@@ -118,7 +136,7 @@ func addPDF(root *os.Root, name string, r io.Reader) (string, error) {
 		return "", err
 	}
 
-	// A dot name without the .pdf extension: neither the walker nor a listing
+	// A dot name without the book's extension: neither the walker nor a listing
 	// in Finder shows it while it is being written.
 	part := path.Join(booksDir, "."+name+".part")
 	f, err := root.OpenFile(part, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)

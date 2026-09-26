@@ -21,7 +21,7 @@ func (sp Splitter) HTML(path string) ([]corpus.Chunk, error) {
 	if err != nil {
 		return nil, err
 	}
-	w := &htmlWalker{sp: sp}
+	w := &htmlWalker{sp: sp, noise: isNoise}
 	w.walk(contentRoot(doc))
 	w.flush()
 	return w.chunks, nil
@@ -92,11 +92,21 @@ func contentRoot(doc *html.Node) *html.Node {
 
 type htmlWalker struct {
 	sp     Splitter
+	noise  func(*html.Node) bool
 	chunks []corpus.Chunk
 	trail  []string
 	anchor string
 	body   strings.Builder // finished paragraphs of the current section
 	para   strings.Builder // inline text of the paragraph being read
+
+	// An e-book with a table of contents is cited by it, not by its <h1>–<h6>:
+	// most books converted from FB2 have none, and set their titles as
+	// paragraphs. marks is the contents by the id of the element an entry
+	// points at; nil means headings come from the markup.
+	marks map[string]tocEntry
+	// minSection is the length below which a section is not indexed at all: a
+	// book's title page or dedication. A manual has no such floor.
+	minSection int
 }
 
 func (w *htmlWalker) walk(n *html.Node) {
@@ -114,10 +124,14 @@ func (w *htmlWalker) walk(n *html.Node) {
 		return
 	}
 
-	if isNoise(n) {
+	if w.noise(n) {
 		return
 	}
-	if level := htmlHeadingLevel(n); level > 0 {
+	if e, ok := w.marks[attr(n, "id")]; ok {
+		w.flush()
+		w.trail = setTrail(w.trail, e.level, e.label)
+	}
+	if level := htmlHeadingLevel(n); level > 0 && w.marks == nil {
 		w.flush()
 		w.trail = setTrail(w.trail, level, collapse(rawText(n)))
 		w.anchor = sectionID(n)
@@ -167,7 +181,7 @@ func (w *htmlWalker) appendParagraph(t string) {
 
 func (w *htmlWalker) flush() {
 	w.endParagraph()
-	if strings.TrimSpace(w.body.String()) == "" {
+	if text := strings.TrimSpace(w.body.String()); text == "" || len(text) < w.minSection {
 		w.body.Reset()
 		return
 	}

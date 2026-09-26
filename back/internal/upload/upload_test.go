@@ -126,6 +126,31 @@ func TestAddPaperRejectsWhatIsNotAPDF(t *testing.T) {
 	}
 }
 
+func TestAddBookTakesEbooks(t *testing.T) {
+	lib, books, _, _ := library(t, upload.Limits{})
+
+	epub := archive(t, entry{name: "mimetype", body: "application/epub+zip"}).String()
+	fb2 := "\ufeff<?xml version=\"1.0\" encoding=\"windows-1251\"?><FictionBook/>"
+	for name, body := range map[string]string{"Зов предков.epub": epub, "Детство Никиты.fb2": fb2} {
+		path, err := lib.AddBook(name, strings.NewReader(body))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if got, err := os.ReadFile(filepath.Join(books, filepath.FromSlash(path))); err != nil || string(got) != body {
+			t.Errorf("%s: saved %q, %v", name, got, err)
+		}
+	}
+}
+
+func TestAddPaperTakesOnlyAPDF(t *testing.T) {
+	lib, _, _, _ := library(t, upload.Limits{})
+
+	epub := archive(t, entry{name: "mimetype", body: "application/epub+zip"}).String()
+	if _, err := lib.AddPaper("paper.epub", strings.NewReader(epub)); !errors.Is(err, upload.ErrInvalid) {
+		t.Errorf("err = %v, want ErrInvalid", err)
+	}
+}
+
 func TestAddBookKeepsOnlyTheBaseName(t *testing.T) {
 	lib, books, _, _ := library(t, upload.Limits{})
 
@@ -149,7 +174,9 @@ func TestAddBookRejects(t *testing.T) {
 		want       error
 	}{
 		"not a pdf by content": {"book.pdf", "<html>not a pdf</html>", upload.ErrInvalid},
-		"not a pdf by name":    {"book.epub", pdf, upload.ErrInvalid},
+		"not a book by name":   {"book.txt", pdf, upload.ErrInvalid},
+		"an epub by name only": {"book.epub", pdf, upload.ErrInvalid},
+		"an fb2 by name only":  {"book.fb2", pdf, upload.ErrInvalid},
 		"hidden name":          {".book.pdf", pdf, upload.ErrInvalid},
 		"no name":              {".pdf", pdf, upload.ErrInvalid},
 		"empty":                {"book.pdf", "", upload.ErrInvalid},

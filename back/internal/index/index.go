@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -162,7 +163,15 @@ func (ix *Indexer) Index(ctx context.Context) error {
 		}
 	}
 
-	books, bookFiles, err := ix.indexKind(ctx, "book", ix.opts.Books, ".pdf", func(path string) ([]corpus.Chunk, error) {
+	books, bookFiles, err := ix.indexKind(ctx, "book", ix.opts.Books, []string{".pdf", ".epub", ".fb2"}, func(path string) ([]corpus.Chunk, error) {
+		// An e-book has no pages to keep whole, only chapters, and a chapter is
+		// cut the way a note's section is: one chunk, one thought.
+		switch strings.ToLower(filepath.Ext(path)) {
+		case ".epub":
+			return ix.opts.NoteSplitter.EPUB(path)
+		case ".fb2":
+			return ix.opts.NoteSplitter.FB2(path)
+		}
 		return ix.opts.BookSplitter.PDF(ctx, path)
 	})
 	if err != nil {
@@ -175,7 +184,7 @@ func (ix *Indexer) Index(ctx context.Context) error {
 		}
 	}
 
-	papers, paperFiles, err := ix.indexKind(ctx, "paper", ix.opts.Papers, ".pdf", func(path string) ([]corpus.Chunk, error) {
+	papers, paperFiles, err := ix.indexKind(ctx, "paper", ix.opts.Papers, []string{".pdf"}, func(path string) ([]corpus.Chunk, error) {
 		return ix.opts.BookSplitter.Paper(ctx, path)
 	})
 	if err != nil {
@@ -187,12 +196,12 @@ func (ix *Indexer) Index(ctx context.Context) error {
 		}
 	}
 
-	notes, _, err := ix.indexKind(ctx, "vault", ix.opts.Vault, ".md", ix.opts.NoteSplitter.Markdown)
+	notes, _, err := ix.indexKind(ctx, "vault", ix.opts.Vault, []string{".md"}, ix.opts.NoteSplitter.Markdown)
 	if err != nil {
 		return err
 	}
 
-	docs, _, err := ix.indexKind(ctx, "docs", ix.opts.Docs, ".html", ix.opts.DocsSplitter.HTML)
+	docs, _, err := ix.indexKind(ctx, "docs", ix.opts.Docs, []string{".html"}, ix.opts.DocsSplitter.HTML)
 	if err != nil {
 		return err
 	}
@@ -249,13 +258,13 @@ func (ix *Indexer) Index(ctx context.Context) error {
 
 func (ix *Indexer) indexKind(
 	ctx context.Context,
-	kind, root, ext string,
+	kind, root string, exts []string,
 	parse func(string) ([]corpus.Chunk, error),
 ) (updated int, files []string, err error) {
 	if root == "" {
 		return 0, nil, nil
 	}
-	files, err = collect(root, ext)
+	files, err = collect(root, exts)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -350,7 +359,7 @@ func (ix *Indexer) indexFile(
 	// than to keep an empty source around.
 	if len(chunks) == 0 {
 		dropped, err := ix.store.Forget(ctx, rel)
-		if err != nil || (kind != "book" && kind != "paper") || ix.opts.OCR == nil {
+		if err != nil || !isPDF(path) || ix.opts.OCR == nil {
 			if dropped {
 				slog.WarnContext(ctx, "no text, dropped (a scan without OCR?)", "path", rel)
 			}
@@ -594,7 +603,21 @@ func (ix *Indexer) draft(ctx context.Context, manuals []string) error {
 		return err
 	}
 	for _, b := range books {
-		author := extract.PDFAuthor(ctx, filepath.Join(ix.pdfRoot(b.Kind), b.Path))
+		path := filepath.Join(ix.pdfRoot(b.Kind), b.Path)
+		if !isPDF(path) {
+			meta := extract.EbookMeta(path)
+			draft := cite.BookDraft(b.Title, meta.Author, b.Head, b.Tail)
+			// The book's own record of its ISBN beats one found in its text,
+			// which may be the original's or another edition's.
+			if meta.ISBN != "" {
+				draft["ISBN"] = meta.ISBN
+			}
+			if err := ix.store.EnsureDraft(ctx, b.Hash, draft); err != nil {
+				return err
+			}
+			continue
+		}
+		author := extract.PDFAuthor(ctx, path)
 		draft := cite.BookDraft(b.Title, author, b.Head, b.Tail)
 		if b.Kind == "paper" {
 			draft = cite.PaperDraft(b.Title, author, b.Head)
@@ -758,6 +781,9 @@ func (ix *Indexer) title(ctx context.Context, kind, path, rel string) string {
 	name := strings.TrimSuffix(filepath.Base(rel), filepath.Ext(rel))
 	switch kind {
 	case "book", "paper":
+		if !isPDF(path) {
+			return extract.ChooseTitle(extract.EbookMeta(path).Title, name)
+		}
 		return extract.PDFTitle(ctx, path, name)
 	case "docs":
 		page := extract.HTMLTitle(path, name)
@@ -769,7 +795,11 @@ func (ix *Indexer) title(ctx context.Context, kind, path, rel string) string {
 	return name
 }
 
-func collect(root, ext string) ([]string, error) {
+// isPDF is a book or publication with pages; an e-book has chapters instead,
+// and no scan to recognise.
+func isPDF(path string) bool { return strings.EqualFold(filepath.Ext(path), ".pdf") }
+
+func collect(root string, exts []string) ([]string, error) {
 	var files []string
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -781,7 +811,8 @@ func collect(root, ext string) ([]string, error) {
 			}
 			return nil
 		}
-		if !strings.EqualFold(filepath.Ext(path), ext) || skipFile(d.Name()) {
+		ext := strings.ToLower(filepath.Ext(path))
+		if !slices.Contains(exts, ext) || skipFile(d.Name()) {
 			return nil
 		}
 		rel, err := filepath.Rel(root, path)

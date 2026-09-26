@@ -1311,3 +1311,45 @@ func TestAReviewHasItsPrimaryStudiesRead(t *testing.T) {
 		t.Errorf("studies = %+v", studies)
 	}
 }
+
+func TestAnEbookIsABookCitedBySectionAndDescribedByItsOwnMetadata(t *testing.T) {
+	notes, books := vault(t, 1)
+	prose := strings.Repeat("Никита и Мишка пошли на деревню через сад и пруд короткой дорогой. ", 4)
+	fb2 := `<?xml version="1.0" encoding="utf-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0">
+ <description>
+  <title-info>
+   <author><first-name>Алексей</first-name><last-name>Толстой</last-name></author>
+   <book-title>Детство Никиты</book-title>
+  </title-info>
+  <publish-info><isbn>978-5-08-006373-4</isbn></publish-info>
+ </description>
+ <body><section><title><p>СОЛНЕЧНОЕ УТРО</p></title><p>` + prose + `</p></section></body>
+</FictionBook>`
+	if err := os.WriteFile(filepath.Join(books, "tolstoy.fb2"), []byte(fb2), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	store := newStore()
+	ix := index.New(store, nopEmbedder{}, index.Options{Books: books, Vault: notes, Parallel: 2})
+	if err := ix.Index(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	src, ok := store.sources["tolstoy.fb2"]
+	if !ok || src.Kind != "book" || src.Title != "Детство Никиты" {
+		t.Fatalf("source = %+v, indexed %v", src, ok)
+	}
+	if c := store.chunks["tolstoy.fb2"]; len(c) != 1 || c[0].Heading != "СОЛНЕЧНОЕ УТРО" || c[0].Page != 0 {
+		t.Errorf("chunks = %+v", c)
+	}
+	draft := store.drafts[src.Hash]
+	if draft["ISBN"] != "978-5-08-006373-4" {
+		t.Errorf("draft ISBN = %v", draft["ISBN"])
+	}
+	if authors, _ := draft["author"].([]map[string]any); len(authors) != 1 || authors[0]["family"] != "Толстой" {
+		t.Errorf("draft author = %v", draft["author"])
+	}
+}

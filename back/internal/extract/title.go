@@ -15,6 +15,11 @@ func PDFTitle(ctx context.Context, path, fallback string) string {
 	return chooseTitle(pdfInfoField(ctx, path, "Title"), firstLines(ctx, path), fallback)
 }
 
+// ChooseTitle is PDFTitle for a document whose metadata is its only
+// candidate: an e-book's title is set by whoever made it, but a filename a
+// person composed still wins.
+func ChooseTitle(meta, fallback string) string { return chooseTitle(meta, nil, fallback) }
+
 // PDFAuthor is the Author field of the PDF metadata, empty when absent.
 func PDFAuthor(ctx context.Context, path string) string { return pdfInfoField(ctx, path, "Author") }
 

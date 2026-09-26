@@ -143,12 +143,14 @@ side.
 
 ```sh
 curl -F file=@book.pdf 'http://localhost:8080/upload?kind=book'
+curl -F file=@book.epub 'http://localhost:8080/upload?kind=book'
 curl -F file=@paper.pdf 'http://localhost:8080/upload?kind=paper'
 curl -F file=@site.zip 'http://localhost:8080/upload?kind=docs&manual=nltk'
 curl -s 'http://localhost:8080/sources?kind=book' | jq
 ```
 
-A PDF is saved to `uploads/` in the books or the papers directory, a ZIP of a
+A PDF is saved to `uploads/` in the books or the papers directory, an EPUB or
+FB2 to the books directory, a ZIP of a
 manual's built HTML is unpacked into the manuals directory, and the indexer
 starts on it at once.
 `/sources` lists every source with how many of its chunks are stored, embedded
@@ -168,6 +170,19 @@ traps rejected (authoring-tool artifacts, the author line, letter-spaced series
 headings, mojibake from a mis-decoded font). That is right about three times in
 four, which is why it never overrules a filename that already reads as a title.
 The remaining quarter is fixed by renaming the file.
+
+## E-books
+
+An EPUB or FB2 among the books is indexed as a book, but it has no pages: it
+reflows, and none of the thirty EPUBs this was tried on marks where the printed
+pages break. A passage is cited by the path of its chapter instead —
+`Отелло > Действие I > Сцена первая` — taken from the book's own table of
+contents, since most EPUBs converted from FB2 set their chapter titles as plain
+paragraphs rather than headings; FB2 is cited by its nested section titles.
+Chapters are cut like notes, one thought a chunk. The title, author and ISBN of
+the description draft come from the book's metadata, and a contents page or a
+subject index — a document that is mostly links into the book — is left out.
+MOBI and AZW3 are not read: convert them to EPUB with Calibre first.
 
 ## Documentation
 

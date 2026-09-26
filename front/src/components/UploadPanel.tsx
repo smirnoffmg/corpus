@@ -11,7 +11,7 @@ interface Recent {
   settled: boolean
 }
 
-const accepted = /\.(pdf|zip)$/i
+const accepted = /\.(pdf|epub|fb2|zip)$/i
 
 function refusal(e: unknown): string {
   if (!(e instanceof ApiError)) return `Загрузка не удалась: ${String(e)}`
@@ -43,9 +43,12 @@ interface Queued {
   reason?: string
 }
 
-const unsuitable = 'не подойдёт: загружаются только .pdf (книга или статья) и .zip со сборкой HTML-мануала'
+const unsuitable = 'не подойдёт: загружаются только .pdf (книга или статья), .epub и .fb2 (книга) и .zip со сборкой HTML-мануала'
 
 const isZip = (f: File) => /\.zip$/i.test(f.name)
+
+// Publications are PDFs only: their reference lists are read page by page.
+const isEbook = (f: File) => /\.(epub|fb2)$/i.test(f.name)
 
 // A file chosen twice — picked again, or dropped after being picked — is the
 // same upload. Name and size, not the modification time: the server refuses a
@@ -148,12 +151,12 @@ export function UploadPanel({ pollMs, onSettled }: { pollMs: number; onSettled: 
         onDragLeave={() => setOver(false)}
         onDrop={drop}
       >
-        <p>Перетащите сюда PDF книг и статей или ZIP со сборками мануалов — можно несколько сразу.</p>
+        <p>Перетащите сюда PDF книг и статей, EPUB и FB2 книг или ZIP со сборками мануалов — можно несколько сразу.</p>
         <label className="file-button">
           Выбрать файлы
           <input
             type="file"
-            accept=".pdf,.zip"
+            accept=".pdf,.epub,.fb2,.zip"
             multiple
             className="visually-hidden"
             onChange={(e) => {
@@ -175,6 +178,8 @@ export function UploadPanel({ pollMs, onSettled }: { pollMs: number; onSettled: 
                   <span className="queued-name">{item.file.name}</span>
                   {isZip(item.file) ? (
                     <span className="queued-kind">Мануал</span>
+                  ) : isEbook(item.file) ? (
+                    <span className="queued-kind">Книга</span>
                   ) : accepted.test(item.file.name) ? (
                     <>
                       <label htmlFor={`kind-${item.id}`} className="visually-hidden">

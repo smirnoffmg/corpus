@@ -29,7 +29,7 @@ func main() {
 
 func run() error {
 	var (
-		booksDir   = flag.String("books", "/data/books", "directory with PDF books")
+		booksDir   = flag.String("books", "/data/books", "directory with books: PDF, EPUB and FB2")
 		vaultDir   = flag.String("vault", "/data/vault", "Obsidian vault root")
 		docsDir    = flag.String("docs", "/data/docs", "reference manuals, one directory of HTML per manual; empty skips them")
 		papersDir  = flag.String("papers", "/data/papers", "directory with PDF publications; empty skips them")
