@@ -251,8 +251,22 @@ type FoundBook struct {
 	Authors    []string `json:"authors,omitempty"`
 	Year       int      `json:"year,omitempty"` // of the first edition
 	Publishers []string `json:"publishers,omitempty"`
-	ISBN       []string `json:"isbn,omitempty"`
 	Languages  []string `json:"languages,omitempty"` // MARC codes: eng, rus
 	Editions   int      `json:"editions,omitempty"`
 	Catalog    string   `json:"catalog"` // the record's page in the catalogue
+}
+
+// Edition is one edition of a found book: the ISBN a buyer asks for belongs to
+// an edition, not to the book.
+type Edition struct {
+	Title      string   `json:"title"`
+	Year       int      `json:"year,omitempty"`
+	Published  string   `json:"published,omitempty"` // as the catalogue has it: "Sep 30, 2021"
+	Edition    string   `json:"edition,omitempty"`   // "5th ed."
+	Publishers []string `json:"publishers,omitempty"`
+	ISBN13     []string `json:"isbn_13,omitempty"`
+	ISBN10     []string `json:"isbn_10,omitempty"`
+	Format     string   `json:"format,omitempty"` // free text: paperback, hardcover, ebook
+	Languages  []string `json:"languages,omitempty"`
+	Catalog    string   `json:"catalog"`
 }

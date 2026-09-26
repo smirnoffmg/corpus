@@ -2,6 +2,7 @@ package cite_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -197,7 +198,7 @@ func TestFindBooksAsksForTheDescriptionAlone(t *testing.T) {
 			http.Error(w, "unexpected "+r.URL.String(), http.StatusBadRequest)
 			return
 		}
-		for _, access := range []string{"ia", "ebook_access", "has_fulltext", "public_scan_b", "lending"} {
+		for _, access := range []string{"ia", "ebook_access", "has_fulltext", "public_scan_b", "lending", "isbn"} {
 			if strings.Contains(q.Get("fields"), access) {
 				http.Error(w, "asked for "+access, http.StatusBadRequest)
 				return
@@ -215,23 +216,103 @@ func TestFindBooksAsksForTheDescriptionAlone(t *testing.T) {
 	b := found[0]
 	if b.Title != "Designing Data-Intensive Applications : The Big Ideas" || b.Year != 2015 || b.Editions != 12 ||
 		len(b.Authors) != 1 || b.Authors[0] != "Martin Kleppmann" || b.Publishers[0] != "O'Reilly Media" ||
-		b.ISBN[0] != "9781449373320" || b.Languages[0] != "eng" || !strings.HasSuffix(b.Catalog, "/works/OL19293745W") {
+		b.Languages[0] != "eng" || !strings.HasSuffix(b.Catalog, "/works/OL19293745W") {
 		t.Errorf("book = %+v", b)
 	}
 }
 
-// A popular work has hundreds of editions; the answer names a few of each so
-// that a list of ten books stays readable.
-func TestFindBooksKeepsAFewIdentifiersPerWork(t *testing.T) {
+// A popular work has hundreds of editions; the answer names a few publishers
+// so that a list of ten books stays readable.
+func TestFindBooksKeepsAFewPublishersPerWork(t *testing.T) {
 	l := lookupAgainst(t, func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"docs":[{"key":"/works/OL1W","title":"T","isbn":["1","2","3","4","5","6","7"],"publisher":["a","b","c","d","e","f"]}]}`))
+		_, _ = w.Write([]byte(`{"docs":[{"key":"/works/OL1W","title":"T","publisher":["a","b","c","d","e","f"]}]}`))
 	})
 	found, err := l.FindBooks(context.Background(), "t", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(found[0].ISBN) != 5 || len(found[0].Publishers) != 5 {
+	if len(found[0].Publishers) != 5 {
 		t.Errorf("book = %+v", found[0])
+	}
+}
+
+// editionsOfWilcox is the shape Open Library answered with on 26.09.2026:
+// editions in no order, dates as free text, one without an ISBN, and one with
+// the id of a scan in the Internet Archive.
+const editionsOfWilcox = `{"links":{"self":"/works/OL2926608W/editions.json"},"size":4,"entries":[
+{"key":"/books/OL1M","title":"Introduction to robust estimation and hypothesis testing","publish_date":"1997","publishers":["Academic Press"],"isbn_10":["0127515453"],"ocaid":"introductiontoro0000wilc"},
+{"key":"/books/OL2M","title":"Introduction to Robust Estimation and Hypothesis Testing","full_title":"Introduction to Robust Estimation and Hypothesis Testing, 5th ed.","publish_date":"Sep 30, 2021","edition_name":"5th ed.","publishers":["Elsevier Science & Technology"],"isbn_13":["9780128200995"],"isbn_10":["0128200995"],"physical_format":"paperback","languages":[{"key":"/languages/eng"}]},
+{"key":"/books/OL3M","title":"Introduction to robust estimation","publish_date":"2011"},
+{"key":"/books/OL4M","title":"Introduction to Robust Estimation and Hypothesis Testing","publish_date":"2017","isbn_13":["9780128102565"]}]}`
+
+// A buyer needs one edition's ISBN. The search's ISBNs are every edition's at
+// once, in no order: for Wilcox they mixed 1997, 2011, 2017 and 2021.
+func TestBookEditionsListsEachEditionNewestFirst(t *testing.T) {
+	var asked string
+	l := lookupAgainst(t, func(w http.ResponseWriter, r *http.Request) {
+		asked = r.URL.RequestURI()
+		_, _ = w.Write([]byte(editionsOfWilcox))
+	})
+	for _, work := range []string{"OL2926608W", "/works/OL2926608W", "https://openlibrary.org/works/OL2926608W"} {
+		editions, total, err := l.BookEditions(context.Background(), work, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.HasPrefix(asked, "/works/OL2926608W/editions.json?") {
+			t.Errorf("%s asked for %s", work, asked)
+		}
+		if total != 4 || len(editions) != 3 {
+			t.Fatalf("total = %d, editions = %+v; the one without an ISBN is left out", total, editions)
+		}
+		newest := editions[0]
+		if newest.Year != 2021 || newest.Published != "Sep 30, 2021" || newest.Edition != "5th ed." ||
+			newest.ISBN13[0] != "9780128200995" || newest.ISBN10[0] != "0128200995" || newest.Format != "paperback" ||
+			newest.Languages[0] != "eng" || newest.Publishers[0] != "Elsevier Science & Technology" ||
+			newest.Title != "Introduction to Robust Estimation and Hypothesis Testing, 5th ed." || !strings.HasSuffix(newest.Catalog, "/books/OL2M") {
+			t.Errorf("newest = %+v", newest)
+		}
+		if editions[1].Year != 2017 || editions[2].Year != 1997 {
+			t.Errorf("order = %d, %d", editions[1].Year, editions[2].Year)
+		}
+	}
+}
+
+// The scan's id would lead to the text, which is a licence question.
+func TestBookEditionsCarryNothingThatLeadsToTheText(t *testing.T) {
+	l := lookupAgainst(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(editionsOfWilcox))
+	})
+	editions, _, err := l.BookEditions(context.Background(), "OL2926608W", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, _ := json.Marshal(editions)
+	if strings.Contains(string(out), "introductiontoro0000wilc") {
+		t.Errorf("scan id in %s", out)
+	}
+}
+
+func TestBookEditionsRefusesWhatIsNotAWork(t *testing.T) {
+	l := lookupAgainst(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("asked %s", r.URL)
+	})
+	for _, bad := range []string{"", "OL1M", "../search.json?q=x", "https://example.com/works/OL1W/../../x"} {
+		if _, _, err := l.BookEditions(context.Background(), bad, 10); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}
+
+func TestBookEditionsKeepsTheNewestWhenThereAreMany(t *testing.T) {
+	l := lookupAgainst(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(editionsOfWilcox))
+	})
+	editions, total, err := l.BookEditions(context.Background(), "OL2926608W", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 4 || len(editions) != 1 || editions[0].Year != 2021 {
+		t.Errorf("total = %d, editions = %+v", total, editions)
 	}
 }
 

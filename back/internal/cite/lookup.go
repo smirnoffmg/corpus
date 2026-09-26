@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -158,10 +160,13 @@ func (l *Lookup) ISBN(ctx context.Context, isbn string) (corpus.CSL, error) {
 // whether a scan of the book can be read or borrowed; that is left out on
 // purpose, since getting the text is a licence question this search does not
 // answer.
-const foundFields = "key,title,subtitle,author_name,first_publish_year,publisher,isbn,language,edition_count"
+//
+// ISBNs are left out too: the search lists every edition's at once, in no
+// order, and a buyer needs one edition's. BookEditions has them per edition.
+const foundFields = "key,title,subtitle,author_name,first_publish_year,publisher,language,edition_count"
 
-// foundPerWork caps the ISBNs and publishers listed for one work: a popular
-// book has hundreds of editions.
+// foundPerWork caps the publishers listed for one work: a popular book has
+// hundreds of editions.
 const foundPerWork = 5
 
 type openLibraryWork struct {
@@ -171,7 +176,6 @@ type openLibraryWork struct {
 	Authors      []string `json:"author_name"`
 	Year         int      `json:"first_publish_year"`
 	Publishers   []string `json:"publisher"`
-	ISBN         []string `json:"isbn"`
 	Languages    []string `json:"language"`
 	EditionCount int      `json:"edition_count"`
 }
@@ -198,8 +202,8 @@ func (l *Lookup) FindBooks(ctx context.Context, query string, limit int) ([]corp
 		w := &result.Docs[i]
 		book := corpus.FoundBook{
 			Title: w.Title, Authors: w.Authors, Year: w.Year,
-			Publishers: firstFew(w.Publishers), ISBN: firstFew(w.ISBN),
-			Languages: w.Languages, Editions: w.EditionCount,
+			Publishers: firstFew(w.Publishers),
+			Languages:  w.Languages, Editions: w.EditionCount,
 			Catalog: l.OpenLibraryBase + w.Key,
 		}
 		if w.Subtitle != "" {
@@ -208,6 +212,82 @@ func (l *Lookup) FindBooks(ctx context.Context, query string, limit int) ([]corp
 		found = append(found, book)
 	}
 	return found, nil
+}
+
+// openLibraryEdition decodes only what describes the edition. The record also
+// carries ocaid, the id of a scan in the Internet Archive; it is not read, so
+// it cannot reach an answer.
+type openLibraryEdition struct {
+	Key         string   `json:"key"`
+	Title       string   `json:"title"`
+	FullTitle   string   `json:"full_title"`
+	PublishDate string   `json:"publish_date"`
+	EditionName string   `json:"edition_name"`
+	Publishers  []string `json:"publishers"`
+	ISBN13      []string `json:"isbn_13"`
+	ISBN10      []string `json:"isbn_10"`
+	Format      string   `json:"physical_format"`
+	Languages   []struct {
+		Key string `json:"key"`
+	} `json:"languages"`
+}
+
+// editionsPerRequest is how many editions one request asks for. The catalogue
+// lists them in no order, so finding the newest takes all of them; the most
+// published work met so far had 253, and one request returned them all.
+const editionsPerRequest = 1000
+
+var workKey = regexp.MustCompile(`^(?:https?://[^/]+)?(?:/works/)?(OL[0-9]+W)$`)
+
+// ErrNotAWork is an identifier that names no Open Library work.
+var ErrNotAWork = errors.New("not an Open Library work: expected OL…W, /works/OL…W or its catalogue page")
+
+// BookEditions lists a work's editions that have an ISBN, newest first, at
+// most limit of them (limit <= 0 means 10), and how many editions the work
+// has in all. work is what FindBooks returned as the catalogue page, or the
+// OL…W key in it.
+func (l *Lookup) BookEditions(ctx context.Context, work string, limit int) ([]corpus.Edition, int, error) {
+	m := workKey.FindStringSubmatch(strings.TrimSpace(work))
+	if m == nil {
+		return nil, 0, ErrNotAWork
+	}
+	if limit <= 0 {
+		limit = 10
+	}
+	q := url.Values{"limit": {strconv.Itoa(editionsPerRequest)}}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, l.OpenLibraryBase+"/works/"+m[1]+"/editions.json?"+q.Encode(), http.NoBody)
+	if err != nil {
+		return nil, 0, err
+	}
+	var result struct {
+		Size    int                  `json:"size"`
+		Entries []openLibraryEdition `json:"entries"`
+	}
+	if err := l.getOpenLibrary(req, &result); err != nil {
+		return nil, 0, err
+	}
+	editions := make([]corpus.Edition, 0, len(result.Entries))
+	for i := range result.Entries {
+		e := &result.Entries[i]
+		if len(e.ISBN13) == 0 && len(e.ISBN10) == 0 {
+			continue
+		}
+		edition := corpus.Edition{
+			Title: e.Title, Published: e.PublishDate, Edition: e.EditionName,
+			Publishers: e.Publishers, ISBN13: e.ISBN13, ISBN10: e.ISBN10, Format: e.Format,
+			Catalog: l.OpenLibraryBase + e.Key,
+		}
+		if e.FullTitle != "" {
+			edition.Title = e.FullTitle
+		}
+		edition.Year, _ = strconv.Atoi(lastYear(e.PublishDate))
+		for _, lang := range e.Languages {
+			edition.Languages = append(edition.Languages, strings.TrimPrefix(lang.Key, "/languages/"))
+		}
+		editions = append(editions, edition)
+	}
+	slices.SortStableFunc(editions, func(a, b corpus.Edition) int { return b.Year - a.Year })
+	return editions[:min(len(editions), limit)], result.Size, nil
 }
 
 func firstFew(s []string) []string {

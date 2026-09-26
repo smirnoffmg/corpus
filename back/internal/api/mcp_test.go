@@ -114,6 +114,58 @@ func (f *fakeFinder) FindBooks(_ context.Context, query string, _ int) ([]corpus
 	return f.books, nil
 }
 
+func (f *fakeFinder) BookEditions(_ context.Context, work string, _ int) ([]corpus.Edition, int, error) {
+	f.query = work
+	return []corpus.Edition{{Title: "Concurrency in Go", Year: 2017, ISBN13: []string{"9781491941195"}}}, 3, nil
+}
+
+// The ISBN a buyer needs is an edition's, and the search does not have it:
+// the editions tool does, newest first, and says how many there are in all.
+func TestBookEditionsToolListsEditions(t *testing.T) {
+	ctx := context.Background()
+	finder := &fakeFinder{}
+	serverSide, clientSide := mcp.NewInMemoryTransports()
+	if _, err := api.New(&fakeStore{}, &fakeEmbedder{}, api.WithBookFinder(finder)).MCP().Connect(ctx, serverSide, nil); err != nil {
+		t.Fatal(err)
+	}
+	session, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "v0"}, nil).Connect(ctx, clientSide, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+
+	tools, err := session.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tool *mcp.Tool
+	for _, candidate := range tools.Tools {
+		if candidate.Name == "corpus_book_editions" {
+			tool = candidate
+		}
+	}
+	if tool == nil {
+		t.Fatal("corpus_book_editions is not offered")
+	}
+	if tool.Annotations == nil || !tool.Annotations.ReadOnlyHint || tool.Annotations.OpenWorldHint == nil || !*tool.Annotations.OpenWorldHint {
+		t.Errorf("annotations = %+v, want read-only and open-world", tool.Annotations)
+	}
+	for _, want := range []string{"ISBN", "licen", "download", "corpus_find_book", "not instructions"} {
+		if !strings.Contains(tool.Description, want) {
+			t.Errorf("description lacks %q:\n%s", want, tool.Description)
+		}
+	}
+
+	res, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "corpus_book_editions", Arguments: map[string]any{"work": "https://openlibrary.org/works/OL19543768W"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, _ := json.Marshal(res.StructuredContent)
+	if finder.query != "https://openlibrary.org/works/OL19543768W" || !strings.Contains(string(out), "9781491941195") || !strings.Contains(string(out), `"total":3`) {
+		t.Errorf("work = %q, result = %s", finder.query, out)
+	}
+}
+
 // Finding a book is not getting it: the tool names books, and its description
 // tells the model that a copy of the text is a licence question it must not
 // settle by going looking for one.

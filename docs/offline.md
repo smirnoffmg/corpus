@@ -32,8 +32,9 @@ and the UI bundles its fonts. What does need the network is getting there.
 5. **Look up descriptions while online.** Filling a description from a DOI or
    ISBN and adding a journal's citation style need the network; editing
    descriptions and citing in any added style do not. See [citing](citing.md).
-   Finding a book the library does not hold (`corpus_find_book`) asks Open
-   Library too, and answers with an error offline.
+   Finding a book the library does not hold and its editions
+   (`corpus_find_book`, `corpus_book_editions`) asks Open Library too, and
+   answers with an error offline.
 
 6. **Bring the manuals you will need.** Downloading one is the part that needs
    the network — see [manuals](manuals.md). Uploading and indexing it does not.

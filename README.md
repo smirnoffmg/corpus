@@ -108,9 +108,11 @@ claude mcp add --transport http corpus http://localhost:8080/mcp
 
 Beside searching and reading the library, the MCP server offers `corpus_find_book`:
 a search of the Open Library catalogue for books the library does not hold, by
-title or author. It returns the description — authors, year, publishers, ISBNs,
-the catalogue page — and nothing that leads to the text: whether a copy may be
-obtained is a licence question, checked by hand. It needs the network.
+title or author. It returns the description — authors, year, publishers, the
+catalogue page — and `corpus_book_editions` lists a found book's editions, newest
+first, each with its own ISBN. Neither returns anything that leads to the text:
+whether a copy may be obtained is a licence question, checked by hand. Both need
+the network.
 
 `kind` is `book`, `paper` ([publications](docs/publications.md)), `vault`,
 `docs` (reference manuals), or empty for all. `mode` picks the retrieval method:
