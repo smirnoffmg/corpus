@@ -559,6 +559,17 @@ pre {
   border-top: 1px solid var(--rule);
 }
 
+/* File names like Handbook_of_..._Vol2.pdf have no break opportunities and would push the status out of the column. */
+.recent li > :first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.recent li > :last-child {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 .library-bar {
   display: flex;
   flex-wrap: wrap;
