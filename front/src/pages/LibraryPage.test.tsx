@@ -329,4 +329,63 @@ describe('LibraryPage', () => {
     expect(screen.getByRole('textbox', { name: 'Название мануала для «Документация.zip»' })).toHaveValue('')
     expect(screen.getByRole('button', { name: 'Загрузить' })).toBeDisabled()
   })
+
+  describe('pages', () => {
+    const many = (n: number) => Array.from({ length: n }, (_, i) => {
+      const title = `Книга ${String(i + 1).padStart(3, '0')}`
+      return book({ path: `${title}.pdf`, title })
+    })
+    const stubBooks = (n: number) => stubApi((url) => (url.pathname === '/api/sources' ? { body: { sources: many(n) } } : undefined))
+    const bodyRows = async () => (await screen.findAllByRole('row')).slice(1)
+
+    it('shows fifty rows a page and turns to the next', async () => {
+      stubBooks(120)
+      const user = userEvent.setup()
+      renderLibrary()
+
+      expect(await bodyRows()).toHaveLength(50)
+      const pager = screen.getByRole('navigation', { name: 'Страницы' })
+      expect(pager).toHaveTextContent('1–50 из 120')
+      expect(within(pager).getByRole('button', { name: 'Назад' })).toBeDisabled()
+
+      await user.click(within(pager).getByRole('button', { name: 'Вперёд' }))
+      const rows = await bodyRows()
+      expect(rows[0]).toHaveTextContent('Книга 051')
+      expect(pager).toHaveTextContent('51–100 из 120')
+    })
+
+    it('opens at the page the address names, and the last page holds the rest', async () => {
+      stubBooks(120)
+      renderLibrary('/library?page=3')
+
+      const rows = await bodyRows()
+      expect(rows).toHaveLength(20)
+      expect(rows[0]).toHaveTextContent('Книга 101')
+      expect(screen.getByRole('button', { name: 'Вперёд' })).toBeDisabled()
+    })
+
+    it('goes back to the first page when the filter changes', async () => {
+      stubBooks(120)
+      const user = userEvent.setup()
+      renderLibrary('/library?page=2')
+      await bodyRows()
+
+      await user.type(screen.getByRole('textbox', { name: 'Фильтр по названию' }), 'Книга 0')
+      expect((await bodyRows())[0]).toHaveTextContent('Книга 001')
+      expect(screen.getByRole('navigation', { name: 'Страницы' })).toHaveTextContent('1–50 из 99')
+    })
+
+    it('shows the last page when the address points past the end', async () => {
+      stubBooks(60)
+      renderLibrary('/library?page=9')
+      expect((await bodyRows())[0]).toHaveTextContent('Книга 051')
+    })
+
+    it('has no pager when everything fits on one page', async () => {
+      stubBooks(50)
+      renderLibrary()
+      expect(await bodyRows()).toHaveLength(50)
+      expect(screen.queryByRole('navigation', { name: 'Страницы' })).toBeNull()
+    })
+  })
 })

@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { sources, type Description, type Kind, type SourceStatus } from '../api'
 import { describeHref } from '../cite'
@@ -19,9 +19,7 @@ const tabs: { kind: Kind; label: string }[] = [
 
 const descriptionLabel: Record<Description, string> = { '': 'Описать', draft: 'Черновик', checked: 'Проверено' }
 
-// The vault alone is thousands of notes; past this many rows a table is
-// scrolled, not read, and the filter is the way in.
-const shownRows = 300
+const pageSize = 50
 
 interface Row {
   key: string
@@ -73,6 +71,7 @@ export function LibraryPage({ pollMs = 5000 }: { pollMs?: number }) {
   // a citation that was matched to a book links to the book itself.
   const [filter, setFilter] = useState(params.get('filter') ?? '')
   const vault = useContext(VaultContext)
+  const tableTop = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const request = new AbortController()
@@ -92,6 +91,23 @@ export function LibraryPage({ pollMs = 5000 }: { pollMs?: number }) {
     const needle = filter.trim().toLocaleLowerCase('ru')
     return needle ? all.filter((r) => r.title.toLocaleLowerCase('ru').includes(needle)) : all
   }, [current, kind, filter, vault])
+
+  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize))
+  const page = Math.min(Math.max(Number(params.get('page')) || 1, 1), pageCount)
+  const first = (page - 1) * pageSize
+  const shown = rows.slice(first, first + pageSize)
+
+  const setPage = (n: number) =>
+    setParams((p) => {
+      if (n === 1) p.delete('page')
+      else p.set('page', String(n))
+      return p
+    })
+
+  const turnTo = (n: number) => {
+    setPage(n)
+    tableTop.current?.scrollIntoView?.({ block: 'start' })
+  }
 
   return (
     <div className="library">
@@ -121,7 +137,10 @@ export function LibraryPage({ pollMs = 5000 }: { pollMs?: number }) {
             </button>
           ))}
         </div>
-        <input type="text" aria-label="Фильтр по названию" placeholder="Фильтр по названию" value={filter} onChange={(e) => setFilter(e.target.value)} />
+        <input type="text" aria-label="Фильтр по названию" placeholder="Фильтр по названию" value={filter} onChange={(e) => {
+            setFilter(e.target.value)
+            setPage(1)
+          }} />
       </div>
 
       {!current && <p className="quiet">Загружаю список…</p>}
@@ -132,7 +151,7 @@ export function LibraryPage({ pollMs = 5000 }: { pollMs?: number }) {
       )}
       {current?.list && rows.length === 0 && <p className="quiet">{filter ? 'Ничего не подходит под фильтр.' : 'Здесь пока пусто.'}</p>}
       {rows.length > 0 && (
-        <div className="table-scroll">
+        <div className="table-scroll" ref={tableTop}>
           <table>
             <thead>
               <tr>
@@ -143,7 +162,7 @@ export function LibraryPage({ pollMs = 5000 }: { pollMs?: number }) {
               </tr>
             </thead>
             <tbody>
-              {rows.slice(0, shownRows).map((r) => {
+              {shown.map((r) => {
                 const { state, fraction } = progress(r.tally)
                 return (
                   <tr key={r.key} className={`state-${state}`}>
@@ -189,12 +208,20 @@ export function LibraryPage({ pollMs = 5000 }: { pollMs?: number }) {
           </table>
         </div>
       )}
-      <StylesPanel />
-      {rows.length > shownRows && (
-        <p className="quiet">
-          Показаны первые {shownRows} из {rows.length}. Уточните фильтр, чтобы увидеть остальные.
-        </p>
+      {pageCount > 1 && (
+        <nav className="pager" aria-label="Страницы">
+          <button type="button" disabled={page === 1} onClick={() => turnTo(page - 1)}>
+            Назад
+          </button>
+          <span className="quiet">
+            {first + 1}–{first + shown.length} из {rows.length}
+          </span>
+          <button type="button" disabled={page === pageCount} onClick={() => turnTo(page + 1)}>
+            Вперёд
+          </button>
+        </nav>
       )}
+      <StylesPanel />
     </div>
   )
 }
