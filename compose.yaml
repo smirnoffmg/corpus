@@ -21,6 +21,22 @@ services:
       POSTGRES_DB: corpus
       POSTGRES_USER: corpus
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-corpus}
+    # Sized for Docker's 8 GB. The HNSW index alone is about 1 GB and was read
+    # back from the OS cache on every vector search through the default 128 MB
+    # of shared_buffers; a quarter of memory holds it with the chunks beside it.
+    # maintenance_work_mem lets the index be rebuilt with its graph in memory.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=2GB
+      - -c
+      - effective_cache_size=5GB
+      - -c
+      - maintenance_work_mem=1GB
+      - -c
+      - work_mem=16MB
+    # Parallel workers share memory through /dev/shm, which Docker caps at 64 MB.
+    shm_size: 1gb
     volumes:
       - pgdata:/var/lib/postgresql
     # Not published to the host: only the stack's own services reach it. On the
