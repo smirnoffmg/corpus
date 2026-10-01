@@ -27,6 +27,14 @@ func main() {
 	}
 }
 
+// flagValues is every flag as it was set or defaulted, for the server to show.
+// The database URL comes from the environment, so no secret is among them.
+func flagValues() map[string]string {
+	values := map[string]string{}
+	flag.VisitAll(func(f *flag.Flag) { values[f.Name] = f.Value.String() })
+	return values
+}
+
 func run() error {
 	var (
 		booksDir   = flag.String("books", "/data/books", "directory with books: PDF, EPUB and FB2")
@@ -98,6 +106,8 @@ func run() error {
 		BookSplitter: extract.Splitter{Above: *bookAbove, Target: *bookTarget},
 		NoteSplitter: extract.Splitter{Above: *noteAbove, Target: *noteTarget},
 		DocsSplitter: extract.Splitter{Above: *docsAbove, Target: *docsTarget},
+		Beat:         st.Beat,
+		Settings:     flagValues(),
 	})
 
 	if *interval == 0 {

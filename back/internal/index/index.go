@@ -6,6 +6,7 @@
 package index
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -19,6 +20,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -84,6 +86,11 @@ type Options struct {
 	// field because the reader is an external binary, and a test cannot ship a
 	// PDF for every shape a bibliography comes in; nil uses poppler.
 	PaperText func(ctx context.Context, path string) ([]string, error)
+	// Beat records what the indexer is doing, at every change of phase and
+	// every BeatEvery between; nil keeps it to the log.
+	Beat      func(ctx context.Context, b *corpus.Beat) error
+	BeatEvery time.Duration     // defaults to corpus.BeatEvery
+	Settings  map[string]string // the flags the process runs with, sent with each beat
 }
 
 // Recognizer reads the text of scanned PDFs and keeps it under the file's
@@ -107,6 +114,9 @@ type Indexer struct {
 	store    Store
 	embedder Embedder
 	opts     Options
+
+	mu   sync.Mutex
+	beat corpus.Beat
 }
 
 // maxParallel caps the extraction workers. pdftotext is CPU-bound, but each
@@ -136,6 +146,9 @@ func New(store Store, embedder Embedder, opts Options) *Indexer { //nolint:gocri
 	}
 	if opts.PaperText == nil {
 		opts.PaperText = extract.PaperText
+	}
+	if opts.BeatEvery <= 0 {
+		opts.BeatEvery = corpus.BeatEvery
 	}
 	return &Indexer{store: store, embedder: embedder, opts: opts}
 }
@@ -411,6 +424,11 @@ func (ix *Indexer) scan(ctx context.Context, kind, path, rel, hash string) ([]co
 // channel closes, so a dropped database connection only costs the wake-ups
 // until the next pass. Run returns when ctx ends.
 func (ix *Indexer) Run(ctx context.Context, interval time.Duration, listen func(context.Context) (<-chan struct{}, error)) error {
+	ix.mu.Lock()
+	ix.beat = corpus.Beat{Started: time.Now(), Interval: interval, Settings: ix.opts.Settings}
+	ix.mu.Unlock()
+	go ix.beatUntil(ctx)
+
 	var wake <-chan struct{}
 	for ctx.Err() == nil {
 		if wake == nil && listen != nil {
@@ -432,6 +450,7 @@ func (ix *Indexer) Run(ctx context.Context, interval time.Duration, listen func(
 			continue
 		}
 
+		ix.enter(ctx, "waiting")
 		timer := time.NewTimer(interval)
 		select {
 		case <-ctx.Done():
@@ -453,14 +472,70 @@ func (ix *Indexer) Run(ctx context.Context, interval time.Duration, listen func(
 // stopping on them: the next pass is the retry. It reports whether embedding
 // gave way to a reindex request.
 func (ix *Indexer) pass(ctx context.Context, wake <-chan struct{}) (interrupted bool) {
+	start := time.Now()
+	var failed error
+	ix.enter(ctx, "indexing")
 	if err := ix.Index(ctx); err != nil && ctx.Err() == nil {
 		slog.ErrorContext(ctx, "pass", "err", err)
+		failed = err
 	}
+	ix.enter(ctx, "embedding")
 	interrupted, err := ix.embed(ctx, wake)
 	if err != nil && ctx.Err() == nil {
 		slog.ErrorContext(ctx, "pass", "err", err)
+		failed = cmp.Or(failed, err)
+	}
+	if ctx.Err() == nil {
+		ix.passed(start, failed)
 	}
 	return interrupted
+}
+
+func (ix *Indexer) enter(ctx context.Context, phase string) {
+	ix.mu.Lock()
+	ix.beat.Phase, ix.beat.PhaseFrom = phase, time.Now()
+	ix.mu.Unlock()
+	ix.sendBeat(ctx)
+}
+
+func (ix *Indexer) passed(start time.Time, err error) {
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	ix.beat.LastPass, ix.beat.LastTook = time.Now(), time.Since(start)
+	ix.beat.LastError = ""
+	if err != nil {
+		ix.beat.LastError = err.Error()
+	}
+}
+
+func (ix *Indexer) beatUntil(ctx context.Context) {
+	ticker := time.NewTicker(ix.opts.BeatEvery)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			ix.sendBeat(ctx)
+		}
+	}
+}
+
+// sendBeat logs a failure and goes on: the beat reports on the indexer, and a
+// database away for a minute must not stop the indexing it reports on.
+func (ix *Indexer) sendBeat(ctx context.Context) {
+	if ix.opts.Beat == nil {
+		return
+	}
+	ix.mu.Lock()
+	beat := ix.beat
+	ix.mu.Unlock()
+	if beat.Phase == "" {
+		return
+	}
+	if err := ix.opts.Beat(ctx, &beat); err != nil && ctx.Err() == nil {
+		slog.WarnContext(ctx, "recording the indexer's beat", "err", err)
+	}
 }
 
 // recognise reads the next scan in the queue, and reports whether the loop
@@ -481,6 +556,7 @@ func (ix *Indexer) recognise(ctx context.Context, wake <-chan struct{}) bool {
 	if !found {
 		return false
 	}
+	ix.enter(ctx, "recognising")
 
 	stop, finished := make(chan struct{}), make(chan struct{})
 	woken := make(chan bool, 1)

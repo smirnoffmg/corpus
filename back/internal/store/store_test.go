@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -349,4 +350,42 @@ func TestSchemaIndexesHashesAndKeepsNormalisationParallelSafe(t *testing.T) {
 	var parallel string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT proparallel::text FROM pg_proc WHERE proname = 'corpus_normalize_title'`).Scan(&parallel))
 	require.Equal(t, "s", parallel)
+}
+
+func TestTheIndexersLastBeatIsKeptAndReadBack(t *testing.T) {
+	st, _, ctx := open(t)
+
+	_, found, err := st.Pulse(ctx)
+	require.NoError(t, err)
+	require.False(t, found, "a pulse before any beat")
+
+	started := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
+	first := corpus.Beat{Phase: "indexing", PhaseFrom: started, Started: started, Interval: 15 * time.Minute, Settings: map[string]string{"model": "bge-m3"}}
+	require.NoError(t, st.Beat(ctx, &first))
+	second := first
+	second.Phase, second.PhaseFrom = "waiting", started.Add(2*time.Minute)
+	second.LastPass, second.LastTook, second.LastError = started.Add(2*time.Minute), 2*time.Minute, "ollama: connection refused"
+	require.NoError(t, st.Beat(ctx, &second))
+
+	pulse, found, err := st.Pulse(ctx)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, "waiting", pulse.Phase, "the second beat replaces the first")
+	require.True(t, pulse.PhaseFrom.Equal(second.PhaseFrom))
+	require.True(t, pulse.Started.Equal(started))
+	require.True(t, pulse.LastPass.Equal(second.LastPass))
+	require.Equal(t, 2*time.Minute, pulse.LastTook)
+	require.Equal(t, "ollama: connection refused", pulse.LastError)
+	require.Equal(t, 15*time.Minute, pulse.Interval)
+	require.Equal(t, "bge-m3", pulse.Settings["model"])
+	require.False(t, pulse.At.After(pulse.Now), "the beat is stamped by the database's clock")
+}
+
+func TestABeatBeforeAnyFinishedPassHasNoLastPass(t *testing.T) {
+	st, _, ctx := open(t)
+
+	require.NoError(t, st.Beat(ctx, &corpus.Beat{Phase: "indexing", PhaseFrom: time.Now(), Started: time.Now()}))
+	pulse, _, err := st.Pulse(ctx)
+	require.NoError(t, err)
+	require.True(t, pulse.LastPass.IsZero())
 }

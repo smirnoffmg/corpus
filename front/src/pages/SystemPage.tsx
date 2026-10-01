@@ -1,14 +1,42 @@
 import { useEffect, useState } from 'react'
-import { sources, status as fetchStatus, type Kind, type SourceStatus, type Status } from '../api'
+import { sources, status as fetchStatus, type IndexerPulse, type Kind, type SourceStatus, type Status } from '../api'
 import { kindFilters } from '../kinds'
 import { progress, totalsByKind, withoutVector, type KindTotal } from '../library'
-import { plural } from '../text'
+import { duration, plural } from '../text'
 
 const kindLabel = Object.fromEntries(kindFilters.map((f) => [f.value, f.label])) as Record<Kind, string>
 
 const answers = (ok: boolean) => (ok ? 'Работает' : 'Не отвечает')
 
 const rerankerLabel: Record<NonNullable<Status['reranker']>, string> = { ok: 'Работает', unreachable: 'Не отвечает', off: 'Выключен' }
+
+const phaseLabel: Record<IndexerPulse['phase'], string> = {
+  indexing: 'Читает файлы',
+  embedding: 'Векторизует',
+  recognising: 'Распознаёт сканы',
+  waiting: 'Ждёт следующего прохода',
+}
+
+function indexerState(p?: IndexerPulse): string {
+  if (!p) return 'Ещё не отзывался'
+  if (!p.alive) return `Молчит ${duration(p.silent_seconds)}`
+  return `${phaseLabel[p.phase]} · ${duration(p.phase_seconds)}`
+}
+
+function indexerDetails(p: IndexerPulse): [string, string][] {
+  const rows: [string, string][] = [
+    ['Работает', duration(p.up_seconds)],
+    ['Последний проход', p.last_pass_ago_seconds === undefined
+      ? 'Ещё не было'
+      : `${duration(p.last_pass_ago_seconds)} назад, длился ${duration(p.last_pass_seconds ?? 0)}`],
+  ]
+  if (p.alive && p.phase === 'waiting') {
+    const left = p.interval_seconds - p.phase_seconds
+    rows.push(['Следующий проход', left > 0 ? `через ${duration(left)}` : 'вот-вот'])
+  }
+  if (p.last_error) rows.push(['Последняя ошибка', p.last_error])
+  return rows
+}
 
 function services(s: Status): [string, string][] {
   const model = s.settings?.model
@@ -18,6 +46,7 @@ function services(s: Status): [string, string][] {
   ]
   if (s.reranker) rows.push(['Реранкер', rerankerLabel[s.reranker]])
   if (s.uploads !== undefined) rows.push(['Загрузка файлов', s.uploads ? 'Включена' : 'Выключена'])
+  rows.push(['Индексатор', indexerState(s.indexer)])
   return rows
 }
 
@@ -58,7 +87,6 @@ export function SystemPage({ pollMs = 5000 }: { pollMs?: number }) {
   }, [pollMs])
 
   const status = snapshot?.status
-  const settings = Object.entries(status?.settings ?? {}).sort(([a], [b]) => a.localeCompare(b))
 
   return (
     <div className="system">
@@ -126,26 +154,49 @@ export function SystemPage({ pollMs = 5000 }: { pollMs?: number }) {
             </table>
           </div>
 
-          {settings.length > 0 && (
+          {status.indexer && (
             <>
-              <h2 id="system-settings">Настройки</h2>
-              <p className="quiet">Задаются флагами при запуске сервера; здесь только для просмотра.</p>
-              <table aria-labelledby="system-settings">
+              <h2 id="system-indexer">Индексатор</h2>
+              <table aria-labelledby="system-indexer">
                 <tbody>
-                  {settings.map(([name, value]) => (
+                  {indexerDetails(status.indexer).map(([name, value]) => (
                     <tr key={name}>
-                      <th scope="row">
-                        <code>{name}</code>
-                      </th>
-                      <td className="detail">{value || <span className="quiet">не задано</span>}</td>
+                      <th scope="row">{name}</th>
+                      <td className="detail">{value}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </>
           )}
+
+          <Settings id="system-server-settings" title="Настройки сервера" values={status.settings} />
+          <Settings id="system-indexer-settings" title="Настройки индексатора" values={status.indexer?.settings} />
+          {(status.settings || status.indexer) && <p className="quiet">Задаются флагами при запуске; здесь только для просмотра.</p>}
         </>
       )}
     </div>
+  )
+}
+
+function Settings({ id, title, values }: { id: string; title: string; values?: Record<string, string> }) {
+  const rows = Object.entries(values ?? {}).sort(([a], [b]) => a.localeCompare(b))
+  if (rows.length === 0) return null
+  return (
+    <>
+      <h2 id={id}>{title}</h2>
+      <table aria-labelledby={id}>
+        <tbody>
+          {rows.map(([name, value]) => (
+            <tr key={name}>
+              <th scope="row">
+                <code>{name}</code>
+              </th>
+              <td className="detail">{value || <span className="quiet">не задано</span>}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </>
   )
 }

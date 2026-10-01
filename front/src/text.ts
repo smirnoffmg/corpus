@@ -72,3 +72,19 @@ export function plural(n: number, [one, few, many]: [string, string, string]): s
   if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few
   return many
 }
+
+const units: [number, string][] = [[86400, 'дн'], [3600, 'ч'], [60, 'мин'], [1, 'с']]
+
+// duration names a span by its two largest units, the way one says it aloud:
+// "2 ч 10 мин", never "2 ч 10 мин 3 с".
+export function duration(seconds: number): string {
+  let rest = Math.max(0, Math.round(seconds))
+  const parts: string[] = []
+  for (const [size, name] of units) {
+    const n = Math.floor(rest / size)
+    rest -= n * size
+    if (n && parts.length < 2) parts.push(`${n} ${name}`)
+    else if (parts.length) break
+  }
+  return parts.join(' ') || '0 с'
+}

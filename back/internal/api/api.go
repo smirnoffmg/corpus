@@ -36,6 +36,7 @@ type Store interface {
 	Sources(ctx context.Context, kind, prefix string) ([]corpus.SourceStatus, error)
 	RequestReindex(ctx context.Context) error
 	Bodies(ctx context.Context, ids []int64, chars int) (map[int64]string, error)
+	Pulse(ctx context.Context) (corpus.Pulse, bool, error)
 }
 
 // Library is where uploads go: books, publications and manuals, into the
@@ -115,6 +116,33 @@ const (
 	// this is the smallest value that buys all of it.
 	defaultTitleBoost = 0.3
 )
+
+// indexerSilence is how long the indexer may go unheard before it is taken for
+// stopped: three of its beats, so one slow write does not report it dead.
+const indexerSilence = 3 * corpus.BeatEvery
+
+// indexerStatus ages the beat by the database's clock, where it was stamped.
+func indexerStatus(p *corpus.Pulse) map[string]any {
+	seconds := func(d time.Duration) int64 { return int64(d.Round(time.Second) / time.Second) }
+	silent := p.Now.Sub(p.At)
+	out := map[string]any{
+		"alive":            silent < indexerSilence,
+		"phase":            p.Phase,
+		"silent_seconds":   seconds(silent),
+		"phase_seconds":    seconds(p.Now.Sub(p.PhaseFrom)),
+		"up_seconds":       seconds(p.Now.Sub(p.Started)),
+		"interval_seconds": seconds(p.Interval),
+		"settings":         p.Settings,
+	}
+	if !p.LastPass.IsZero() {
+		out["last_pass_ago_seconds"] = seconds(p.Now.Sub(p.LastPass))
+		out["last_pass_seconds"] = seconds(p.LastTook)
+	}
+	if p.LastError != "" {
+		out["last_error"] = p.LastError
+	}
+	return out
+}
 
 type searchInput struct {
 	Query     string `json:"query" jsonschema:"words to look for; supports quoted phrases and -exclusions"`
@@ -432,6 +460,9 @@ func (s *Service) Handler() http.Handler {
 		status["uploads"] = s.library != nil
 		if s.settings != nil {
 			status["settings"] = s.settings
+		}
+		if pulse, found, err := s.store.Pulse(r.Context()); err == nil && found {
+			status["indexer"] = indexerStatus(&pulse)
 		}
 		writeJSON(w, status)
 	})

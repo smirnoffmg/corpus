@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { blocks, highlightSegments, plural } from './text'
+import { blocks, highlightSegments, plural, duration } from './text'
 
 describe('highlightSegments', () => {
   it('splits a ts_headline snippet into marked and plain runs', () => {
@@ -54,5 +54,15 @@ describe('plural', () => {
     [11, 'фрагментов'], [12, 'фрагментов'], [21, 'фрагмент'], [22, 'фрагмента'], [0, 'фрагментов'], [111, 'фрагментов'],
   ])('%i → %s', (n, want) => {
     expect(plural(n, forms)).toBe(want)
+  })
+})
+
+describe('duration', () => {
+  it('says seconds, minutes, hours and days, the two largest units', () => {
+    expect(duration(40)).toBe('40 с')
+    expect(duration(300)).toBe('5 мин')
+    expect(duration(7800)).toBe('2 ч 10 мин')
+    expect(duration(7200)).toBe('2 ч')
+    expect(duration(3 * 86400 + 4 * 3600 + 59)).toBe('3 дн 4 ч')
   })
 })

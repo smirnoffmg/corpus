@@ -42,6 +42,32 @@ type Scan struct {
 	Recognised int
 }
 
+// Beat is what the indexer says about itself. It runs in a process of its own,
+// and the server has no other way to know whether it is alive or what it does.
+type Beat struct {
+	Phase     string // indexing, embedding, recognising or waiting
+	PhaseFrom time.Time
+	Started   time.Time     // when the process started
+	LastPass  time.Time     // zero until a pass has finished
+	LastTook  time.Duration // how long that pass took
+	LastError string        // the last pass's first error; empty when it had none
+	Interval  time.Duration // the pause between passes
+	Settings  map[string]string
+}
+
+// BeatEvery is how often a running indexer beats. A reader takes a few missed
+// beats in a row, not one, for a stopped indexer.
+const BeatEvery = 30 * time.Second
+
+// Pulse is the last beat as the server reads it. At and Now are both the
+// database's clock, so how long the indexer has been silent does not depend on
+// two processes agreeing on the time.
+type Pulse struct {
+	Beat
+	At  time.Time
+	Now time.Time
+}
+
 // Query is everything a search takes. As a struct rather than six positional
 // arguments, because half of them are ints and the compiler cannot tell them
 // apart.

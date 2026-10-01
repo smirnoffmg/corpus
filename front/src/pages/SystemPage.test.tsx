@@ -1,7 +1,7 @@
 import { render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { describe, expect, it } from 'vitest'
-import type { SourceRow, Status } from '../api'
+import type { IndexerPulse, SourceRow, Status } from '../api'
 import { stubApi } from '../test/fetch'
 import { SystemPage } from './SystemPage'
 
@@ -60,9 +60,45 @@ describe('SystemPage', () => {
     stubApi((url) => (url.pathname === '/api/status' ? { body: status() } : { body: { sources: [] } }))
     renderSystem()
 
-    const settings = await screen.findByRole('table', { name: 'Настройки' })
+    const settings = await screen.findByRole('table', { name: 'Настройки сервера' })
     expect(rowOf(settings, 'model')).toHaveTextContent('bge-m3')
     expect(rowOf(settings, 'ollama')).toHaveTextContent('http://host.docker.internal:11434')
+  })
+
+  it('shows the indexer at work, its last pass and its own settings', async () => {
+    const indexer: IndexerPulse = {
+      alive: true, phase: 'waiting', silent_seconds: 10, phase_seconds: 180, up_seconds: 7800,
+      last_pass_ago_seconds: 180, last_pass_seconds: 95, last_error: 'ollama: connection refused',
+      interval_seconds: 900, settings: { ocr: '/data/ocr', interval: '15m0s' },
+    }
+    stubApi((url) => (url.pathname === '/api/status' ? { body: status({ indexer }) } : { body: { sources: [] } }))
+    renderSystem()
+
+    const services = await screen.findByRole('table', { name: 'Службы' })
+    expect(rowOf(services, 'Индексатор')).toHaveTextContent('Ждёт следующего прохода · 3 мин')
+    const details = screen.getByRole('table', { name: 'Индексатор' })
+    expect(rowOf(details, 'Работает')).toHaveTextContent('2 ч 10 мин')
+    expect(rowOf(details, 'Последний проход')).toHaveTextContent('3 мин назад, длился 1 мин 35 с')
+    expect(rowOf(details, 'Следующий проход')).toHaveTextContent('через 12 мин')
+    expect(rowOf(details, 'Последняя ошибка')).toHaveTextContent('ollama: connection refused')
+    expect(rowOf(screen.getByRole('table', { name: 'Настройки индексатора' }), 'ocr')).toHaveTextContent('/data/ocr')
+  })
+
+  it('says when the indexer has gone silent', async () => {
+    const indexer: IndexerPulse = { alive: false, phase: 'recognising', silent_seconds: 600, phase_seconds: 4000, up_seconds: 9000, interval_seconds: 900, settings: {} }
+    stubApi((url) => (url.pathname === '/api/status' ? { body: status({ indexer }) } : { body: { sources: [] } }))
+    renderSystem()
+
+    const services = await screen.findByRole('table', { name: 'Службы' })
+    expect(rowOf(services, 'Индексатор')).toHaveTextContent('Молчит 10 мин')
+    expect(rowOf(screen.getByRole('table', { name: 'Индексатор' }), 'Последний проход')).toHaveTextContent('Ещё не было')
+  })
+
+  it('says when the indexer has never been heard from', async () => {
+    stubApi((url) => (url.pathname === '/api/status' ? { body: status() } : { body: { sources: [] } }))
+    renderSystem()
+    const services = await screen.findByRole('table', { name: 'Службы' })
+    expect(rowOf(services, 'Индексатор')).toHaveTextContent('Ещё не отзывался')
   })
 
   it('keeps itself current', async () => {

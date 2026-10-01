@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -1352,4 +1353,89 @@ func TestAnEbookIsABookCitedBySectionAndDescribedByItsOwnMetadata(t *testing.T) 
 	if authors, _ := draft["author"].([]map[string]any); len(authors) != 1 || authors[0]["family"] != "Толстой" {
 		t.Errorf("draft author = %v", draft["author"])
 	}
+}
+
+// beats records what the indexer says about itself, in order.
+type beats struct {
+	mu  sync.Mutex
+	got []corpus.Beat
+}
+
+func (b *beats) record(_ context.Context, beat *corpus.Beat) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.got = append(b.got, *beat)
+	return nil
+}
+
+func (b *beats) all() []corpus.Beat {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return slices.Clone(b.got)
+}
+
+func TestRunSaysWhatItIsDoingAndWhenAPassFinished(t *testing.T) {
+	notes, books := vault(t, 1)
+	store := newStore()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	heard := &beats{}
+	ix := index.New(store, nopEmbedder{}, index.Options{
+		Books: books, Vault: notes,
+		Beat: heard.record, Settings: map[string]string{"model": "bge-m3"},
+	})
+	go func() {
+		for ctx.Err() == nil {
+			if got := heard.all(); len(got) > 0 && got[len(got)-1].Phase == "waiting" {
+				cancel()
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}()
+
+	runFor(t, ix, ctx, time.Hour, nil)
+
+	var phases []string
+	for _, b := range heard.all() {
+		if len(phases) == 0 || phases[len(phases)-1] != b.Phase {
+			phases = append(phases, b.Phase)
+		}
+	}
+	if !slices.Equal(phases[:3], []string{"indexing", "embedding", "waiting"}) {
+		t.Errorf("phases = %v, want indexing, embedding, waiting", phases)
+	}
+	last := heard.all()[len(heard.all())-1]
+	if last.LastPass.IsZero() || last.Started.IsZero() || last.PhaseFrom.IsZero() {
+		t.Errorf("last beat = %+v, want a finished pass, a start and a phase start", last)
+	}
+	if last.Interval != time.Hour || last.Settings["model"] != "bge-m3" {
+		t.Errorf("last beat = %+v, want the interval and the settings it runs with", last)
+	}
+}
+
+// A pass or a recognition can take hours; the beat goes on meanwhile, so a
+// silent indexer reads as a stopped one.
+func TestRunBeatsWhileAPhaseLasts(t *testing.T) {
+	notes, books := vault(t, 1)
+	store := newStore()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	heard := &beats{}
+	ix := index.New(store, nopEmbedder{}, index.Options{Books: books, Vault: notes, Beat: heard.record, BeatEvery: 5 * time.Millisecond})
+	go func() {
+		for ctx.Err() == nil {
+			waiting := 0
+			for _, b := range heard.all() {
+				if b.Phase == "waiting" {
+					waiting++
+				}
+			}
+			if waiting >= 3 {
+				cancel()
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}()
+
+	runFor(t, ix, ctx, time.Hour, nil)
 }

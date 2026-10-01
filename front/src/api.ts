@@ -141,6 +141,21 @@ export interface StyleInfo {
   title: string
 }
 
+// IndexerPulse is the indexer's last beat; every age is counted by the
+// database's clock, never the browser's.
+export interface IndexerPulse {
+  alive: boolean
+  phase: 'indexing' | 'embedding' | 'recognising' | 'waiting'
+  silent_seconds: number
+  phase_seconds: number
+  up_seconds: number
+  last_pass_ago_seconds?: number
+  last_pass_seconds?: number
+  last_error?: string
+  interval_seconds: number
+  settings: Record<string, string>
+}
+
 export interface Status {
   sources: number
   chunks: number
@@ -153,6 +168,7 @@ export interface Status {
   searches_without_vectors?: number
   hnsw_ef_search?: number
   settings?: Record<string, string> // the server's flags, as it started with them
+  indexer?: IndexerPulse
 }
 
 // SearchParams mirrors every knob /search takes, including the ones the page

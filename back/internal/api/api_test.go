@@ -26,6 +26,14 @@ type fakeStore struct {
 	reindexRequests int
 	bodies          map[int64]string
 	lastBodyChars   int
+	pulse           *corpus.Pulse
+}
+
+func (f *fakeStore) Pulse(context.Context) (corpus.Pulse, bool, error) {
+	if f.pulse == nil {
+		return corpus.Pulse{}, false, nil
+	}
+	return *f.pulse, true, nil
 }
 
 func (f *fakeStore) Bodies(_ context.Context, ids []int64, chars int) (map[int64]string, error) {
