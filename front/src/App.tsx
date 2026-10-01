@@ -6,6 +6,7 @@ import { LibraryPage } from './pages/LibraryPage'
 import { PaperPage } from './pages/PaperPage'
 import { ReaderPage } from './pages/ReaderPage'
 import { SearchPage } from './pages/SearchPage'
+import { SystemPage } from './pages/SystemPage'
 import { VaultContext } from './vault'
 
 export function App() {
@@ -31,6 +32,7 @@ export function App() {
             Поиск
           </NavLink>
           <NavLink to="/library">Библиотека</NavLink>
+          <NavLink to="/system">Система</NavLink>
         </nav>
       </header>
       {status?.embedder === 'unreachable' && (
@@ -43,6 +45,7 @@ export function App() {
           <Route path="/" element={<SearchPage status={status} />} />
           <Route path="/read/:id" element={<ReaderPage />} />
           <Route path="/library" element={<LibraryPage />} />
+          <Route path="/system" element={<SystemPage />} />
           <Route path="/describe" element={<DescribePage />} />
           <Route path="/paper" element={<PaperPage />} />
           <Route

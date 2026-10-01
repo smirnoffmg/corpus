@@ -40,6 +40,14 @@ func vaultNameFrom(dir string) string {
 	return filepath.Base(filepath.Clean(dir))
 }
 
+// flagValues is every flag as it was set or defaulted. Secrets stay out of it
+// because none arrives as a flag: the database URL comes from the environment.
+func flagValues() map[string]string {
+	values := map[string]string{}
+	flag.VisitAll(func(f *flag.Flag) { values[f.Name] = f.Value.String() })
+	return values
+}
+
 func run() error {
 	addr := flag.String("addr", ":8080", "listen address")
 	ollama := flag.String("ollama", "http://host.docker.internal:11434", "ollama base URL")
@@ -86,7 +94,7 @@ func run() error {
 	}
 
 	lookup := cite.NewLookup()
-	opts := []api.Option{api.WithVault(*vaultName), api.WithBibliography(st, lookup), api.WithCitations(st), api.WithBookFinder(lookup)}
+	opts := []api.Option{api.WithSettings(flagValues()), api.WithVault(*vaultName), api.WithBibliography(st, lookup), api.WithCitations(st), api.WithBookFinder(lookup)}
 	if *reranker != "" {
 		opts = append(opts, api.WithReranker(rerank.New(*reranker)))
 	}

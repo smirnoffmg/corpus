@@ -148,6 +148,11 @@ export interface Status {
   embedder: string
   degraded?: string
   vault?: string
+  reranker?: 'ok' | 'unreachable' | 'off'
+  uploads?: boolean
+  searches_without_vectors?: number
+  hnsw_ef_search?: number
+  settings?: Record<string, string> // the server's flags, as it started with them
 }
 
 // SearchParams mirrors every knob /search takes, including the ones the page

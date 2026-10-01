@@ -976,3 +976,30 @@ td.description-draft a {
   font-size: 0.9rem;
   margin-top: 0.15rem;
 }
+
+/* System */
+
+.system h1 {
+  font-size: 2rem;
+  margin-block: 1rem 1.5rem;
+}
+
+.system h2 {
+  font-size: 1.2rem;
+  margin-block: 2rem 0.75rem;
+}
+
+.system table {
+  max-width: 44rem;
+}
+
+.system tbody th {
+  padding: 0.55rem 1rem 0.55rem 0;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+
+.system td:last-child {
+  white-space: normal;
+}

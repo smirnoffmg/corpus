@@ -49,6 +49,15 @@ describe('App', () => {
     expect(screen.getByRole('link', { name: 'Библиотека' })).toHaveAttribute('aria-current', 'page')
   })
 
+  it('routes to the system page and marks it current', async () => {
+    stubApi((url) => (url.pathname === '/api/status'
+      ? { body: { sources: 1, chunks: 2, db: 'ok', embedder: 'ok' } }
+      : { body: { sources: [] } }))
+    renderApp('/system')
+    expect(await screen.findByRole('heading', { name: 'Система' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Система' })).toHaveAttribute('aria-current', 'page')
+  })
+
   it('has a way back from an address that leads nowhere', async () => {
     stubApi(() => ({ body: { sources: 1, chunks: 2, db: 'ok', embedder: 'ok' } }))
     renderApp('/nowhere')

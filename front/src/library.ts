@@ -36,6 +36,32 @@ export function combine(rows: SourceStatus[]): Tally {
   )
 }
 
+export interface KindTotal extends Indexed {
+  kind: Kind
+  sources: number
+  scans: number // not yet recognised, so not yet sources
+  scansFailed: number
+}
+
+const kindOrder: Kind[] = ['book', 'paper', 'docs', 'vault']
+
+export function totalsByKind(list: SourceStatus[]): KindTotal[] {
+  const totals = kindOrder.map((kind): KindTotal => ({ kind, ...nothingYet, sources: 0, scans: 0, scansFailed: 0 }))
+  for (const s of list) {
+    const t = totals[kindOrder.indexOf(s.kind)]
+    if (s.stage === 'scan') {
+      t.scans++
+      if (s.failed) t.scansFailed++
+      continue
+    }
+    t.sources++
+    t.chunks += s.chunks
+    t.embedded += s.embedded
+    t.quarantined += s.quarantined
+  }
+  return totals
+}
+
 export interface Manual extends Indexed {
   name: string
   description: Description
@@ -121,7 +147,7 @@ export function originalLabel(kind: Kind): string {
   return kind === 'vault' ? 'Открыть в Obsidian' : 'Открыть оригинал'
 }
 
-const withoutVector: [string, string, string] = ['фрагмент без вектора', 'фрагмента без вектора', 'фрагментов без вектора']
+export const withoutVector: [string, string, string] = ['фрагмент без вектора', 'фрагмента без вектора', 'фрагментов без вектора']
 
 export function stateLabel(t: Tally): string {
   const { state, fraction } = progress(t)

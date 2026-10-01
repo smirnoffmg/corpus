@@ -30,6 +30,18 @@ const (
 
 const rerankNotice = "Reranking was asked for, but the reranker is unavailable: these hits are in the fused order, unreranked."
 
+func (s *Service) probeReranker(ctx context.Context) string {
+	if s.reranker == nil {
+		return "off"
+	}
+	ctx, cancel := context.WithTimeout(ctx, s.statusTimeout)
+	defer cancel()
+	if _, err := s.reranker.Rerank(ctx, "проверка", []string{"проверка"}); err != nil {
+		return "unreachable"
+	}
+	return "ok"
+}
+
 // rerank reorders the first rerankDepth hits by the reranker's score and keeps
 // the rest behind them. Any failure leaves the fused order, which is a good
 // answer, only a less sorted one.

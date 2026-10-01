@@ -57,6 +57,7 @@ type Service struct {
 	library   Library
 	maxUpload int64
 	vault     string
+	settings  map[string]string
 
 	citations          Citations
 	bibliography       Bibliography
@@ -86,6 +87,12 @@ func WithLibrary(lib Library, maxBytes int64) Option {
 // to notes; the name is the vault directory's.
 func WithVault(name string) Option {
 	return func(s *Service) { s.vault = name }
+}
+
+// WithSettings lists the configuration the process runs with, for /status to
+// show; nothing here is read back.
+func WithSettings(settings map[string]string) Option {
+	return func(s *Service) { s.settings = settings }
 }
 
 func New(store Store, embedder Embedder, opts ...Option) *Service {
@@ -420,6 +427,11 @@ func (s *Service) Handler() http.Handler {
 		if err := s.probeEmbedder(r.Context()); err != nil {
 			status["embedder"] = "unreachable"
 			status["degraded"] = "search is running on full text alone; vectors are not being written"
+		}
+		status["reranker"] = s.probeReranker(r.Context())
+		status["uploads"] = s.library != nil
+		if s.settings != nil {
+			status["settings"] = s.settings
 		}
 		writeJSON(w, status)
 	})

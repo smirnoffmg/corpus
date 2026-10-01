@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { IndexedSource } from './api'
-import { combine, groupManuals, manualName, originalUrl, progress, stateLabel } from './library'
+import { combine, groupManuals, totalsByKind, manualName, originalUrl, progress, stateLabel } from './library'
 
 const indexed = (chunks: number, embedded: number, quarantined: number) => ({ stage: 'indexed' as const, chunks, embedded, quarantined })
 const scan = (pages: number, recognised: number, failed = false) => ({ stage: 'scan' as const, pages, recognised, failed })
@@ -40,6 +40,22 @@ describe('combine', () => {
   })
   it('is waiting while the upload has no row yet', () => {
     expect(combine([])).toEqual(indexed(0, 0, 0))
+  })
+})
+
+describe('totalsByKind', () => {
+  it('sums every kind, scans waiting for recognition counted apart', () => {
+    const totals = totalsByKind([
+      source({ kind: 'book', chunks: 10, embedded: 4 }),
+      source({ kind: 'book', chunks: 6, embedded: 4, quarantined: 2 }),
+      { stage: 'scan', kind: 'book', path: 'a.pdf', title: 'a', pages: 10, recognised: 4, failed: false },
+      { stage: 'scan', kind: 'book', path: 'b.pdf', title: 'b', pages: 10, recognised: 0, failed: true },
+      source({ kind: 'vault', chunks: 3, embedded: 3 }),
+    ])
+    expect(totals.map((t) => t.kind)).toEqual(['book', 'paper', 'docs', 'vault'])
+    expect(totals[0]).toEqual({ kind: 'book', stage: 'indexed', sources: 2, chunks: 16, embedded: 8, quarantined: 2, scans: 2, scansFailed: 1 })
+    expect(totals[1]).toEqual({ kind: 'paper', stage: 'indexed', sources: 0, chunks: 0, embedded: 0, quarantined: 0, scans: 0, scansFailed: 0 })
+    expect(totals[3]).toMatchObject({ sources: 1, chunks: 3, embedded: 3 })
   })
 })
 
