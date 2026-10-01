@@ -22,15 +22,27 @@ func (s *Store) Sources(ctx context.Context, kind, prefix string) ([]corpus.Sour
 		       scan_pages, scan_recognised, scan_failed, scan_error
 		FROM (
 		    SELECT s.kind, s.path, s.title, s.indexed_at,
-		           count(c.id) AS chunks,
-		           count(c.id) FILTER (WHERE e.embedding IS NOT NULL) AS embedded,
-		           count(c.id) FILTER (WHERE e.embedding IS NULL AND e.attempts >= $3) AS quarantined,
-		           coalesce(min(b.status), '') AS description,
+		           coalesce(n.chunks, 0) AS chunks,
+		           coalesce(n.embedded, 0) AS embedded,
+		           coalesce(n.quarantined, 0) AS quarantined,
+		           coalesce(b.status, '') AS description,
 		           s.recognised AS ocr,
 		           0 AS scan_pages, 0 AS scan_recognised, false AS scan_failed, '' AS scan_error
 		    FROM sources s
-		    LEFT JOIN chunks c ON c.source_id = s.id
-		    LEFT JOIN embeddings e ON e.hash = c.embed_hash
+		    -- Counted before the join, and only for the sources listed. Joined
+		    -- first, the planner took every source for as many chunks as the
+		    -- average one, so a book's 200 read as 25, and it probed the
+		    -- embeddings once per chunk: 235 ms for the books, 95 ms this way.
+		    LEFT JOIN (
+		        SELECT c.source_id,
+		               count(*) AS chunks,
+		               count(*) FILTER (WHERE e.embedding IS NOT NULL) AS embedded,
+		               count(*) FILTER (WHERE e.embedding IS NULL AND e.attempts >= $3) AS quarantined
+		        FROM chunks c
+		        LEFT JOIN embeddings e ON e.hash = c.embed_hash
+		        WHERE c.source_id IN (SELECT id FROM sources WHERE ($1 = '' OR kind = $1) AND starts_with(path, $2))
+		        GROUP BY c.source_id
+		    ) n ON n.source_id = s.id
 		    LEFT JOIN bibliography b ON b.key = CASE s.kind
 		        WHEN 'book' THEN s.hash
 		        WHEN 'paper' THEN s.hash
@@ -38,7 +50,6 @@ func (s *Store) Sources(ctx context.Context, kind, prefix string) ([]corpus.Sour
 		    END
 		    WHERE ($1 = '' OR s.kind = $1)
 		      AND starts_with(s.path, $2)
-		    GROUP BY s.id
 
 		    UNION ALL
 
