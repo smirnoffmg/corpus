@@ -204,7 +204,10 @@ func (s *Store) SharedCitations(ctx context.Context, a, b string) ([]corpus.Cita
 // copy of it.
 func (s *Store) ResolveCitations(ctx context.Context) (int64, error) {
 	tag, err := s.pool.Exec(ctx, `
-		WITH head AS (
+		-- Each side is normalised once, MATERIALIZED, and joined on equality. As
+		-- a lateral test of every citation against every description, with the
+		-- CTEs inlined, the regexps ran millions of times: 16 s a pass.
+		WITH head AS MATERIALIZED (
 		    SELECT s.hash, s.kind, s.path,
 		           left(corpus_normalize_title(string_agg(c.body, ' ' ORDER BY c.ord)), $1) AS text
 		    FROM sources s
@@ -212,30 +215,29 @@ func (s *Store) ResolveCitations(ctx context.Context) (int64, error) {
 		     AND c.page = (SELECT min(x.page) FROM chunks x WHERE x.source_id = s.id)
 		    WHERE s.kind IN ('paper', 'book')
 		    GROUP BY s.hash, s.kind, s.path
-		), titled AS (
-		    SELECT c.paper, c.list, c.ord, corpus_normalize_title(c.title) AS title
+		), cited AS MATERIALIZED (
+		    SELECT c.paper, c.list, c.ord, lower(c.doi) AS doi, c.isbn, c.year,
+		           CASE WHEN c.title IS NOT NULL THEN corpus_normalize_title(c.title) END AS title
 		    FROM citations c
-		    WHERE c.title IS NOT NULL
+		), described AS MATERIALIZED (
+		    SELECT b.key, lower(b.csl->>'DOI') AS doi,
+		           coalesce(b.csl->>'type', 'book') = 'book' AS book,
+		           translate(coalesce(b.csl->>'ISBN', ''), '- ', '') AS isbn,
+		           corpus_normalize_title(b.csl->>'title') AS title,
+		           (b.csl#>>'{issued,date-parts,0,0}')::int AS year
+		    FROM bibliography b
 		), candidate AS (
-		    SELECT c.paper, c.list, c.ord, b.key, x.how, x.rank, 0 AS shelf, '' AS path
-		    FROM citations c
-		    JOIN bibliography b ON b.key <> c.paper
-		    CROSS JOIN LATERAL (
-		        SELECT 'doi' AS how, 1 AS rank
-		        WHERE c.doi IS NOT NULL AND lower(b.csl->>'DOI') = lower(c.doi)
-		        UNION ALL
-		        SELECT 'isbn', 2
-		        WHERE c.isbn IS NOT NULL AND coalesce(b.csl->>'type', 'book') = 'book'
-		          AND translate(coalesce(b.csl->>'ISBN', ''), '- ', '') LIKE '%' || c.isbn || '%'
-		        UNION ALL
-		        SELECT 'title', 3
-		        WHERE c.title IS NOT NULL AND c.year IS NOT NULL
-		          AND corpus_normalize_title(b.csl->>'title') = corpus_normalize_title(c.title)
-		          AND (b.csl#>>'{issued,date-parts,0,0}')::int = c.year
-		    ) x
+		    SELECT c.paper, c.list, c.ord, b.key, 'doi' AS how, 1 AS rank, 0 AS shelf, '' AS path
+		    FROM cited c JOIN described b ON b.doi = c.doi AND b.key <> c.paper
+		    UNION ALL
+		    SELECT c.paper, c.list, c.ord, b.key, 'isbn', 2, 0, ''
+		    FROM cited c JOIN described b ON b.book AND b.key <> c.paper AND b.isbn LIKE '%' || c.isbn || '%'
+		    UNION ALL
+		    SELECT c.paper, c.list, c.ord, b.key, 'title', 3, 0, ''
+		    FROM cited c JOIN described b ON b.title = c.title AND b.year = c.year AND b.key <> c.paper
 		    UNION ALL
 		    SELECT t.paper, t.list, t.ord, h.hash, 'page', 4, CASE h.kind WHEN 'paper' THEN 0 ELSE 1 END, h.path
-		    FROM titled t
+		    FROM cited t
 		    JOIN head h ON h.hash <> t.paper AND position(t.title IN h.text) > 0
 		    WHERE array_length(string_to_array(t.title, ' '), 1) >= $2
 		), picked AS (
