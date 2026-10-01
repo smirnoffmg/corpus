@@ -321,3 +321,32 @@ func TestCleaningTheTextIndexEmptiesItsPendingList(t *testing.T) {
 		FROM pg_class WHERE relname = 'chunks'`).Scan(&scale))
 	require.Equal(t, "0.05", scale)
 }
+
+// A chunk's place in its source is what reading the next page walks by, so two
+// chunks may not share it; the code that writes them was the only guard.
+func TestTwoChunksCannotShareAPlaceInTheirSource(t *testing.T) {
+	st, pool, ctx := open(t)
+
+	src := corpus.Source{Kind: "book", Path: "__test__/ord.pdf", Title: "Порядок", Hash: "h1"}
+	require.NoError(t, st.Replace(ctx, src, []corpus.Chunk{{Ord: 1, Page: 1, Lang: "russian", Body: "первая"}}))
+
+	_, err := pool.Exec(ctx, `
+		INSERT INTO chunks (source_id, ord, page, lang, body, tsv, embed_hash)
+		SELECT source_id, ord, page, lang, 'вторая', tsv, embed_hash FROM chunks`)
+	require.ErrorContains(t, err, "chunks_source_ord")
+}
+
+// Citations are matched to files by content hash; correctness does not need an
+// index, but what the planner may use is part of the schema.
+func TestSchemaIndexesHashesAndKeepsNormalisationParallelSafe(t *testing.T) {
+	_, pool, ctx := open(t)
+
+	var indexed bool
+	require.NoError(t, pool.QueryRow(ctx, `
+		SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = 'sources' AND indexdef LIKE '%(hash)%')`).Scan(&indexed))
+	require.True(t, indexed, "sources.hash has no index")
+
+	var parallel string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT proparallel::text FROM pg_proc WHERE proname = 'corpus_normalize_title'`).Scan(&parallel))
+	require.Equal(t, "s", parallel)
+}
