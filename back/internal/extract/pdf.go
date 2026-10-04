@@ -54,6 +54,12 @@ func PaperText(ctx context.Context, path string) ([]string, error) {
 	return pdfPages(ctx, path, "-raw")
 }
 
+// PDFPages is the text layer of each page, in the layout the splitter reads;
+// the element past the last page is the empty tail pdftotext leaves.
+func PDFPages(ctx context.Context, path string) ([]string, error) {
+	return pdfPages(ctx, path, "-layout")
+}
+
 func pdfPages(ctx context.Context, path, mode string) ([]string, error) {
 	out, err := exec.CommandContext(ctx, "pdftotext", mode, "-enc", "UTF-8", path, "-").Output()
 	if err != nil {

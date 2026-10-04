@@ -92,6 +92,12 @@ func (s Service) Pages(ctx context.Context, pdf string) (int, error) {
 	return s.Engine.Pages(ctx, pdf)
 }
 
+// Keep caches a page's text layer as it is: a page that has one needs no
+// recognition, and the book's text comes out of the cache whole, in page order.
+func (s Service) Keep(hash string, page int, text string) error {
+	return s.Cache.Save(hash, page, text)
+}
+
 // Cached returns every page of a recognised scan, in order, or false while any
 // page is still missing.
 func (s Service) Cached(hash string, pages int) ([]string, bool) {

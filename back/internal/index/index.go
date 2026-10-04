@@ -99,6 +99,8 @@ type Recognizer interface {
 	Pages(ctx context.Context, pdf string) (int, error)
 	// Cached is every page's text, once all of them have been recognised.
 	Cached(hash string, pages int) ([]string, bool)
+	// Keep caches a page's own text layer, so that it is not recognised.
+	Keep(hash string, page int, text string) error
 	// Recognize reads the pages not yet cached, until done or until stop
 	// closes, and reports whether every page is now cached.
 	Recognize(ctx context.Context, hash, pdf string, pages int, stop <-chan struct{}, progress func(done int)) (bool, error)
@@ -367,22 +369,20 @@ func (ix *Indexer) indexFile(
 		return false, err
 	}
 	recognised := false
+	if isPDF(path) && ix.opts.OCR != nil {
+		if chunks, recognised, err = ix.scan(ctx, kind, path, rel, hash, chunks); err != nil {
+			return false, err
+		}
+	}
 	// A scan without an OCR layer yields nothing. Re-parsing it next pass costs
 	// milliseconds — there is no text to pull — so it is cheaper to forget it
 	// than to keep an empty source around.
 	if len(chunks) == 0 {
 		dropped, err := ix.store.Forget(ctx, rel)
-		if err != nil || !isPDF(path) || ix.opts.OCR == nil {
-			if dropped {
-				slog.WarnContext(ctx, "no text, dropped (a scan without OCR?)", "path", rel)
-			}
-			return false, err
+		if dropped && (!isPDF(path) || ix.opts.OCR == nil) {
+			slog.WarnContext(ctx, "no text, dropped (a scan without OCR?)", "path", rel)
 		}
-		chunks, err = ix.scan(ctx, kind, path, rel, hash)
-		if err != nil || len(chunks) == 0 {
-			return false, err
-		}
-		recognised = true
+		return false, err
 	}
 	for i := range chunks {
 		chunks[i].Lang = lang.Detect(chunks[i].Body)
@@ -402,20 +402,46 @@ func (ix *Indexer) pdfRoot(kind string) string {
 	return ix.opts.Books
 }
 
-// scan is a PDF with no text layer: the pages recognised from it once they
-// all are, and until then no chunks and a place in the recognition queue.
-func (ix *Indexer) scan(ctx context.Context, kind, path, rel, hash string) ([]corpus.Chunk, error) {
+// scan takes a PDF whose text layer covers too few of its pages for a scan:
+// its pages recognised once they all are, with those that have a text layer
+// kept as they are, and until then no chunks and a place in the recognition
+// queue. A PDF with text on most pages keeps its chunks, and is not recognised.
+func (ix *Indexer) scan(ctx context.Context, kind, path, rel, hash string, chunks []corpus.Chunk) ([]corpus.Chunk, bool, error) {
 	pages, err := ix.opts.OCR.Pages(ctx, path)
 	if err != nil {
-		return nil, err
+		return nil, false, err
+	}
+	if len(chunks) > 0 {
+		if !extract.Thin(chunks, pages) {
+			return chunks, false, nil
+		}
+		// Chunks also leave out contents pages and a paper's references, so a
+		// thin set is checked against the pages themselves.
+		layer, err := extract.PDFPages(ctx, path)
+		if err != nil {
+			return nil, false, err
+		}
+		// A damaged PDF can read as more pages, or fewer, than it has; keys
+		// in the cache must be the pages recognition will read.
+		if len(layer) < pages || !extract.Scan(layer[:pages]) {
+			return chunks, false, nil
+		}
+		for i, text := range extract.TextPages(layer[:pages]) {
+			if !text {
+				continue
+			}
+			if err := ix.opts.OCR.Keep(hash, i+1, layer[i]); err != nil {
+				return nil, false, err
+			}
+		}
 	}
 	if text, ok := ix.opts.OCR.Cached(hash, pages); ok {
 		if kind == "paper" {
-			return ix.opts.BookSplitter.PaperPages(text), nil
+			return ix.opts.BookSplitter.PaperPages(text), true, nil
 		}
-		return ix.opts.BookSplitter.Pages(text), nil
+		return ix.opts.BookSplitter.Pages(text), true, nil
 	}
-	return nil, ix.store.MarkScan(ctx, corpus.Scan{Kind: kind, Hash: hash, Path: rel, Pages: pages})
+	return nil, false, ix.store.MarkScan(ctx, corpus.Scan{Kind: kind, Hash: hash, Path: rel, Pages: pages})
 }
 
 // Run indexes and embeds every interval, and starts a pass at once whenever

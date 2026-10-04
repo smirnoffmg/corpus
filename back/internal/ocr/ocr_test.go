@@ -148,3 +148,22 @@ func TestTheCacheKeyIsAHashNotAPath(t *testing.T) {
 		require.NotEqual(t, "escape", e.Name())
 	}
 }
+
+// A page with a text layer is kept as it is, not read again from its image.
+func TestAKeptPageIsNotRecognised(t *testing.T) {
+	cache := ocr.Cache{Dir: t.TempDir()}
+	engine := &fakeEngine{}
+	svc := ocr.Service{Engine: engine, Cache: cache, Workers: 2}
+	require.NoError(t, svc.Keep(hash, 1, "обложка с текстовым слоем"))
+
+	var last atomic.Int64
+	complete, err := svc.Recognize(context.Background(), hash, "book.pdf", 3, nil, func(n int) { last.Store(int64(n)) })
+	require.NoError(t, err)
+	require.True(t, complete)
+	require.ElementsMatch(t, []int{2, 3}, engine.asked)
+	require.EqualValues(t, 3, last.Load())
+
+	pages, ok := svc.Cached(hash, 3)
+	require.True(t, ok)
+	require.Equal(t, []string{"обложка с текстовым слоем", "страница 2", "страница 3"}, pages)
+}

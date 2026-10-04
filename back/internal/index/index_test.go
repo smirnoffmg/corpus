@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1002,13 +1003,38 @@ func TestAPassThatChangedFilesCleansTheTextIndex(t *testing.T) {
 // of a scan.
 func blankPDF(t *testing.T, dir, name string) {
 	t.Helper()
+	pdfWithText(t, dir, name, []string{""})
+}
+
+// pdfWithText writes a PDF with a page for each entry, set in Helvetica a line
+// at a time; an empty entry is a page with no text layer, as on a scan.
+func pdfWithText(t *testing.T, dir, name string, pages []string) {
+	t.Helper()
 	if _, err := exec.LookPath("pdftotext"); err != nil {
 		t.Skip("pdftotext is not installed: the container has it, this machine does not")
 	}
+	kids := make([]string, len(pages))
+	for i := range pages {
+		kids[i] = fmt.Sprintf("%d 0 R", 4+2*i)
+	}
 	objects := []string{
 		"<< /Type /Catalog /Pages 2 0 R >>",
-		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>",
+		fmt.Sprintf("<< /Type /Pages /Kids [%s] /Count %d >>", strings.Join(kids, " "), len(pages)),
+		"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+	}
+	for i, text := range pages {
+		var content strings.Builder
+		if text != "" {
+			content.WriteString("BT /F1 10 Tf 12 TL 50 750 Td\n")
+			for _, line := range strings.Split(text, "\n") {
+				fmt.Fprintf(&content, "(%s) Tj T*\n", line)
+			}
+			content.WriteString("ET")
+		}
+		objects = append(objects,
+			fmt.Sprintf("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents %d 0 R >>", 5+2*i),
+			fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", content.Len(), content.String()),
+		)
 	}
 	var buf bytes.Buffer
 	buf.WriteString("%PDF-1.4\n")
@@ -1028,6 +1054,13 @@ func blankPDF(t *testing.T, dir, name string) {
 	}
 }
 
+// coverText is a page of a text layer: long enough to cite, plain ASCII so the
+// PDF needs no font encoding.
+func coverText(page int) string {
+	return fmt.Sprintf("Text layer page %d. Probability inequalities for sums\n", page) +
+		strings.Repeat("of bounded random variables are stated for the sum of\nindependent terms with values in a finite interval.\n", 2)
+}
+
 // fakeRecognizer stands in for Tesseract: a scan has pages, and is recognised
 // once Recognize has run on it.
 type fakeRecognizer struct {
@@ -1035,10 +1068,22 @@ type fakeRecognizer struct {
 	pages      int
 	lastPage   string // what the final page reads, when it is not ordinary text
 	recognised map[string]bool
+	kept       map[int]string // pages kept from the text layer
+	missing    [][]int        // the pages each Recognize had to read
 	calls      []string
 }
 
 func (f *fakeRecognizer) Pages(context.Context, string) (int, error) { return f.pages, nil }
+
+func (f *fakeRecognizer) Keep(_ string, page int, text string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.kept == nil {
+		f.kept = map[int]string{}
+	}
+	f.kept[page] = text
+	return nil
+}
 
 func (f *fakeRecognizer) Cached(hash string, pages int) ([]string, bool) {
 	f.mu.Lock()
@@ -1049,6 +1094,9 @@ func (f *fakeRecognizer) Cached(hash string, pages int) ([]string, bool) {
 	out := make([]string, pages)
 	for i := range out {
 		out[i] = fmt.Sprintf("Распознанная страница %d. %s", i+1, strings.Repeat("Текст книги со сканированной страницы. ", 6))
+		if text, ok := f.kept[i+1]; ok {
+			out[i] = text
+		}
 	}
 	if f.lastPage != "" {
 		out[pages-1] = f.lastPage
@@ -1063,6 +1111,13 @@ func (f *fakeRecognizer) Recognize(_ context.Context, hash, pdf string, pages in
 		f.recognised = map[string]bool{}
 	}
 	f.recognised[hash] = true
+	var missing []int
+	for p := 1; p <= pages; p++ {
+		if _, ok := f.kept[p]; !ok {
+			missing = append(missing, p)
+		}
+	}
+	f.missing = append(f.missing, missing)
 	f.mu.Unlock()
 	progress(pages)
 	return true, nil
@@ -1108,6 +1163,162 @@ func TestWithoutOCRAScanIsLeftOutAsBefore(t *testing.T) {
 	defer store.mu.Unlock()
 	if len(store.scans) != 0 || len(store.sources) != 1 {
 		t.Errorf("scans %v, sources %v; want the note alone", store.scans, store.sources)
+	}
+}
+
+// hoeffding1948: a JSTOR cover with a text layer in front of a scanned paper.
+// The cover alone is not the book; it is kept for the recognised text, and the
+// rest of the pages go to recognition.
+func TestAScanWithATextCoverIsQueued(t *testing.T) {
+	notes, books := vault(t, 1)
+	pdfWithText(t, books, "hoeffding.pdf", []string{coverText(1), "", "", ""})
+	store := newStore()
+	recognizer := &fakeRecognizer{pages: 4}
+	ix := index.New(store, nopEmbedder{}, index.Options{Books: books, Vault: notes, OCR: recognizer})
+
+	if err := ix.Index(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if len(store.scans) != 1 {
+		t.Fatalf("scans = %v, want the one scan", store.scans)
+	}
+	for _, sc := range store.scans {
+		if sc.Path != "hoeffding.pdf" || sc.Pages != 4 {
+			t.Errorf("scan = %+v", sc)
+		}
+	}
+	if _, ok := store.sources["hoeffding.pdf"]; ok {
+		t.Error("the cover was indexed as the whole book")
+	}
+	recognizer.mu.Lock()
+	defer recognizer.mu.Unlock()
+	if len(recognizer.kept) != 1 || !strings.Contains(recognizer.kept[1], "Text layer page 1") {
+		t.Errorf("kept %v, want the cover's text as page 1", recognizer.kept)
+	}
+}
+
+func TestRunMergesTheTextLayerWithTheRecognisedPages(t *testing.T) {
+	notes, books := vault(t, 1)
+	pdfWithText(t, books, "hoeffding.pdf", []string{coverText(1), "", "", ""})
+	store := newStore()
+	recognizer := &fakeRecognizer{pages: 4}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	store.onStats = func(int) {
+		if src, ok := store.sources["hoeffding.pdf"]; ok && src.Recognised {
+			cancel()
+		}
+	}
+	ix := index.New(store, nopEmbedder{}, index.Options{Books: books, Vault: notes, OCR: recognizer})
+
+	runFor(t, ix, ctx, time.Hour, nil)
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	chunks := store.chunks["hoeffding.pdf"]
+	if len(chunks) != 4 {
+		t.Fatalf("chunks = %+v, want the four pages", chunks)
+	}
+	if chunks[0].Page != 1 || !strings.Contains(chunks[0].Body, "Text layer page 1") {
+		t.Errorf("chunk 1 = %+v, want the text layer's page 1", chunks[0])
+	}
+	for i, c := range chunks[1:] {
+		if c.Page != i+2 || !strings.Contains(c.Body, fmt.Sprintf("Распознанная страница %d", i+2)) {
+			t.Errorf("chunk %d = %+v, want the recognised page %d", i+2, c, i+2)
+		}
+	}
+	recognizer.mu.Lock()
+	defer recognizer.mu.Unlock()
+	if len(recognizer.missing) != 1 || !slices.Equal(recognizer.missing[0], []int{2, 3, 4}) {
+		t.Errorf("recognised pages %v, want 2-4: page 1 has its text layer", recognizer.missing)
+	}
+}
+
+// Ширяев, Vinberg: several pages of front matter in front of the page images.
+// Each keeps its own page number, and only the image pages are recognised.
+func TestRunMergesSeveralTextPagesWithTheRecognisedPages(t *testing.T) {
+	notes, books := vault(t, 1)
+	pdfWithText(t, books, "vinberg.pdf", []string{coverText(1), coverText(2), coverText(3), "", "", "", "", "", "", ""})
+	store := newStore()
+	recognizer := &fakeRecognizer{pages: 10}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	store.onStats = func(int) {
+		if src, ok := store.sources["vinberg.pdf"]; ok && src.Recognised {
+			cancel()
+		}
+	}
+	ix := index.New(store, nopEmbedder{}, index.Options{Books: books, Vault: notes, OCR: recognizer})
+
+	runFor(t, ix, ctx, time.Hour, nil)
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	chunks := store.chunks["vinberg.pdf"]
+	if len(chunks) != 10 {
+		t.Fatalf("chunks = %+v, want the ten pages", chunks)
+	}
+	for i, c := range chunks {
+		page := i + 1
+		want := fmt.Sprintf("Распознанная страница %d", page)
+		if page <= 3 {
+			want = fmt.Sprintf("Text layer page %d", page)
+		}
+		if c.Page != page || !strings.Contains(c.Body, want) {
+			t.Errorf("chunk %d = %+v, want page %d reading %q", i, c, page, want)
+		}
+	}
+	recognizer.mu.Lock()
+	defer recognizer.mu.Unlock()
+	if !slices.Equal(slices.Sorted(maps.Keys(recognizer.kept)), []int{1, 2, 3}) {
+		t.Errorf("kept pages %v, want 1-3", slices.Sorted(maps.Keys(recognizer.kept)))
+	}
+	if len(recognizer.missing) != 1 || !slices.Equal(recognizer.missing[0], []int{4, 5, 6, 7, 8, 9, 10}) {
+		t.Errorf("recognised pages %v, want 4-10: pages 1-3 have their text layer", recognizer.missing)
+	}
+}
+
+// A book with a few image pages is a book with text, not a scan.
+func TestABookMostlyInTextIsNotQueued(t *testing.T) {
+	notes, books := vault(t, 1)
+	pdfWithText(t, books, "book.pdf", []string{coverText(1), coverText(2), "", coverText(4)})
+	store := newStore()
+	recognizer := &fakeRecognizer{pages: 4}
+	ix := index.New(store, nopEmbedder{}, index.Options{Books: books, Vault: notes, OCR: recognizer})
+
+	if err := ix.Index(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if len(store.scans) != 0 {
+		t.Errorf("scans = %v, want none", store.scans)
+	}
+	src, ok := store.sources["book.pdf"]
+	if !ok || src.Recognised || len(store.chunks["book.pdf"]) != 3 {
+		t.Errorf("source = %+v with %d chunks, want the three text pages, not recognised", src, len(store.chunks["book.pdf"]))
+	}
+	recognizer.mu.Lock()
+	defer recognizer.mu.Unlock()
+	if len(recognizer.kept) != 0 {
+		t.Errorf("kept %v from a book that is not a scan", recognizer.kept)
+	}
+}
+
+func TestWithoutOCRAScanWithATextCoverKeepsItsCover(t *testing.T) {
+	notes, books := vault(t, 1)
+	pdfWithText(t, books, "hoeffding.pdf", []string{coverText(1), "", "", ""})
+	store := newStore()
+	if err := index.New(store, nopEmbedder{}, index.Options{Books: books, Vault: notes}).Index(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	chunks := store.chunks["hoeffding.pdf"]
+	if len(chunks) != 1 || chunks[0].Page != 1 || store.sources["hoeffding.pdf"].Recognised {
+		t.Errorf("chunks = %+v, want the cover's one page", chunks)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/smirnoffmg/corpus/internal/corpus"
 	"github.com/smirnoffmg/corpus/internal/extract"
 )
 
@@ -31,5 +32,70 @@ func TestPagesMakeChunksLikeAnExtractedBook(t *testing.T) {
 	}
 	if !strings.Contains(first.Body, "химики-органики") {
 		t.Errorf("body = %q", first.Body)
+	}
+}
+
+func readablePage(n int) string {
+	return fmt.Sprintf("Глава %d\n\n%s", n, strings.Repeat("Случайная величина принимает значения с заданными вероятностями. ", 3))
+}
+
+// hoeffding1948 in miniature: a JSTOR cover with a text layer in front of a
+// scan. The cover is not what makes it a book with text.
+func TestAScanWithATextCoverIsStillAScan(t *testing.T) {
+	pages := []string{readablePage(1)}
+	for range 32 {
+		pages = append(pages, "")
+	}
+
+	text := extract.TextPages(pages)
+	if len(text) != 33 || !text[0] {
+		t.Fatalf("text pages = %v, want page 1 marked as text", text)
+	}
+	for i, has := range text[1:] {
+		if has {
+			t.Errorf("page %d has no text but was marked as having it", i+2)
+		}
+	}
+	if !extract.Scan(pages) {
+		t.Error("1 page of text in 33 is a scan")
+	}
+}
+
+// A blank page, a plate, a figure: an ordinary book has a few, and none of
+// them makes it a scan.
+func TestABookWithAFewImagePagesIsNotAScan(t *testing.T) {
+	var pages []string
+	for p := 1; p <= 20; p++ {
+		switch p {
+		case 2, 9, 15:
+			pages = append(pages, "")
+		default:
+			pages = append(pages, readablePage(p))
+		}
+	}
+	if extract.Scan(pages) {
+		t.Error("a book with prose on 17 of 20 pages was taken for a scan")
+	}
+}
+
+func TestMojibakeAndRunningHeadsAreNotText(t *testing.T) {
+	pages := []string{
+		strings.Repeat("Î÷åâèäíî, ÷òî ìíîæåñòâî ", 10),
+		"12    ГЛАВА 1. ВЕРОЯТНОСТНОЕ ПРОСТРАНСТВО",
+	}
+	for i, has := range extract.TextPages(pages) {
+		if has {
+			t.Errorf("page %d (%.30q) counted as text", i+1, pages[i])
+		}
+	}
+}
+
+func TestThinChunksCoverTooFewPages(t *testing.T) {
+	chunks := []corpus.Chunk{{Page: 1}, {Page: 1}, {Page: 3}}
+	if !extract.Thin(chunks, 33) {
+		t.Error("2 pages of chunks out of 33 are thin")
+	}
+	if extract.Thin(chunks, 4) {
+		t.Error("2 pages of chunks out of 4 cover half the book")
 	}
 }

@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+
+	"github.com/smirnoffmg/corpus/internal/corpus"
 )
 
 const (
@@ -25,6 +27,10 @@ const (
 	foreignLetterShare = 0.3
 	// minLettersToJudge keeps the rule off pages too short to measure.
 	minLettersToJudge = 50
+	// scanShare of a PDF's pages with text, below which it is a scan. A text
+	// cover or a few pages of front matter in front of page images do not make
+	// a book, and a few blank pages, plates or figures do not make a scan.
+	scanShare = 0.5
 )
 
 var (
@@ -46,6 +52,41 @@ func unreadable(page string) bool {
 		}
 	}
 	return letters >= minLettersToJudge && float64(foreign)/float64(letters) > foreignLetterShare
+}
+
+// TextPages marks the pages of a PDF that have text the splitter could cite;
+// the others are images, or text no query will reach.
+func TextPages(pages []string) []bool {
+	text := make([]bool, len(pages))
+	for i, page := range pages {
+		text[i] = !tooShort(page) && !unreadable(page)
+	}
+	return text
+}
+
+// Scan reports whether a PDF's pages are mostly images.
+func Scan(pages []string) bool {
+	withText := 0
+	for _, text := range TextPages(pages) {
+		if text {
+			withText++
+		}
+	}
+	return few(withText, len(pages))
+}
+
+// Thin reports whether chunks cite too few of a PDF's pages for it to be a
+// book with text: the cheap test, before its pages are read again.
+func Thin(chunks []corpus.Chunk, pages int) bool {
+	cited := map[int]bool{}
+	for _, c := range chunks {
+		cited[c.Page] = true
+	}
+	return few(len(cited), pages)
+}
+
+func few(withText, pages int) bool {
+	return float64(withText) < scanShare*float64(pages)
 }
 
 // frontOrBackMatter reports whether a page is contents, index or a near-empty

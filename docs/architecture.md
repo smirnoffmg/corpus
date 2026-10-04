@@ -283,10 +283,20 @@ version that read it, so an improved parser reaches old papers on its own.
 
 ## Scanned books
 
-A PDF that `pdftotext` gets no usable page from is a scan, or a TeX book whose
-fonts have no Unicode map (it comes out as `Ëþáîå`, and the unreadable-page
-filter drops it). Such a book is recognised with Tesseract (`rus+eng`), and then
-indexed like any other: a chunk per page, cited by page.
+A PDF with usable text on fewer than half of its pages is a scan: page images,
+perhaps behind a JSTOR cover or a few pages of front matter with a text layer,
+or a TeX book whose fonts have no Unicode map (it comes out as `Ëþáîå`, and the
+unreadable-page filter drops it). A page has usable text by the splitter's own
+measure — 150 readable characters. Such a book is recognised with Tesseract
+(`rus+eng`), and then indexed like any other: a chunk per page, cited by page.
+The half is what keeps an ordinary book with a few blank pages, plates or
+figures out of the queue; it also leaves a mostly-text book with a scanned
+appendix as it is, appendix unindexed.
+
+The test is cheap for a book with text: `pdfinfo`'s page count against the
+pages its chunks cite. Only a book whose chunks cite fewer than half of its
+pages has its text layer read again page by page, since chunks also leave out
+contents pages and a paper's references.
 
 Publications are recognised the same way; a scan carries its kind, because
 books and papers are pruned against their own walks and resolved against their
@@ -296,6 +306,13 @@ own library root.
   goes on. Recognition runs in the indexer loop *after* the pass and the
   embedding queue: it is the slowest work here, and a scan's text is worth less
   than vectors for books that already have text. One book at a time.
+- **Text-layer pages are kept, not recognised.** The pages of a scan that have
+  usable text go into the cache as `pdftotext -layout` gives them, so
+  recognition reads only the image pages and the cache holds the whole book in
+  page order. Not every file under `LIBRARY_DIR/ocr` came from Tesseract. Until
+  the book is recognised its text pages are out of the index too: the queue and
+  the re-index both go by "no source at this path", and the source is marked
+  recognised as a whole.
 - **Cache is the record, not the database.** Every page is written to
   `LIBRARY_DIR/ocr/<sha256>/<page>.txt` as soon as it is read. An interrupted
   book resumes at the missing pages; a renamed one is not read again; a rebuilt
