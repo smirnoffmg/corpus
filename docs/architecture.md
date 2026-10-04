@@ -286,8 +286,16 @@ version that read it, so an improved parser reaches old papers on its own.
 A PDF with usable text on fewer than half of its pages is a scan: page images,
 perhaps behind a JSTOR cover or a few pages of front matter with a text layer,
 or a TeX book whose fonts have no Unicode map (it comes out as `Ëþáîå`, and the
-unreadable-page filter drops it). A page has usable text by the splitter's own
-measure — 150 readable characters. Such a book is recognised with Tesseract
+unreadable-page filter drops it). A text layer can also decode to no language
+at all: fonts with custom encodings come out as punctuation (`:#' 7 !;`) or as
+letters swapped one for one (`wnénxzjtvkrq` for «перестановки»), and a page
+whose characters, digits and spaces aside, are less than 12% vowels is
+unreadable too. Real prose sits near 38%; below 12% also fall contents pages,
+decimal tables, figures drawn in characters and the odd page of display
+formulas, about 0.1% of real pages. A book whose whole layer is like that has
+no text pages left and is recognised like a scan. A page has usable text by the
+splitter's own measure — 150 readable characters. Such a book is recognised with
+Tesseract
 (`rus+eng`), and then indexed like any other: a chunk per page, cited by page.
 The half is what keeps an ordinary book with a few blank pages, plates or
 figures out of the queue; it also leaves a mostly-text book with a scanned

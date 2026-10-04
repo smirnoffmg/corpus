@@ -90,6 +90,31 @@ func TestMojibakeAndRunningHeadsAreNotText(t *testing.T) {
 	}
 }
 
+// Комбинаторика (issue #8): a text layer on every page, in fonts that decode
+// to punctuation and to letters swapped one for one. It is a scan.
+func TestAGarbledTextLayerIsAScan(t *testing.T) {
+	garbage := []string{
+		strings.Repeat(":#' 7 !;  7 !; %3\n'     ' $     )    ) ! !\n  ( ! )  >   + !  +;'\n", 4),
+		strings.Repeat("wnénxzjtvkrq x wvkzvéntq¹uq ©zª tj ©jª Íéq ëzvu tnrvzvén qo tj¡q} wnénxzjtvkvr\n", 3),
+	}
+	var pages []string
+	for p := range 20 {
+		pages = append(pages, garbage[p%2])
+	}
+
+	for i, has := range extract.TextPages(pages) {
+		if has {
+			t.Errorf("page %d (%.30q) counted as text", i+1, pages[i])
+		}
+	}
+	if !extract.Scan(pages) {
+		t.Error("a book whose layer is garbage on every page is not taken for a scan")
+	}
+	if chunks := extract.DefaultSplitter.Pages(pages); len(chunks) != 0 {
+		t.Errorf("got %d chunks of garbage, want none", len(chunks))
+	}
+}
+
 func TestThinChunksCoverTooFewPages(t *testing.T) {
 	chunks := []corpus.Chunk{{Page: 1}, {Page: 1}, {Page: 3}}
 	if !extract.Thin(chunks, 33) {

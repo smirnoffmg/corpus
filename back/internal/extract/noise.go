@@ -25,7 +25,15 @@ const (
 	// will ever match it. Measured against the corpus: real pages with formulas
 	// and Greek sit below 0.3, whole broken books sit above it.
 	foreignLetterShare = 0.3
-	// minLettersToJudge keeps the rule off pages too short to measure.
+	// vowelShare of a page's characters, digits and spaces aside, below which it
+	// is not prose in either alphabet: a text layer whose fonts decode to
+	// punctuation, or to letters substituted one for one ("wnénxzjtvkrq" for
+	// "перестановки"). Measured against the library: real pages sit at 0.38, a
+	// broken layer at 0.07. Below 0.12 also fall contents pages, decimal tables,
+	// figures drawn in characters and the odd page of display formulas: about
+	// 0.1% of real pages, and no real book loses enough to pass for a scan.
+	vowelShare = 0.12
+	// minLettersToJudge keeps both rules off pages too short to measure.
 	minLettersToJudge = 50
 	// scanShare of a PDF's pages with text, below which it is a scan. A text
 	// cover or a few pages of front matter in front of page images do not make
@@ -38,11 +46,20 @@ var (
 	indexEntry = regexp.MustCompile(`^\s*\S.*,\s*\d+(\s*[,–-]\s*\d+)*\s*$`)
 )
 
-// unreadable reports whether a page is mojibake: letters that belong to neither
-// alphabet this library is written in.
+const vowels = "aeiouyаеёиоуыэюя"
+
+// unreadable reports whether a page is mojibake, letters that belong to neither
+// alphabet this library is written in, or a layer that decodes to no language.
 func unreadable(page string) bool {
-	var letters, foreign int
+	var letters, foreign, chars, vowel int
 	for _, r := range page {
+		if unicode.IsSpace(r) || unicode.IsDigit(r) {
+			continue
+		}
+		chars++
+		if strings.ContainsRune(vowels, unicode.ToLower(r)) {
+			vowel++
+		}
 		if !unicode.IsLetter(r) {
 			continue
 		}
@@ -51,7 +68,8 @@ func unreadable(page string) bool {
 			foreign++
 		}
 	}
-	return letters >= minLettersToJudge && float64(foreign)/float64(letters) > foreignLetterShare
+	return letters >= minLettersToJudge && float64(foreign)/float64(letters) > foreignLetterShare ||
+		chars >= minLettersToJudge && float64(vowel)/float64(chars) < vowelShare
 }
 
 // TextPages marks the pages of a PDF that have text the splitter could cite;
