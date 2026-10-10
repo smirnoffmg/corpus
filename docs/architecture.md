@@ -338,7 +338,10 @@ own library root.
 - **Interruptible.** An upload's reindex request stops recognition between
   pages, so a new book with text is searchable in seconds, not after the scan.
 - **Failures.** Three failed attempts set a scan aside, with the reason shown in
-  the library; the other scans keep moving.
+  the library; the other scans keep moving. A scan whose recognised text splits
+  into no chunks (a contents preview of dot leaders) counts as a failed attempt
+  too. Its cached pages are still re-split every pass, so a better splitter
+  picks it up without help.
 - **Honest about quality.** Sources, hits and passages carry `ocr: true`, and
   the UI marks them «Распознано»: a recognised quote can carry misread letters
   and is worth checking against the page before it goes into a paper.

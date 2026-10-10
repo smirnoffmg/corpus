@@ -378,6 +378,14 @@ func (ix *Indexer) indexFile(
 	// milliseconds — there is no text to pull — so it is cheaper to forget it
 	// than to keep an empty source around.
 	if len(chunks) == 0 {
+		// Recognition is finished and still nothing splits out: without this the
+		// scan stays first in the queue and is handed out again every pass.
+		if recognised {
+			slog.WarnContext(ctx, "recognised, but no text to index", "path", rel)
+			if err := ix.store.ScanFailed(ctx, hash, "recognised text yields no chunks"); err != nil {
+				return false, err
+			}
+		}
 		dropped, err := ix.store.Forget(ctx, rel)
 		if dropped && (!isPDF(path) || ix.opts.OCR == nil) {
 			slog.WarnContext(ctx, "no text, dropped (a scan without OCR?)", "path", rel)

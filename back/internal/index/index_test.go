@@ -39,6 +39,7 @@ type recordingStore struct {
 	attempted  []string
 	attempts   map[string]int
 	failures   map[string]string
+	scanErrors map[string]string // hash -> why recognition failed
 	embedded   []string
 	prunes     int
 	cleans     int
@@ -55,19 +56,20 @@ type recordingStore struct {
 
 func newStore() *recordingStore {
 	return &recordingStore{
-		replaced:  map[string]int{},
-		sources:   map[string]corpus.Source{},
-		attempts:  map[string]int{},
-		scans:     map[string]corpus.Scan{},
-		failures:  map[string]string{},
-		drafts:    map[string]corpus.CSL{},
-		citations: map[string][]corpus.Citation{},
-		parsers:   map[string]int{},
-		chunks:    map[string][]corpus.Chunk{},
-		titles:    map[string]string{},
-		pruned:    map[string][]string{},
-		indexed:   map[string]string{},
-		byHash:    map[string]string{},
+		replaced:   map[string]int{},
+		sources:    map[string]corpus.Source{},
+		attempts:   map[string]int{},
+		scans:      map[string]corpus.Scan{},
+		failures:   map[string]string{},
+		scanErrors: map[string]string{},
+		drafts:     map[string]corpus.CSL{},
+		citations:  map[string][]corpus.Citation{},
+		parsers:    map[string]int{},
+		chunks:     map[string][]corpus.Chunk{},
+		titles:     map[string]string{},
+		pruned:     map[string][]string{},
+		indexed:    map[string]string{},
+		byHash:     map[string]string{},
 	}
 }
 
@@ -230,9 +232,10 @@ func (s *recordingStore) ScanProgress(_ context.Context, hash string, recognised
 	return nil
 }
 
-func (s *recordingStore) ScanFailed(_ context.Context, hash, _ string) error {
+func (s *recordingStore) ScanFailed(_ context.Context, hash, reason string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.scanErrors[hash] = reason
 	delete(s.scans, hash)
 	return nil
 }
@@ -1067,6 +1070,7 @@ type fakeRecognizer struct {
 	mu         sync.Mutex
 	pages      int
 	lastPage   string // what the final page reads, when it is not ordinary text
+	pageText   string // what every page reads, when it is not ordinary text
 	recognised map[string]bool
 	kept       map[int]string // pages kept from the text layer
 	missing    [][]int        // the pages each Recognize had to read
@@ -1100,6 +1104,11 @@ func (f *fakeRecognizer) Cached(hash string, pages int) ([]string, bool) {
 	}
 	if f.lastPage != "" {
 		out[pages-1] = f.lastPage
+	}
+	if f.pageText != "" {
+		for i := range out {
+			out[i] = f.pageText
+		}
 	}
 	return out, true
 }
@@ -1149,6 +1158,45 @@ func TestAScanIsRecordedRatherThanDropped(t *testing.T) {
 	}
 	if len(store.scanSeen) != 1 || store.scanSeen[0] != "scan.pdf" {
 		t.Errorf("scans pruned against %v, want the books the pass walked", store.scanSeen)
+	}
+}
+
+// Diestel's Graph Theory, contents preview: dot leaders recognise fine, but
+// split into nothing. The scan used to come back from the queue every pass and
+// be "recognised" again from the cache, with the scans behind it kept waiting.
+func TestARecognisedScanWithNoTextLeavesTheQueue(t *testing.T) {
+	notes, books := vault(t, 1)
+	blankPDF(t, books, "scan.pdf")
+	store := newStore()
+	recognizer := &fakeRecognizer{pages: 4, pageText: strings.Repeat("Preface . . . . . . . . . . vii\n", 20)}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	store.onStats = func(calls int) {
+		if len(store.scanErrors) > 0 || calls >= 5 {
+			cancel()
+		}
+	}
+	ix := index.New(store, nopEmbedder{}, index.Options{Books: books, Vault: notes, OCR: recognizer})
+
+	runFor(t, ix, ctx, time.Hour, nil)
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if len(store.scanErrors) != 1 {
+		t.Fatalf("scan failures = %v, want the one scan", store.scanErrors)
+	}
+	for _, reason := range store.scanErrors {
+		if !strings.Contains(reason, "no chunks") {
+			t.Errorf("reason = %q, want it to say the text yields no chunks", reason)
+		}
+	}
+	if _, ok := store.sources["scan.pdf"]; ok {
+		t.Error("a scan with no text became a source")
+	}
+	recognizer.mu.Lock()
+	defer recognizer.mu.Unlock()
+	if len(recognizer.calls) != 1 {
+		t.Errorf("recognised %d times, want once", len(recognizer.calls))
 	}
 }
 
