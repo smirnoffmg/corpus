@@ -27,6 +27,7 @@ type fakeStore struct {
 	bodies          map[int64]string
 	lastBodyChars   int
 	pulse           *corpus.Pulse
+	mu              sync.Mutex
 }
 
 func (f *fakeStore) Pulse(context.Context) (corpus.Pulse, bool, error) {
@@ -37,7 +38,9 @@ func (f *fakeStore) Pulse(context.Context) (corpus.Pulse, bool, error) {
 }
 
 func (f *fakeStore) Bodies(_ context.Context, ids []int64, chars int) (map[int64]string, error) {
+	f.mu.Lock()
 	f.lastBodyChars = chars
+	f.mu.Unlock()
 	out := make(map[int64]string, len(ids))
 	for _, id := range ids {
 		out[id] = f.bodies[id]
@@ -56,8 +59,10 @@ func (f *fakeStore) RequestReindex(context.Context) error {
 }
 
 func (f *fakeStore) Search(_ context.Context, q corpus.Query) ([]corpus.Hit, error) {
+	f.mu.Lock()
 	f.lastText = q.Limit
 	f.lastNorm = q.Normalization
+	f.mu.Unlock()
 	return f.text, nil
 }
 

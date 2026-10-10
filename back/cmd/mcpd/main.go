@@ -56,6 +56,7 @@ func run() error {
 	// asks for it with rerank=1; when it is not there the search answers in the
 	// fused order and says so.
 	reranker := flag.String("reranker", "http://host.docker.internal:8012", "llama-server base URL for rerank=1; empty turns reranking off")
+	rerankConcurrency := flag.Int("rerank-concurrency", 1, "reranker calls in flight at once; more only queue inside llama-server")
 	// 200, not pgvector's 40: at 40 the index returned 79–83% of the true 20
 	// nearest chunks on the judged sets, and a few queries almost none; at 200,
 	// 95–96%, with no measurable change in latency, which the query's embedding
@@ -71,6 +72,9 @@ func run() error {
 	// name of the directory on the host, which compose passes along.
 	vaultName := flag.String("vault-name", vaultNameFrom(os.Getenv("CORPUS_VAULT_DIR")), "Obsidian vault name, for obsidian:// links to notes")
 	flag.Parse()
+	if *rerankConcurrency < 1 {
+		return fmt.Errorf("-rerank-concurrency must be at least 1, got %d", *rerankConcurrency)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -96,7 +100,7 @@ func run() error {
 	lookup := cite.NewLookup()
 	opts := []api.Option{api.WithSettings(flagValues()), api.WithVault(*vaultName), api.WithBibliography(st, lookup), api.WithCitations(st), api.WithBookFinder(lookup)}
 	if *reranker != "" {
-		opts = append(opts, api.WithReranker(rerank.New(*reranker)))
+		opts = append(opts, api.WithReranker(rerank.New(*reranker)), api.WithRerankConcurrency(*rerankConcurrency))
 	}
 	if *bibliography != "" {
 		opts = append(opts, api.WithBibliographyExport(bibfile.New(st, *bibliography).Export))

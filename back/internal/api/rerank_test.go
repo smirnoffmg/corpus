@@ -9,8 +9,11 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smirnoffmg/corpus/internal/api"
@@ -130,4 +133,124 @@ func TestRerankFallsBackToTheFusedOrderAndSaysSo(t *testing.T) {
 			require.Contains(t, body.Notice, "rerank")
 		})
 	}
+}
+
+func scoreByTrailingNumber(docs []string) []float64 {
+	scores := make([]float64, len(docs))
+	for i, d := range docs {
+		fields := strings.Fields(d)
+		scores[i], _ = strconv.ParseFloat(fields[len(fields)-1], 64)
+	}
+	return scores
+}
+
+// countingReranker records how many calls ran at once; unlike fakeReranker it
+// holds no lock across a call, which would serialise them.
+type countingReranker struct {
+	inflight, peak atomic.Int64
+}
+
+func (c *countingReranker) Rerank(_ context.Context, _ string, docs []string) ([]float64, error) {
+	n := c.inflight.Add(1)
+	for {
+		p := c.peak.Load()
+		if n <= p || c.peak.CompareAndSwap(p, n) {
+			break
+		}
+	}
+	time.Sleep(20 * time.Millisecond)
+	c.inflight.Add(-1)
+	return scoreByTrailingNumber(docs), nil
+}
+
+// llama-server runs as many requests as it has slots; more at once share the
+// GPU and every one of them runs past the timeout.
+func TestRerankRunsNoMoreCallsAtOnceThanTheLimit(t *testing.T) {
+	hits, bodies := hitsAndBodies(3)
+	reranker := &countingReranker{}
+	svc := api.New(&fakeStore{text: hits, bodies: bodies}, &fakeEmbedder{},
+		api.WithReranker(reranker), api.WithRerankConcurrency(3))
+
+	results := make([][]int64, 10)
+	var wg sync.WaitGroup
+	for i := range results {
+		wg.Go(func() {
+			got, err := svc.Search(context.Background(), corpus.Query{Text: "q", Mode: "fts", Rerank: true})
+			assert.NoError(t, err)
+			results[i] = ids(got)
+		})
+	}
+	wg.Wait()
+
+	require.Equal(t, int64(3), reranker.peak.Load())
+	for _, got := range results {
+		require.Equal(t, []int64{3, 2, 1}, got)
+	}
+}
+
+// llama-server reranks one request at a time; a second call sent alongside
+// only waits inside it, on the clock of the first one's timeout.
+func TestRerankRunsOneCallAtATimeByDefault(t *testing.T) {
+	hits, bodies := hitsAndBodies(3)
+	reranker := &countingReranker{}
+	svc := api.New(&fakeStore{text: hits, bodies: bodies}, &fakeEmbedder{}, api.WithReranker(reranker))
+
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Go(func() {
+			_, err := svc.Search(context.Background(), corpus.Query{Text: "q", Mode: "fts", Rerank: true})
+			assert.NoError(t, err)
+		})
+	}
+	wg.Wait()
+
+	require.Equal(t, int64(1), reranker.peak.Load())
+}
+
+// blockingReranker holds its call until the test releases it.
+type blockingReranker struct {
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (b *blockingReranker) Rerank(_ context.Context, _ string, docs []string) ([]float64, error) {
+	b.entered <- struct{}{}
+	<-b.release
+	return scoreByTrailingNumber(docs), nil
+}
+
+func TestRerankCancelledWhileWaitingFallsBackAndFreesTheSlot(t *testing.T) {
+	hits, bodies := hitsAndBodies(3)
+	reranker := &blockingReranker{entered: make(chan struct{}, 1), release: make(chan struct{})}
+	svc := api.New(&fakeStore{text: hits, bodies: bodies}, &fakeEmbedder{},
+		api.WithReranker(reranker), api.WithRerankConcurrency(1))
+	query := corpus.Query{Text: "q", Mode: "fts", Rerank: true}
+
+	var holder sync.WaitGroup
+	holder.Go(func() {
+		_, err := svc.Search(context.Background(), query)
+		assert.NoError(t, err)
+	})
+	<-reranker.entered
+
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	rec := httptest.NewRecorder()
+	svc.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/search?q=q&mode=fts&rerank=1", nil).WithContext(cancelled))
+	require.Equal(t, http.StatusOK, rec.Code)
+	var body struct {
+		Hits   []corpus.Hit `json:"hits"`
+		Notice string       `json:"notice"`
+	}
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&body))
+	require.Equal(t, []int64{1, 2, 3}, ids(body.Hits))
+	require.Contains(t, body.Notice, "rerank")
+
+	close(reranker.release)
+	holder.Wait()
+
+	// A slot the cancelled search left taken would keep this one waiting.
+	got, err := svc.Search(context.Background(), query)
+	require.NoError(t, err)
+	require.Equal(t, []int64{3, 2, 1}, ids(got))
 }

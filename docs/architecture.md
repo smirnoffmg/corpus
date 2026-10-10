@@ -75,6 +75,15 @@ order and its `notice` says it was not reranked; each search logs `rerank` and
 embedder: a refused connection costs nothing, and a hung server is bounded at
 five seconds.
 
+`llama-server` reranks one request at a time despite `-np 4`, about two seconds
+each: a request of 20 passages fills its whole batch. Six calls sent at once
+took 2.6 to 14.6 s, so most of them ran past the five seconds. `mcpd` therefore
+lets at most `--rerank-concurrency` calls (1) reach it at once. A search beyond
+that waits in `mcpd` for as long as its client does, and the five seconds of its
+own call start only once it is sent. The wait is logged as `rerank_wait_ms`, so
+a queued search can be told from a slow one; a search whose client goes away
+while it waits logs `rerank` = `busy`.
+
 ## Why Postgres
 
 Half the corpus is Russian, and Russian is inflected: `агрегат` has to match

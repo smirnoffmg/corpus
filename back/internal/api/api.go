@@ -52,13 +52,14 @@ type Embedder interface {
 }
 
 type Service struct {
-	store     Store
-	embedder  Embedder
-	reranker  Reranker
-	library   Library
-	maxUpload int64
-	vault     string
-	settings  map[string]string
+	store       Store
+	embedder    Embedder
+	reranker    Reranker
+	rerankSlots chan struct{}
+	library     Library
+	maxUpload   int64
+	vault       string
+	settings    map[string]string
 
 	citations          Citations
 	bibliography       Bibliography
@@ -101,6 +102,7 @@ func New(store Store, embedder Embedder, opts ...Option) *Service {
 		store: store, embedder: embedder,
 		queryTimeout: defaultQueryTimeout, statusTimeout: defaultStatusTimeout,
 		cooldown: defaultCooldown, now: time.Now,
+		rerankSlots: make(chan struct{}, defaultRerankConcurrency),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -170,7 +172,7 @@ func outputOf(hits []corpus.Hit, tr *trace) searchOutput {
 	if tr.vector == "failed" || tr.vector == "skipped" {
 		notices = append(notices, textAloneNotice)
 	}
-	if tr.rerank == "failed" || tr.rerank == "unavailable" {
+	if tr.rerank == "failed" || tr.rerank == "busy" || tr.rerank == "unavailable" {
 		notices = append(notices, rerankNotice)
 	}
 	out.Notice = strings.Join(notices, " ")
