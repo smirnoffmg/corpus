@@ -18,6 +18,7 @@ type fakeStore struct {
 	text            []corpus.Hit
 	semantic        []corpus.Hit
 	lastText        int
+	lastTextQuery   corpus.Query
 	lastVector      corpus.Query
 	lastNorm        int
 	sources         []corpus.SourceStatus
@@ -61,6 +62,7 @@ func (f *fakeStore) RequestReindex(context.Context) error {
 func (f *fakeStore) Search(_ context.Context, q corpus.Query) ([]corpus.Hit, error) {
 	f.mu.Lock()
 	f.lastText = q.Limit
+	f.lastTextQuery = q
 	f.lastNorm = q.Normalization
 	f.mu.Unlock()
 	return f.text, nil
@@ -430,6 +432,72 @@ func TestHybridLegDepthCanBeSetPerSearch(t *testing.T) {
 	}
 	if store.lastText != 100 || store.lastVector.Limit != 100 {
 		t.Errorf("depth 100: text %d, vector %d, want 100 each", store.lastText, store.lastVector.Limit)
+	}
+}
+
+// A tag is written the way Obsidian shows it, with its #, or with a slash
+// left over from a nested one; neither is part of the stored tag. Case is left
+// alone here: the database compares it, so it is folded in one place.
+func TestTagIsReadFromTheQueryString(t *testing.T) {
+	store := &fakeStore{text: []corpus.Hit{}}
+	srv := httptest.NewServer(api.New(store, &fakeEmbedder{}).Handler())
+	defer srv.Close()
+
+	var body map[string]any
+	get(t, srv.URL+"/search?q=x&tag=%20%23Work/%20", &body)
+	if store.lastTextQuery.Tag != "Work" || store.lastVector.Tag != "Work" {
+		t.Errorf("tag = %q (text), %q (vector), want Work", store.lastTextQuery.Tag, store.lastVector.Tag)
+	}
+	get(t, srv.URL+"/search?q=x", &body)
+	if store.lastTextQuery.Tag != "" {
+		t.Errorf("tag = %q without the parameter, want none", store.lastTextQuery.Tag)
+	}
+}
+
+// Fusion copies hits whole, so the tags each leg read come out of the hybrid;
+// a book page has none and says nothing about them.
+func TestHitsCarryTheirTagsThroughFusion(t *testing.T) {
+	store := &fakeStore{
+		text:     []corpus.Hit{{ID: 1, Path: "a.md", Tags: []string{"nlp", "Work/Pet"}}, {ID: 2, Path: "b.pdf"}},
+		semantic: []corpus.Hit{{ID: 1, Path: "a.md", Tags: []string{"nlp", "Work/Pet"}}},
+	}
+	srv := httptest.NewServer(api.New(store, &fakeEmbedder{}).Handler())
+	defer srv.Close()
+
+	var body struct {
+		Hits []map[string]any `json:"hits"`
+	}
+	get(t, srv.URL+"/search?q=x", &body)
+	if len(body.Hits) != 2 {
+		t.Fatalf("hits = %+v, want two", body.Hits)
+	}
+	for _, h := range body.Hits {
+		tags, has := h["tags"]
+		switch h["path"] {
+		case "a.md":
+			if got, _ := json.Marshal(tags); string(got) != `["nlp","Work/Pet"]` {
+				t.Errorf("a.md tags = %s, want [nlp Work/Pet]", got)
+			}
+		case "b.pdf":
+			if has {
+				t.Errorf("b.pdf has tags %v, want the key left out", tags)
+			}
+		}
+	}
+}
+
+// Fusing two empty legs gives no list at all, and it went out as "hits": null,
+// which a client iterating the hits trips over. A tag that no chunk carries
+// made that an everyday result.
+func TestAnEmptyHybridSearchReturnsAnEmptyList(t *testing.T) {
+	store := &fakeStore{text: []corpus.Hit{}, semantic: []corpus.Hit{}}
+	srv := httptest.NewServer(api.New(store, &fakeEmbedder{}).Handler())
+	defer srv.Close()
+
+	var body map[string]any
+	get(t, srv.URL+"/search?q=x&tag=nothing", &body)
+	if hits, ok := body["hits"].([]any); !ok || len(hits) != 0 {
+		t.Errorf("hits = %#v, want an empty list", body["hits"])
 	}
 }
 

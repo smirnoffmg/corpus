@@ -140,6 +140,7 @@ func logSearch(ctx context.Context, q corpus.Query, mode string, hits int, tr *t
 	attrs := []slog.Attr{
 		slog.String("mode", mode),
 		slog.String("kind", q.Kind),
+		slog.String("tag", q.Tag),
 		slog.Int("query_chars", len([]rune(q.Text))),
 		slog.Int("limit", q.Limit),
 		slog.Int("per_source", q.PerSource),

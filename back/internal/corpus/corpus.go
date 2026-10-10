@@ -98,20 +98,25 @@ type Query struct {
 	// Rerank has a cross-encoder reorder the first candidates. It costs about a
 	// second a search, so it is asked for rather than on by default.
 	Rerank bool
+	// Tag keeps the chunks carrying this frontmatter tag, as Obsidian's tag
+	// search does: case is ignored, and a parent tag matches its nested ones,
+	// so work matches work/pet. Empty filters nothing.
+	Tag string
 }
 
 // Hit is one search result: enough to judge it and to cite it.
 type Hit struct {
-	ID      int64   `json:"id"`
-	Kind    string  `json:"kind"`
-	Title   string  `json:"title"`
-	Path    string  `json:"path"`
-	Locator string  `json:"locator"`
-	Anchor  string  `json:"anchor,omitempty"` // section id in an HTML source
-	OCR     bool    `json:"ocr,omitempty"`    // text recognised from a scan
-	Page    int     `json:"page,omitempty"`
-	Rank    float32 `json:"rank"`
-	Snippet string  `json:"snippet"`
+	ID      int64    `json:"id"`
+	Kind    string   `json:"kind"`
+	Title   string   `json:"title"`
+	Path    string   `json:"path"`
+	Locator string   `json:"locator"`
+	Anchor  string   `json:"anchor,omitempty"` // section id in an HTML source
+	OCR     bool     `json:"ocr,omitempty"`    // text recognised from a scan
+	Page    int      `json:"page,omitempty"`
+	Rank    float32  `json:"rank"`
+	Snippet string   `json:"snippet"`
+	Tags    []string `json:"tags,omitempty"` // a note's frontmatter tags
 }
 
 // SourceStatus is how far a source has come: stored, embedded, or stuck. It is

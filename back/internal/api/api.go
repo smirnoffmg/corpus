@@ -152,6 +152,7 @@ type searchInput struct {
 	Mode      string `json:"mode,omitempty" jsonschema:"'hybrid' (default), 'fts' for exact wording, 'vector' for meaning"`
 	PerSource int    `json:"per_source,omitempty" jsonschema:"at most this many hits from one book or note; 0 means no limit. Use 1 to see which sources match at all"`
 	Limit     int    `json:"limit,omitempty" jsonschema:"maximum hits to return, default 10"`
+	Tag       string `json:"tag,omitempty" jsonschema:"restrict to vault notes carrying this frontmatter tag; case-insensitive, leading # optional; a parent tag also matches its nested tags (work matches work/pet)"`
 	Rerank    bool   `json:"rerank,omitempty" jsonschema:"reorder the first 20 candidates with a cross-encoder that reads the query and each passage together: a better order, most of all for a question in your own words, at about a second more. Ignored, with a notice, when the server has no reranker"`
 }
 
@@ -167,6 +168,10 @@ const textAloneNotice = "The embedder is unavailable, so these hits come from 'f
 	"A thin or empty list says nothing about the library; retry in a minute, or search the one term in each language."
 
 func outputOf(hits []corpus.Hit, tr *trace) searchOutput {
+	if hits == nil {
+		// Fusing two empty legs yields nil, which would go out as null.
+		hits = []corpus.Hit{}
+	}
 	out := searchOutput{Hits: hits}
 	var notices []string
 	if tr.vector == "failed" || tr.vector == "skipped" {
@@ -340,13 +345,15 @@ func (s *Service) MCP() *mcp.Server {
 		Annotations: readOnly,
 		Description: "Search the PDF library, the Obsidian vault and reference manuals (Sphinx HTML such as scikit-learn and NLTK). Returns ranked snippets with the book page, or the note or manual heading, to cite. " +
 			"The corpus is half Russian and half English. Full-text search works inside one language only — ask a Russian question about an English book and 'fts' returns nothing, every time — so cross the language barrier with the default 'hybrid' or with 'vector'. " +
-			"'fts' also joins your words with AND: a question phrased as a sentence usually returns nothing, while the one term you actually want returns plenty." +
+			"'fts' also joins your words with AND: a question phrased as a sentence usually returns nothing, while the one term you actually want returns plenty. " +
+			"Vault hits carry the note's frontmatter tags; pass one as 'tag' to search only the notes carrying it." +
 			sourceText,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in searchInput) (*mcp.CallToolResult, searchOutput, error) {
 		hits, tr, err := s.searchTraced(ctx, corpus.Query{
 			Text: in.Query, Kind: in.Kind, Mode: in.Mode,
 			Limit: in.Limit, PerSource: in.PerSource,
 			TitleBoost: defaultTitleBoost, Rerank: in.Rerank,
+			Tag: cleanTag(in.Tag),
 		})
 		if err != nil {
 			return nil, searchOutput{}, err
@@ -596,7 +603,14 @@ func queryFromURL(v url.Values) corpus.Query {
 		EfSearch:   atoiOrZero(v.Get("ef_search")),
 		Exact:      v.Get("exact") == "1" || v.Get("exact") == "true",
 		Rerank:     v.Get("rerank") == "1" || v.Get("rerank") == "true",
+		Tag:        cleanTag(v.Get("tag")),
 	}
+}
+
+// cleanTag takes a tag as Obsidian shows it, #work/, to the form the notes
+// store, work. Case is left to the database, which folds both sides.
+func cleanTag(s string) string {
+	return strings.TrimRight(strings.TrimLeft(strings.TrimSpace(s), "#"), "/")
 }
 
 // maxDepth bounds how deep a leg is fetched: fusion gains nothing from

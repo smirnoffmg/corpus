@@ -104,6 +104,36 @@ func TestSearchSaysWhenItRanOnTextAlone(t *testing.T) {
 	}
 }
 
+// The tag is a filter on each leg, not on the fused list: a leg filtered after
+// its LIMIT would return fewer hits than asked for, or none, while tagged
+// chunks waited further down. So each leg gets the tag and the usual depth.
+func TestSearchToolPassesTheTagToBothLegs(t *testing.T) {
+	ctx := context.Background()
+	store := &fakeStore{text: []corpus.Hit{{ID: 1}}}
+	serverSide, clientSide := mcp.NewInMemoryTransports()
+	if _, err := api.New(store, &fakeEmbedder{}).MCP().Connect(ctx, serverSide, nil); err != nil {
+		t.Fatal(err)
+	}
+	session, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "v0"}, nil).Connect(ctx, clientSide, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+
+	if _, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "corpus_search",
+		Arguments: map[string]any{"query": "q", "tag": "nlp", "limit": 5},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if store.lastTextQuery.Tag != "nlp" || store.lastVector.Tag != "nlp" {
+		t.Errorf("tag = %q (text), %q (vector), want nlp on both legs", store.lastTextQuery.Tag, store.lastVector.Tag)
+	}
+	if store.lastTextQuery.Limit != 10 || store.lastVector.Limit != 10 {
+		t.Errorf("leg limits = %d, %d, want the untagged depth of 10 each", store.lastTextQuery.Limit, store.lastVector.Limit)
+	}
+}
+
 type fakeFinder struct {
 	query string
 	books []corpus.FoundBook

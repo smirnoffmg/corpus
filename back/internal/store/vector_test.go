@@ -4,13 +4,17 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smirnoffmg/corpus/internal/corpus"
+	"github.com/smirnoffmg/corpus/internal/store"
 )
 
 // unit returns a 1024-dimension basis vector, which is the shape the schema
@@ -338,4 +342,87 @@ func TestExactSearchAndEfSearchCanBeAskedFor(t *testing.T) {
 
 	_, err = st.SearchVector(ctx, unit(2), corpus.Query{Limit: 3, EfSearch: 5000})
 	require.Error(t, err, "ef_search beyond what pgvector accepts is refused, not clamped silently")
+}
+
+// A filtered HNSW walk stops after hnsw.max_scan_tuples, 20,000 by default
+// (pgvector README), so a tag on three chunks lying far from the query came
+// back with nothing on the live corpus. A tagged search is an exact scan over
+// the tagged chunks instead: the farthest of them is still found, and the plan
+// has no way to reach the index, however the planner's costs shift.
+func TestSearchVectorWithATagIsExactAndFindsRareTags(t *testing.T) {
+	st, pool, ctx := open(t)
+
+	near := make([]string, 30)
+	for i := range near {
+		near[i] = fmt.Sprintf("близкая страница %d", i)
+	}
+	require.NoError(t, st.Replace(ctx, book("__test__/near.pdf", "Книга", "h1"), pages(near...)))
+	require.NoError(t, st.Replace(ctx, corpus.Source{Kind: "vault", Path: "__test__/wine.md", Title: "Вино", Hash: "h2"},
+		[]corpus.Chunk{{Ord: 1, Heading: "H", Lang: "russian", Tags: []string{"Вино"}, Body: "далёкая заметка"}}))
+
+	query := unit(0)
+	for {
+		pending, err := st.PendingEmbeddings(ctx, 100)
+		require.NoError(t, err)
+		if len(pending) == 0 {
+			break
+		}
+		keys := make([]string, len(pending))
+		vectors := make([][]float32, len(pending))
+		for i, p := range pending {
+			keys[i] = p.Key
+			if strings.Contains(p.Body, "далёкая") {
+				vectors[i] = unit(1)
+			} else {
+				vectors[i] = append([]float32(nil), query...)
+				vectors[i][2+i] = 0.1
+			}
+		}
+		require.NoError(t, st.SaveEmbeddings(ctx, keys, vectors))
+	}
+
+	hits, err := st.SearchVector(ctx, query, corpus.Query{Tag: "вино", Limit: 5})
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+	require.Equal(t, "__test__/wine.md", hits[0].Path)
+	require.Equal(t, []string{"Вино"}, hits[0].Tags)
+	require.InDelta(t, 0.0, hits[0].Rank, 1e-5, "an orthogonal vector is at distance one")
+
+	books, err := st.SearchVector(ctx, query, corpus.Query{Tag: "вино", Kind: "book", Limit: 5})
+	require.NoError(t, err)
+	require.Empty(t, books, "tag and kind both hold")
+
+	untagged, err := st.SearchVector(ctx, query, corpus.Query{Limit: 5})
+	require.NoError(t, err)
+	require.Len(t, untagged, 5)
+	require.Equal(t, "__test__/near.pdf", untagged[0].Path)
+	require.Nil(t, untagged[0].Tags)
+
+	// With every alternative priced out, a plan that could walk the index would.
+	conn, err := pool.Acquire(ctx)
+	require.NoError(t, err)
+	defer conn.Release()
+	for _, set := range []string{"enable_seqscan", "enable_hashjoin", "enable_sort"} {
+		_, err = conn.Exec(ctx, "SET "+set+" = off")
+		require.NoError(t, err)
+	}
+	rows, err := conn.Query(ctx, "EXPLAIN "+store.VectorTaggedSQL, vectorText(query), "", 5, "вино")
+	require.NoError(t, err)
+	plan, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	require.NoError(t, err)
+	var scans []string
+	for _, line := range plan {
+		if strings.Contains(line, "Scan") {
+			scans = append(scans, strings.TrimSpace(line))
+		}
+	}
+	require.NotContains(t, strings.Join(scans, "\n"), "embeddings_embedding_idx", "a tagged search walks the HNSW index")
+}
+
+func vectorText(v []float32) string {
+	parts := make([]string, len(v))
+	for i, f := range v {
+		parts[i] = strconv.FormatFloat(float64(f), 'f', -1, 32)
+	}
+	return "[" + strings.Join(parts, ",") + "]"
 }

@@ -308,7 +308,16 @@ func (s *Store) Prune(ctx context.Context, kind string, seen []string) (int64, e
 	return tag.RowsAffected(), nil
 }
 
-const searchSQL = `
+// hasTag matches a tag the way Obsidian's tag search does: case is ignored,
+// and a parent matches its nested tags, but only across a slash — work matches
+// work/pet, not workshop. The tags are kept as the note spells them, so the
+// comparison folds case on both sides.
+func hasTag(tags, tag string) string {
+	return `EXISTS (SELECT 1 FROM unnest(` + tags + `) t
+                WHERE lower(t) = lower(` + tag + `) OR starts_with(lower(t), lower(` + tag + `) || '/'))`
+}
+
+var searchSQL = `
 WITH q AS (
     SELECT websearch_to_tsquery('russian', $1) AS ru,
            websearch_to_tsquery('english', $1) AS en
@@ -322,6 +331,7 @@ SELECT c.id,
        s.recognised AS ocr,
        coalesce(c.page, 0) AS page,
        coalesce(c.printed_page, 0) AS printed_page,
+       c.tags,
        ts_rank_cd(c.tsv, CASE c.lang WHEN 'russian' THEN q.ru ELSE q.en END, $4)
          + CASE WHEN to_tsvector(c.lang::regconfig, s.title)
                      @@ CASE c.lang WHEN 'russian' THEN q.ru ELSE q.en END
@@ -334,6 +344,7 @@ JOIN sources s ON s.id = c.source_id
 CROSS JOIN q
 WHERE ((c.lang = 'russian' AND c.tsv @@ q.ru) OR (c.lang = 'english' AND c.tsv @@ q.en))
   AND ($2 = '' OR s.kind = $2)
+  AND ($6 = '' OR ` + hasTag("c.tags", "$6") + `)
 -- Ties are common: two chunks naming a term the same number of times score
 -- identically, and without a tiebreaker their order depends on the plan
 -- Postgres picks, which depends on the LIMIT. The same query then answers
@@ -342,7 +353,7 @@ ORDER BY rank DESC, c.id
 LIMIT $3`
 
 func (s *Store) Search(ctx context.Context, q corpus.Query) ([]corpus.Hit, error) {
-	rows, err := s.pool.Query(ctx, searchSQL, q.Text, q.Kind, q.Limit, q.Normalization, q.TitleBoost)
+	rows, err := s.pool.Query(ctx, searchSQL, q.Text, q.Kind, q.Limit, q.Normalization, q.TitleBoost, q.Tag)
 	if err != nil {
 		return nil, err
 	}
@@ -354,17 +365,18 @@ func (s *Store) Search(ctx context.Context, q corpus.Query) ([]corpus.Hit, error
 // and a positional scan that has them the wrong way round still compiles, still
 // runs, and cites a book by its path.
 type hitRow struct {
-	ID      int64   `db:"id"`
-	Kind    string  `db:"kind"`
-	Title   string  `db:"title"`
-	Path    string  `db:"path"`
-	Heading *string `db:"heading"`
-	Anchor  string  `db:"anchor"`
-	OCR     bool    `db:"ocr"`
-	Page    int     `db:"page"`
-	Printed int     `db:"printed_page"`
-	Rank    float32 `db:"rank"`
-	Snippet string  `db:"snippet"`
+	ID      int64    `db:"id"`
+	Kind    string   `db:"kind"`
+	Title   string   `db:"title"`
+	Path    string   `db:"path"`
+	Heading *string  `db:"heading"`
+	Anchor  string   `db:"anchor"`
+	OCR     bool     `db:"ocr"`
+	Page    int      `db:"page"`
+	Printed int      `db:"printed_page"`
+	Rank    float32  `db:"rank"`
+	Snippet string   `db:"snippet"`
+	Tags    []string `db:"tags"`
 }
 
 func collectHits(rows pgx.Rows) ([]corpus.Hit, error) {
@@ -386,6 +398,9 @@ func collectHits(rows pgx.Rows) ([]corpus.Hit, error) {
 			Page:    r.Page,
 			Rank:    r.Rank,
 			Snippet: r.Snippet,
+		}
+		if len(r.Tags) > 0 {
+			hits[i].Tags = r.Tags
 		}
 	}
 	return hits, nil

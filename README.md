@@ -139,6 +139,13 @@ question "where is this discussed" and the question "does a note about this
 already exist" want different answers. `GET /compare?q=…` runs all three and returns them side by
 side.
 
+`tag=nlp` keeps the vault notes whose frontmatter `tags:` carry that tag, the way
+Obsidian's own tag search does: case is ignored, a leading `#` is optional, and a
+parent tag matches its nested ones, so `tag=work` also finds notes tagged
+`work/pet` but not `workshop`. It combines with `kind` and `mode`, and every vault
+hit carries its `tags`. Inline `#tags` in a note's text are not indexed: in this
+vault they are mostly Dataview queries (`FROM #books`), Tasks markers and colours.
+
 ## Adding to the library
 
 ```sh

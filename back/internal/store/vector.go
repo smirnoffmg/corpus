@@ -236,6 +236,7 @@ SELECT c.id,
        s.recognised AS ocr,
        coalesce(c.page, 0) AS page,
        coalesce(c.printed_page, 0) AS printed_page,
+       c.tags,
        1 - (e.embedding <=> $1::vector) AS rank,
        left(c.body, 240) AS snippet
 FROM embeddings e
@@ -246,10 +247,52 @@ WHERE e.embedding IS NOT NULL
 ORDER BY e.embedding <=> $1::vector, c.id
 LIMIT $3`
 
+// vectorTaggedSQL is an exact scan over the tagged chunks. Filtered inside the
+// HNSW walk, a rare tag starves: the walk gives up after hnsw.max_scan_tuples
+// (20,000 by default) and a tag on three notes came back empty. The tagged
+// chunks are a few thousand at most, all of them vault, so measuring each is
+// about as fast as the untagged text leg. The distance is taken inside the
+// materialized CTE, which no ORDER BY reaches, so no plan can walk the index.
+var vectorTaggedSQL = `
+WITH tagged AS MATERIALIZED (
+    SELECT c.id, c.source_id, c.heading, c.anchor, c.page, c.printed_page, c.tags,
+           left(c.body, 240) AS snippet,
+           e.embedding <=> $1::vector AS distance
+    FROM chunks c
+    JOIN embeddings e ON e.hash = c.embed_hash
+    WHERE e.embedding IS NOT NULL
+      AND ` + hasTag("c.tags", "$4") + `
+)
+SELECT t.id,
+       s.kind,
+       s.title,
+       s.path,
+       t.heading,
+       coalesce(t.anchor, '') AS anchor,
+       s.recognised AS ocr,
+       coalesce(t.page, 0) AS page,
+       coalesce(t.printed_page, 0) AS printed_page,
+       t.tags,
+       1 - t.distance AS rank,
+       t.snippet
+FROM tagged t
+JOIN sources s ON s.id = t.source_id
+WHERE ($2 = '' OR s.kind = $2)
+ORDER BY t.distance, t.id
+LIMIT $3`
+
 // SearchVector returns the chunks nearest a vector. ef_search and an exact scan
 // are set for this one search, inside its own transaction, so they never leak
 // onto a pooled connection another search will use.
 func (s *Store) SearchVector(ctx context.Context, vector []float32, q corpus.Query) ([]corpus.Hit, error) {
+	if q.Tag != "" {
+		// Exact already, so neither ef_search nor an exact scan applies.
+		rows, err := s.pool.Query(ctx, vectorTaggedSQL, vectorLiteral(vector), q.Kind, q.Limit, q.Tag)
+		if err != nil {
+			return nil, err
+		}
+		return collectHits(rows)
+	}
 	if q.EfSearch == 0 && !q.Exact {
 		rows, err := s.pool.Query(ctx, vectorSQL, vectorLiteral(vector), q.Kind, q.Limit)
 		if err != nil {

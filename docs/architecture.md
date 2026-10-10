@@ -371,3 +371,22 @@ walking the index until the filter has yielded enough rows.
 This is not covered by a test: the starvation only appears once the index holds
 far more rows than a test would insert. It shows up in the evaluation instead —
 that is what caught it.
+
+A tag filter starves even so. An iterative scan gives up after
+`hnsw.max_scan_tuples`, 20,000 tuples by default (pgvector README), and a tag
+carried by three chunks of 174 thousand came back empty after the walk had
+visited 20,057. So a search with `tag` skips the index: it measures the distance
+to every tagged chunk — the vault's twenty thousand at most, usually a few
+thousand — in a materialized CTE, and sorts those. That took 150–165 ms on the
+live corpus against 30 ms for the untagged vector leg, and found every match.
+The distance is taken inside the CTE, where no `ORDER BY` reaches it, because
+with the CTE holding only the chunks the planner can still choose to walk the
+index and join; a store test prices every other plan out and checks that it
+does not. The text leg needs nothing of the kind: its tag test runs on the rows
+the GIN index found, before the sort.
+
+There is no index on `chunks.tags`. Migration 005 dropped the GIN index until a
+tag filter appeared, but the filter that appeared compares case-insensitively
+and by prefix, which a GIN `array_ops` index cannot serve. It would take tags
+lowercased and expanded to their parents at extraction, and a re-index of the
+vault; that is the step to take if the tagged vector leg ever turns slow.

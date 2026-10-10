@@ -258,6 +258,64 @@ func TestSearchMapsColumnsToTheRightFields(t *testing.T) {
 	// Printed 189 differs from PDF 203, so a page/printed swap changes this.
 	require.Equal(t, "с. 189 (PDF 203)", got.Locator, "Locator")
 	require.Contains(t, got.Snippet, "<<", "Snippet is not the highlighted headline")
+	require.Nil(t, got.Tags, "a book page has no tags")
+
+	note := corpus.Source{Kind: "vault", Path: "__test__/раскладка.md", Title: "Заметка", Hash: "h2"}
+	require.NoError(t, st.Replace(ctx, note, []corpus.Chunk{{
+		Ord: 1, Heading: "H", Lang: "russian", Tags: []string{"nlp", "Work/Pet"},
+		Body: "Заметка про корпускрипт.",
+	}}), "replace")
+	hits, err = st.Search(ctx, corpus.Query{Text: "корпускрипт", Kind: "vault", Limit: 10})
+	require.NoError(t, err, "search")
+	require.Equal(t, []string{"nlp", "Work/Pet"}, find(t, hits, note.Path).Tags, "Tags")
+}
+
+// tagged stores three notes that share a word: one tagged nlp, one with a
+// nested tag in the user's own capitals, one with no tags at all.
+func tagged(t *testing.T, st *store.Store, ctx context.Context) {
+	t.Helper()
+	for _, n := range []struct {
+		path string
+		tags []string
+	}{
+		{"__test__/a.md", []string{"nlp"}},
+		{"__test__/b.md", []string{"Work/Pet"}},
+		{"__test__/c.md", nil},
+	} {
+		require.NoError(t, st.Replace(ctx, corpus.Source{Kind: "vault", Path: n.path, Title: n.path, Hash: n.path},
+			[]corpus.Chunk{{Ord: 1, Heading: "H", Lang: "russian", Tags: n.tags, Body: "Тегированный корпускрипт " + n.path}}))
+	}
+}
+
+func paths(hits []corpus.Hit) []string {
+	out := make([]string, len(hits))
+	for i := range hits {
+		out[i] = hits[i].Path
+	}
+	return out
+}
+
+// A tag narrows a search to the chunks that carry it, the way Obsidian's own
+// tag search does: case is ignored, and a parent tag matches its nested ones —
+// the notes tagged work/pet carry no plain work tag. The match stops at the
+// slash, so work does not match workshop. Without a tag nothing changes.
+func TestSearchWithATagReturnsOnlyChunksCarryingIt(t *testing.T) {
+	st, _, ctx := open(t)
+	tagged(t, st, ctx)
+
+	search := func(tag string) []string {
+		t.Helper()
+		hits, err := st.Search(ctx, corpus.Query{Text: "корпускрипт", Tag: tag, Limit: 10})
+		require.NoError(t, err)
+		return paths(hits)
+	}
+	require.Equal(t, []string{"__test__/a.md"}, search("nlp"))
+	require.Equal(t, []string{"__test__/a.md"}, search("NLP"), "case is ignored")
+	require.Equal(t, []string{"__test__/b.md"}, search("work"), "a parent tag matches its nested ones")
+	require.Equal(t, []string{"__test__/b.md"}, search("work/pet"))
+	require.Empty(t, search("wor"), "a prefix that is not a parent matches nothing")
+	require.Empty(t, search("pet"), "a child alone is not the tag")
+	require.ElementsMatch(t, []string{"__test__/a.md", "__test__/b.md", "__test__/c.md"}, search(""))
 }
 
 // find returns the hit for one path, failing the test when the search did not
