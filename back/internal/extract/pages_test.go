@@ -2,6 +2,7 @@ package extract_test
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -112,6 +113,31 @@ func TestAGarbledTextLayerIsAScan(t *testing.T) {
 	}
 	if chunks := extract.DefaultSplitter.Pages(pages); len(chunks) != 0 {
 		t.Errorf("got %d chunks of garbage, want none", len(chunks))
+	}
+}
+
+// go-design-patterns.pdf (issue #10): every ASCII character of its layer reads
+// 29 code points down, and code on a page lifts its vowel share above the rule.
+func TestAShiftedTextLayerIsAScan(t *testing.T) {
+	page, err := os.ReadFile("testdata/go-design-patterns-p263.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pages := make([]string, 20)
+	for i := range pages {
+		pages[i] = string(page)
+	}
+
+	for i, has := range extract.TextPages(pages) {
+		if has {
+			t.Errorf("page %d counted as text", i+1)
+		}
+	}
+	if !extract.Scan(pages) {
+		t.Error("a book whose layer is shifted on every page is not taken for a scan")
+	}
+	if chunks := extract.DefaultSplitter.Pages(pages); len(chunks) != 0 {
+		t.Errorf("got %d chunks of shifted text, want none", len(chunks))
 	}
 }
 

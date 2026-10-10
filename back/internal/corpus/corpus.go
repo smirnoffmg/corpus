@@ -30,6 +30,9 @@ type Source struct {
 	// Recognised marks text read from a scan by OCR rather than taken from the
 	// PDF's text layer: close, but a reading, and worth checking before quoting.
 	Recognised bool
+	// Rules is the version of extract.LayerRules that judged a PDF's text layer;
+	// 0 for anything else.
+	Rules int
 }
 
 // Scan is a PDF with no text layer, waiting for its pages to be recognised.

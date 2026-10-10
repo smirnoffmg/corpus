@@ -32,6 +32,7 @@ type recordingStore struct {
 	pruned     map[string][]string
 	indexed    map[string]string // path -> hash, as a real store would remember
 	byHash     map[string]string // hash -> path
+	rules      map[string]int    // path -> the layer rules that judged it
 	renamed    []string
 	forgotten  []string
 	unchanged  bool
@@ -70,13 +71,14 @@ func newStore() *recordingStore {
 		pruned:     map[string][]string{},
 		indexed:    map[string]string{},
 		byHash:     map[string]string{},
+		rules:      map[string]int{},
 	}
 }
 
-func (s *recordingStore) Unchanged(_ context.Context, path, hash string) (bool, error) {
+func (s *recordingStore) Unchanged(_ context.Context, path, hash string, rules int) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.unchanged || s.indexed[path] == hash, nil
+	return s.unchanged || (s.indexed[path] == hash && s.rules[path] >= rules), nil
 }
 
 func (s *recordingStore) PathByHash(_ context.Context, _, hash string) (string, bool, error) {
@@ -93,6 +95,8 @@ func (s *recordingStore) Rename(_ context.Context, oldPath, newPath, _ string) e
 	hash := s.indexed[oldPath]
 	delete(s.indexed, oldPath)
 	s.indexed[newPath] = hash
+	s.rules[newPath] = s.rules[oldPath]
+	delete(s.rules, oldPath)
 	s.byHash[hash] = newPath
 	return nil
 }
@@ -105,6 +109,7 @@ func (s *recordingStore) Replace(_ context.Context, src corpus.Source, chunks []
 	s.chunks[src.Path] = chunks
 	s.indexed[src.Path] = src.Hash
 	s.byHash[src.Hash] = src.Path
+	s.rules[src.Path] = src.Rules
 	return nil
 }
 
@@ -1352,6 +1357,73 @@ func TestABookMostlyInTextIsNotQueued(t *testing.T) {
 	defer recognizer.mu.Unlock()
 	if len(recognizer.kept) != 0 {
 		t.Errorf("kept %v from a book that is not a scan", recognizer.kept)
+	}
+}
+
+// Issue #10: a book indexed before a layer rule existed kept its few text pages
+// for good, because its bytes never changed. Under newer rules it is judged
+// again, and a scan goes to recognition like any other.
+func TestABookIndexedUnderOlderRulesIsJudgedAgain(t *testing.T) {
+	notes, books := vault(t, 1)
+	pdfWithText(t, books, "hoeffding.pdf", []string{coverText(1), "", "", ""})
+	store := newStore()
+	if err := index.New(store, nopEmbedder{}, index.Options{Books: books, Vault: notes}).Index(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	if got := store.sources["hoeffding.pdf"].Rules; got != extract.LayerRules {
+		t.Fatalf("rules = %d, want %d", got, extract.LayerRules)
+	}
+	store.rules["hoeffding.pdf"] = extract.LayerRules - 1
+	store.mu.Unlock()
+
+	recognizer := &fakeRecognizer{pages: 4}
+	ix := index.New(store, nopEmbedder{}, index.Options{Books: books, Vault: notes, OCR: recognizer})
+	if err := ix.Index(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if len(store.scans) != 1 {
+		t.Errorf("scans = %v, want the book queued", store.scans)
+	}
+	if !slices.Contains(store.forgotten, "hoeffding.pdf") {
+		t.Errorf("forgotten = %v, want the book's text pages dropped", store.forgotten)
+	}
+	recognizer.mu.Lock()
+	defer recognizer.mu.Unlock()
+	if !strings.Contains(recognizer.kept[1], "Text layer page 1") {
+		t.Errorf("kept = %v, want the cover", recognizer.kept)
+	}
+}
+
+func TestASourceUnderTheseRulesIsNotReadAgain(t *testing.T) {
+	notes, books := vault(t, 1)
+	pdfWithText(t, books, "book.pdf", []string{coverText(1), coverText(2)})
+	store := newStore()
+	ix := index.New(store, nopEmbedder{}, index.Options{Books: books, Vault: notes})
+	if err := ix.Index(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	if _, ok := store.sources["book.pdf"]; !ok {
+		t.Fatal("the book was not indexed")
+	}
+	if got := store.sources["note-000.md"].Rules; got != 0 {
+		t.Errorf("a note was recorded under layer rules %d, want 0", got)
+	}
+	store.replaced = map[string]int{}
+	store.mu.Unlock()
+
+	if err := ix.Index(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if len(store.replaced) != 0 {
+		t.Errorf("read again: %v", store.replaced)
 	}
 }
 

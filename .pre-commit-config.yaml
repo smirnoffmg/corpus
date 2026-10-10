@@ -10,8 +10,12 @@ repos:
       - id: check-merge-conflict
       - id: check-yaml
       - id: check-json
+      # Фикстуры в testdata — байты страниц как есть: хвостовой пробел или
+      # недостающий перевод строки там часть того, что проверяет тест.
       - id: end-of-file-fixer
+        exclude: /testdata/
       - id: trailing-whitespace
+        exclude: /testdata/
 
   # Go-инструменты берутся установленные в системе, а не своей копией из хука:
   # golangci-lint должен совпадать с тем, которым проверяют вручную, а его

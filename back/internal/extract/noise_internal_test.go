@@ -1,6 +1,7 @@
 package extract
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -95,6 +96,19 @@ func TestUnreadableSpotsALayerWithoutVowels(t *testing.T) {
 	}
 }
 
+// The same book's p. 263 has enough code on it to pass the vowel rule: its
+// ToUnicode map names glyph indices, so every ASCII character reads 29 code
+// points down, and what is left of the vowels lands on brackets and digits.
+func TestUnreadableSpotsALayerShiftedByTheGlyphOrder(t *testing.T) {
+	page, err := os.ReadFile("testdata/go-design-patterns-p263.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !unreadable(string(page)) {
+		t.Error("a layer shifted by the glyph order was kept")
+	}
+}
+
 func TestUnreadableKeepsRealPagesWithSymbols(t *testing.T) {
 	// Measured against the corpus: pages like these sit below the threshold.
 	// Digits are left out of the count, or the table and the figure would not be.
@@ -119,6 +133,14 @@ func TestUnreadableKeepsRealPagesWithSymbols(t *testing.T) {
 			"\trow := s.db.QueryRowContext(ctx, `SELECT body FROM docs WHERE id = $1`, id)\n" +
 			"\tvar d Doc\n\tif err := row.Scan(&d.Body); err != nil {\n\t\treturn nil, fmt.Errorf(\"get %s: %w\", id, err)\n\t}\n" +
 			"\treturn &d, nil\n}",
+		// Read 29 code points up, plain prose and Russian with code in it must
+		// still read worse than they do as they are.
+		"Testing in Go is done by writing methods that start with the prefix Test, a test name, " +
+			"and the injection of a testing.T pointer called t. There are no asserts nor special syntax " +
+			"for testing in Go; you use Go syntax to check for errors and you call t with information.",
+		"Функция Get(ctx, id) возвращает (*Doc, error): если row.Scan(&d.Body) вернёт sql.ErrNoRows, " +
+			"ошибку оборачивают через fmt.Errorf(\"get %s: %w\", id, err), а вызывающий, " +
+			"проверив errors.Is(err, sql.ErrNoRows), отвечает 404, не 500.",
 	}
 	for _, page := range pages {
 		if unreadable(page) {

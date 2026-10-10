@@ -24,17 +24,44 @@ func TestUnchangedComparesTheStoredHash(t *testing.T) {
 	src := book("__test__/hash.pdf", "Книга", "h1")
 	require.NoError(t, st.Replace(ctx, src, oneChunk("корпускрипт один")))
 
-	same, err := st.Unchanged(ctx, src.Path, "h1")
+	same, err := st.Unchanged(ctx, src.Path, "h1", 0)
 	require.NoError(t, err)
 	require.True(t, same)
 
-	same, err = st.Unchanged(ctx, src.Path, "h2")
+	same, err = st.Unchanged(ctx, src.Path, "h2", 0)
 	require.NoError(t, err)
 	require.False(t, same, "a different hash is a changed file")
 
-	same, err = st.Unchanged(ctx, "__test__/never-seen.pdf", "h1")
+	same, err = st.Unchanged(ctx, "__test__/never-seen.pdf", "h1", 0)
 	require.NoError(t, err)
 	require.False(t, same, "an unknown path was never indexed")
+}
+
+// A PDF judged by older layer rules is read again, though its bytes are the
+// same: a rule that came later has not seen it (issue #10).
+func TestUnchangedComparesTheStoredRules(t *testing.T) {
+	st, _, ctx := open(t)
+
+	src := book("__test__/rules.pdf", "Книга", "h1")
+	src.Rules = 1
+	require.NoError(t, st.Replace(ctx, src, oneChunk("корпускрипт правила")))
+
+	same, err := st.Unchanged(ctx, src.Path, "h1", 1)
+	require.NoError(t, err)
+	require.True(t, same)
+
+	same, err = st.Unchanged(ctx, src.Path, "h1", 2)
+	require.NoError(t, err)
+	require.False(t, same, "newer rules have not judged this file")
+
+	same, err = st.Unchanged(ctx, src.Path, "h1", 0)
+	require.NoError(t, err)
+	require.True(t, same, "a file judged by newer rules need not be read again")
+
+	require.NoError(t, st.Rename(ctx, src.Path, "__test__/rules-moved.pdf", "Книга"))
+	same, err = st.Unchanged(ctx, "__test__/rules-moved.pdf", "h1", 1)
+	require.NoError(t, err)
+	require.True(t, same, "a rename keeps the rules that judged the file")
 }
 
 func TestPathByHashFindsAFileThatMoved(t *testing.T) {

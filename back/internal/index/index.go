@@ -33,7 +33,7 @@ import (
 )
 
 type Store interface {
-	Unchanged(ctx context.Context, path, hash string) (bool, error)
+	Unchanged(ctx context.Context, path, hash string, rules int) (bool, error)
 	Replace(ctx context.Context, src corpus.Source, chunks []corpus.Chunk) error
 	SetTitle(ctx context.Context, path, title string) error
 	Forget(ctx context.Context, path string) (bool, error)
@@ -342,7 +342,11 @@ func (ix *Indexer) indexFile(
 	}
 	title := ix.title(ctx, kind, path, rel)
 
-	unchanged, err := ix.store.Unchanged(ctx, rel, hash)
+	rules := 0
+	if isPDF(path) {
+		rules = extract.LayerRules
+	}
+	unchanged, err := ix.store.Unchanged(ctx, rel, hash, rules)
 	if err != nil {
 		return false, err
 	}
@@ -396,7 +400,7 @@ func (ix *Indexer) indexFile(
 		chunks[i].Lang = lang.Detect(chunks[i].Body)
 	}
 
-	src := corpus.Source{Kind: kind, Path: rel, Title: title, Hash: hash, Recognised: recognised}
+	src := corpus.Source{Kind: kind, Path: rel, Title: title, Hash: hash, Recognised: recognised, Rules: rules}
 	return true, ix.store.Replace(ctx, src, chunks)
 }
 

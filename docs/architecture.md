@@ -301,7 +301,12 @@ letters swapped one for one (`wnénxzjtvkrq` for «перестановки»), 
 whose characters, digits and spaces aside, are less than 12% vowels is
 unreadable too. Real prose sits near 38%; below 12% also fall contents pages,
 decimal tables, figures drawn in characters and the odd page of display
-formulas, about 0.1% of real pages. A book whose whole layer is like that has
+formulas, about 0.1% of real pages. One more layer reads as letters only 29
+code points down (`7KH\x03WHVW` for `The test`): a Unicode map that names glyph
+indices in standard TrueType order, where space is glyph 3, and code on a page
+can lift its vowels past 12%. A page whose ASCII, moved back up, is more than
+25% vowels and more vowels than as it stands is unreadable too; real pages read
+that way stay at or below 22%. A book whose whole layer is like that has
 no text pages left and is recognised like a scan. A page has usable text by the
 splitter's own measure — 150 readable characters. Such a book is recognised with
 Tesseract
@@ -314,6 +319,12 @@ The test is cheap for a book with text: `pdfinfo`'s page count against the
 pages its chunks cite. Only a book whose chunks cite fewer than half of its
 pages has its text layer read again page by page, since chunks also leave out
 contents pages and a paper's references.
+
+A PDF's source records the version of the layer rules that judged it, so a
+changed rule reaches books indexed before it on the next pass, though their
+bytes are the same. The cost is one re-read of every PDF; their vectors are
+reused through `embed_hash`, and a recognised scan is rebuilt from its OCR
+cache.
 
 Publications are recognised the same way; a scan carries its kind, because
 books and papers are pruned against their own walks and resolved against their

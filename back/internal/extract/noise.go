@@ -33,13 +33,24 @@ const (
 	// figures drawn in characters and the odd page of display formulas: about
 	// 0.1% of real pages, and no real book loses enough to pass for a scan.
 	vowelShare = 0.12
-	// minLettersToJudge keeps both rules off pages too short to measure.
+	// A ToUnicode map that names glyph indices in standard TrueType order
+	// (space is glyph 3) writes ASCII glyphOrderShift code points down, and code
+	// on such a page can lift its vowel share above vowelShare. Moved back up,
+	// those pages read at 0.27–0.42, and no real page above 0.22 (issue #10).
+	glyphOrderShift   = 29
+	shiftedVowelShare = 0.25
+	// minLettersToJudge keeps the rules off pages too short to measure.
 	minLettersToJudge = 50
 	// scanShare of a PDF's pages with text, below which it is a scan. A text
 	// cover or a few pages of front matter in front of page images do not make
 	// a book, and a few blank pages, plates or figures do not make a scan.
 	scanShare = 0.5
 )
+
+// LayerRules is the version of the rules that judge a PDF's text layer. Raise
+// it whenever unreadable, TextPages or Scan judge a page differently, and every
+// PDF indexed under an older one is read again on the next pass.
+const LayerRules = 1
 
 var (
 	dotLeader  = regexp.MustCompile(`\.\s?\.\s?\.\s?\.`)
@@ -49,10 +60,22 @@ var (
 const vowels = "aeiouyаеёиоуыэюя"
 
 // unreadable reports whether a page is mojibake, letters that belong to neither
-// alphabet this library is written in, or a layer that decodes to no language.
+// alphabet this library is written in, a layer that decodes to no language, or
+// one that reads as a language only once its ASCII is moved back up by the
+// glyph order.
 func unreadable(page string) bool {
-	var letters, foreign, chars, vowel int
+	var letters, foreign, chars, vowel, shiftedChars, shiftedVowel int
 	for _, r := range page {
+		s := r
+		if r < unicode.MaxASCII {
+			s = r + glyphOrderShift
+		}
+		if !unicode.IsSpace(s) && !unicode.IsDigit(s) {
+			shiftedChars++
+			if strings.ContainsRune(vowels, unicode.ToLower(s)) {
+				shiftedVowel++
+			}
+		}
 		if unicode.IsSpace(r) || unicode.IsDigit(r) {
 			continue
 		}
@@ -68,8 +91,11 @@ func unreadable(page string) bool {
 			foreign++
 		}
 	}
-	return letters >= minLettersToJudge && float64(foreign)/float64(letters) > foreignLetterShare ||
-		chars >= minLettersToJudge && float64(vowel)/float64(chars) < vowelShare
+	share := func(n, of int) float64 { return float64(n) / float64(of) }
+	return letters >= minLettersToJudge && share(foreign, letters) > foreignLetterShare ||
+		chars >= minLettersToJudge && share(vowel, chars) < vowelShare ||
+		shiftedChars >= minLettersToJudge && share(shiftedVowel, shiftedChars) > shiftedVowelShare &&
+			share(shiftedVowel, shiftedChars) > share(vowel, chars)
 }
 
 // TextPages marks the pages of a PDF that have text the splitter could cite;

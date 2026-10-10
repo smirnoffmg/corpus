@@ -150,17 +150,18 @@ func (s *Store) provider() (*goose.Provider, *sql.DB, error) {
 }
 
 // Unchanged reports whether the file is already indexed under the same content
-// hash, so that a reindex pass can skip it.
-func (s *Store) Unchanged(ctx context.Context, path, hash string) (bool, error) {
+// hash and judged by rules at least as new, so that a reindex pass can skip it.
+func (s *Store) Unchanged(ctx context.Context, path, hash string, rules int) (bool, error) {
 	var stored string
-	err := s.pool.QueryRow(ctx, `SELECT hash FROM sources WHERE path = $1`, path).Scan(&stored)
+	var storedRules int
+	err := s.pool.QueryRow(ctx, `SELECT hash, rules FROM sources WHERE path = $1`, path).Scan(&stored, &storedRules)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return false, nil
 	case err != nil:
 		return false, err
 	}
-	return stored == hash, nil
+	return stored == hash && storedRules >= rules, nil
 }
 
 // Replace rewrites a source and all of its chunks in one transaction. tsvectors
@@ -175,13 +176,14 @@ func (s *Store) Replace(ctx context.Context, src corpus.Source, chunks []corpus.
 
 	var id int64
 	err = tx.QueryRow(ctx, `
-		INSERT INTO sources (kind, path, title, hash, recognised)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO sources (kind, path, title, hash, recognised, rules)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (path) DO UPDATE
 		    SET kind = EXCLUDED.kind, title = EXCLUDED.title,
-		        hash = EXCLUDED.hash, recognised = EXCLUDED.recognised, indexed_at = now()
+		        hash = EXCLUDED.hash, recognised = EXCLUDED.recognised,
+		        rules = EXCLUDED.rules, indexed_at = now()
 		RETURNING id`,
-		src.Kind, src.Path, storable(src.Title), src.Hash, src.Recognised).Scan(&id)
+		src.Kind, src.Path, storable(src.Title), src.Hash, src.Recognised, src.Rules).Scan(&id)
 	if err != nil {
 		return fmt.Errorf("upsert source %s: %w", src.Path, err)
 	}
