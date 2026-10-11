@@ -193,7 +193,7 @@ func (s *Store) Replace(ctx context.Context, src corpus.Source, chunks []corpus.
 	}
 
 	chunks = storableChunks(chunks)
-	keys := s.embedKeys(chunks)
+	keys := s.embedKeys(src, chunks)
 	batch := &pgx.Batch{}
 	for i, c := range chunks {
 		batch.Queue(`
@@ -284,10 +284,30 @@ func (s *Store) PathByHash(ctx context.Context, kind, hash string) (string, bool
 // Rename moves a source to its new path, keeping its chunks and their
 // embeddings: the file was renamed, not replaced.
 func (s *Store) Rename(ctx context.Context, oldPath, newPath, title string) error {
-	_, err := s.pool.Exec(ctx,
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx,
 		`UPDATE sources SET path = $2, title = $3, indexed_at = now() WHERE path = $1`,
-		oldPath, newPath, storable(title))
-	return err
+		oldPath, newPath, storable(title)); err != nil {
+		return err
+	}
+	// A note's title is part of the text its sections are embedded as, so its
+	// chunks are filed under the new text; the vectors follow on the next pass.
+	if _, err := tx.Exec(ctx, `
+		UPDATE chunks t SET embed_hash = w.hash
+		FROM (
+		    SELECT c.id, encode(sha256(convert_to(`+windowSQL+`, 'UTF8')), 'hex') AS hash
+		    FROM chunks c JOIN sources s ON s.id = c.source_id
+		    WHERE s.path = $1 AND s.kind = 'vault'
+		    WINDOW o AS (ORDER BY c.ord)
+		) w
+		WHERE t.id = w.id`, newPath, s.neighbourChars, s.bodyChars); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // SetTitle refreshes a source's display name without touching its chunks, so

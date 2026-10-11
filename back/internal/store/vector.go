@@ -34,14 +34,27 @@ const (
 // embedKeys computes, for chunks in order, the window each is embedded as and
 // that window's SHA-256 — the key its vector is filed under.
 //
-// The window is also computed in SQL: by the queue, to hand the text out, and
-// by migration 010, which filed the vectors that existed before. Postgres's
+// A note's window opens with its title and heading path: notes follow a
+// template, and a "Как устроено" section seldom names what it explains, so
+// alone its vector describes some mechanism or other. Augmenting a chunk with
+// its document's title is the simplest form of contextual retrieval (Huyen,
+// AI Engineering, p. 271). Book pages are embedded as they are.
+//
+// The window is also computed in SQL — windowSQL, for the queue and for a
+// renamed note, and the migrations that re-filed existing vectors. Postgres's
 // left and right count characters, so this counts runes; a test holds the Go
 // and SQL versions together.
-func (s *Store) embedKeys(chunks []corpus.Chunk) []string {
+func (s *Store) embedKeys(src corpus.Source, chunks []corpus.Chunk) []string {
 	keys := make([]string, len(chunks))
 	for i := range chunks {
-		parts := make([]string, 0, 3)
+		parts := make([]string, 0, 4)
+		if src.Kind == "vault" {
+			header := storable(src.Title)
+			if chunks[i].Heading != "" {
+				header += " > " + chunks[i].Heading
+			}
+			parts = append(parts, header)
+		}
 		if i > 0 {
 			if prev := lastRunes(chunks[i-1].Body, s.neighbourChars); prev != "" {
 				parts = append(parts, prev)
@@ -58,6 +71,14 @@ func (s *Store) embedKeys(chunks []corpus.Chunk) []string {
 	}
 	return keys
 }
+
+// windowSQL is embedKeys's window in SQL, over chunks c of sources s in a
+// window o ordered by ord: $2 neighbour characters, $3 body characters.
+const windowSQL = `concat_ws(' ',
+               CASE WHEN s.kind = 'vault' THEN s.title || coalesce(' > ' || c.heading, '') END,
+               nullif(right(lag(c.body) OVER o, $2), ''),
+               left(c.body, $3),
+               nullif(left(lead(c.body) OVER o, $2), ''))`
 
 func firstRunes(s string, n int) string {
 	count := 0
@@ -93,12 +114,10 @@ WITH target AS (
 ), windowed AS (
     SELECT c.ord,
            c.embed_hash,
-           concat_ws(' ',
-               nullif(right(lag(c.body) OVER o, $2), ''),
-               left(c.body, $3),
-               nullif(left(lead(c.body) OVER o, $2), '')) AS text
+           ` + windowSQL + ` AS text
     FROM chunks c
     JOIN target t ON t.source_id = c.source_id
+    JOIN sources s ON s.id = c.source_id
     WINDOW o AS (ORDER BY c.ord)
 ), texts AS (
     SELECT DISTINCT ON (w.embed_hash) w.embed_hash, w.text, w.ord

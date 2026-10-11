@@ -426,3 +426,88 @@ func vectorText(v []float32) string {
 	}
 	return "[" + strings.Join(parts, ",") + "]"
 }
+
+func notePage(path, title, hash string) corpus.Source {
+	return corpus.Source{Kind: "vault", Path: path, Title: title, Hash: hash}
+}
+
+func sections(headings ...string) []corpus.Chunk {
+	chunks := make([]corpus.Chunk, len(headings))
+	for i, h := range headings {
+		chunks[i] = corpus.Chunk{Ord: i + 1, Heading: h, Lang: "russian", Body: "Частота слова насыщается, раздел " + strconv.Itoa(i)}
+	}
+	return chunks
+}
+
+// A note's sections follow a template, so a "Как устроено" seldom names its
+// subject; the title and the heading path in front of the body say what it is
+// about (Huyen, AI Engineering, p. 271). Book pages are embedded as they are.
+func TestANoteIsEmbeddedUnderItsTitleAndHeadings(t *testing.T) {
+	st, pool, ctx := open(t)
+
+	require.NoError(t, st.Replace(ctx, notePage("__test__/BM25.md", "BM25", "n1"),
+		sections("Как устроено > Насыщение", "")))
+	require.NoError(t, st.Replace(ctx, book("__test__/plain.pdf", "Книга", "b1"), pages("страница книги")))
+
+	pending, err := st.PendingEmbeddings(ctx, 10)
+	require.NoError(t, err)
+	bodies := map[string]bool{}
+	for _, p := range pending {
+		sum := sha256.Sum256([]byte(p.Body))
+		require.Equal(t, hex.EncodeToString(sum[:]), p.Key, "the key is the hash of the text handed out")
+		bodies[p.Body] = true
+	}
+	require.True(t, bodies["BM25 > Как устроено > Насыщение Частота слова насыщается, раздел 0 Частота слова насыщается, раздел 1"])
+	require.True(t, bodies["BM25 Частота слова насыщается, раздел 0 Частота слова насыщается, раздел 1"],
+		"a note's text above its first heading carries the title alone")
+
+	// The pending queue only hands out one source at a time, so the book is
+	// checked through the stored key.
+	var bookKey string
+	require.NoError(t, pool.QueryRow(ctx, `
+		SELECT c.embed_hash FROM chunks c JOIN sources s ON s.id = c.source_id
+		WHERE s.path = '__test__/plain.pdf'`).Scan(&bookKey))
+	sum := sha256.Sum256([]byte("страница книги"))
+	require.Equal(t, hex.EncodeToString(sum[:]), bookKey, "a book page is embedded without a header")
+
+	// The migration that re-filed the vault computes the same keys in SQL.
+	rows, err := pool.Query(ctx, `
+		SELECT c.embed_hash,
+		       encode(sha256(convert_to(concat_ws(' ',
+		           CASE WHEN s.kind = 'vault' THEN s.title || coalesce(' > ' || c.heading, '') END,
+		           nullif(right(lag(c.body) OVER w, 500), ''),
+		           left(c.body, 5000),
+		           nullif(left(lead(c.body) OVER w, 500), '')), 'UTF8')), 'hex')
+		FROM chunks c JOIN sources s ON s.id = c.source_id
+		WHERE s.path IN ('__test__/BM25.md', '__test__/plain.pdf')
+		WINDOW w AS (PARTITION BY c.source_id ORDER BY c.ord)`)
+	require.NoError(t, err)
+	defer rows.Close()
+	n := 0
+	for rows.Next() {
+		var stored, computed string
+		require.NoError(t, rows.Scan(&stored, &computed))
+		require.Equal(t, computed, stored, "the Go key and the migration's SQL key differ")
+		n++
+	}
+	require.NoError(t, rows.Err())
+	require.Equal(t, 3, n)
+}
+
+// Renaming a note changes its title, and with it the text its sections are
+// embedded as; the chunks stay, their keys follow the new text.
+func TestRenamingANoteRefilesItsSections(t *testing.T) {
+	st, _, ctx := open(t)
+
+	require.NoError(t, st.Replace(ctx, notePage("__test__/old.md", "Старое имя", "r1"), sections("Раздел")))
+	embedAll(t, st, ctx)
+
+	require.NoError(t, st.Rename(ctx, "__test__/old.md", "__test__/new.md", "Новое имя"))
+
+	pending, err := st.PendingEmbeddings(ctx, 10)
+	require.NoError(t, err)
+	require.Len(t, pending, 1)
+	require.True(t, strings.HasPrefix(pending[0].Body, "Новое имя > Раздел "), pending[0].Body)
+	sum := sha256.Sum256([]byte(pending[0].Body))
+	require.Equal(t, hex.EncodeToString(sum[:]), pending[0].Key)
+}
