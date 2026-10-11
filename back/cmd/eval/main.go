@@ -22,9 +22,14 @@ import (
 	"github.com/smirnoffmg/corpus/internal/evalstat"
 )
 
+// A judgement names a source by a substring of its path, or a vault note by its
+// whole path with Note — a substring "RAG.md" would also match "GraphRAG.md".
+// Section narrows a note to the chunks under that heading, at any depth.
 type judgement struct {
-	Path  string `json:"path"`
-	Pages []int  `json:"pages"`
+	Path    string `json:"path"`
+	Pages   []int  `json:"pages"`
+	Note    string `json:"note"`
+	Section string `json:"section"`
 }
 
 type query struct {
@@ -103,7 +108,14 @@ func main() {
 	}
 
 	modes := []string{"fts", "vector", "hybrid"}
-	styles := []string{"exact", "paraphrase"}
+	// A hand-written set says exact or paraphrase; a generated one says where
+	// each query came from. Report whatever groups the set has, in its order.
+	var styles []string
+	for _, q := range queries {
+		if !slices.Contains(styles, q.Style) {
+			styles = append(styles, q.Style)
+		}
+	}
 
 	overall := map[string]*score{}
 	byStyle := map[string]map[string]*score{}
@@ -138,7 +150,7 @@ func main() {
 
 	measured := overall["fts"].queries
 	fmt.Printf("%d queries measured\n\n", measured)
-	fmt.Printf("%-8s %-12s %7s %7s %8s\n", "mode", "queries", "MRR", "P@5", "found@10")
+	fmt.Printf("%-8s %-18s %7s %7s %8s\n", "mode", "queries", "MRR", "P@5", "found@10")
 	for _, mode := range modes {
 		report(mode, "all", overall[mode])
 		for _, st := range styles {
@@ -261,7 +273,7 @@ func report(mode, label string, s *score) {
 	if s.queries == 0 {
 		return
 	}
-	fmt.Printf("%-8s %-12s %7.3f %7.3f %7.0f%%\n", mode, label, s.mrr(), s.p5(), s.hit()*100)
+	fmt.Printf("%-8s %-18s %7.3f %7.3f %7.0f%%\n", mode, label, s.mrr(), s.p5(), s.hit()*100)
 }
 
 func add(into *score, from score) {
@@ -294,6 +306,12 @@ func measure(q *query, hits []corpus.Hit) score {
 
 func isRelevant(q *query, h *corpus.Hit) bool {
 	for _, r := range q.Relevant {
+		if r.Note != "" {
+			if h.Path == r.Note && (r.Section == "" || slices.Contains(strings.Split(h.Locator, " > "), r.Section)) {
+				return true
+			}
+			continue
+		}
 		if !strings.Contains(strings.ToLower(h.Path), strings.ToLower(r.Path)) {
 			continue
 		}

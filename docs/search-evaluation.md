@@ -41,6 +41,50 @@ changes to ranking, not as an absolute measure of quality. Numbers are comparabl
 only across runs on the same set and the same corpus — adding queries or books
 moves them without anything in the code changing.
 
+**The vault has a set of its own, generated from its structure.** Nobody writes
+these queries. An alias names its note, a link's display text names its target,
+and a link to a heading names that section:
+
+```sh
+go run ./cmd/evalgen -vault "$VAULT_DIR"                  # writes ~/.corpus/eval/vault.json
+go run ./cmd/eval -queries ~/.corpus/eval/vault.json
+```
+
+Relevance has been located through existing structure before: Cleverdon used
+citations for Cranfield II, and known-item topics have been generated
+automatically (Sanderson, *Test Collection Based Evaluation of Information
+Retrieval Systems*, p. 332). Each pair has one relevant note, which makes it a
+known-item topic, the case MRR was made for (ibid., p. 284). P@5 on this set
+cannot exceed 0.2, so read MRR and found@10. A judgement names the note by its
+whole path (`note`), and a section pair also names the heading (`section`),
+which a hit matches when the heading is anywhere in its locator.
+
+Three rules keep the pairs honest:
+- A text that names several notes names none of them. A diary's «Завтра» links
+  each day to the next, and web engines discount the commonest anchor texts the
+  same way they discount common terms (Manning et al., IIR, p. 463).
+- A query equal to the note's title is left out, since the title boost answers it.
+- Every pair keeps its source. Anchor text is a ranking signal in its own right
+  (ibid.), so once aliases are indexed (#4), alias pairs measure the index
+  against itself. That change has to be judged on link pairs.
+
+Each pair is labelled *copied* when every content word of the query, stemmed,
+occurs in the target, and *rephrased* otherwise. Queries derived from a text
+tend to copy it, and copied queries flatter the text leg. The split is the
+check. On the first set, 245
+pairs from 7,729 aliases, 1,530 links and 45 section links, `fts` found 0% of
+the rephrased pairs and 89–96% of the copied ones, so the label tracks what
+the AND query can reach. Hybrid found 94–96% of the copied note pairs and
+33–43% of the rephrased ones.
+
+**A section is harder to find than a note.** The 45 section pairs, judged
+by note, are found 40% of the time in hybrid. Judged by section, about 24%. So
+roughly sixteen points are the cost of judging by the chunk, and the rest is the
+queries: a heading such as «Итоги встречи» is a poor name even for its note.
+Note-level pairs cannot show a change in how sections are cut or what a chunk
+carries (#5). Section pairs can, but there are fewer of them than the ~50 that
+a 5% difference needs (Sanderson, p. 314).
+
 **The same corpus also means a drained embedding queue.** Repeated runs are
 exactly reproducible: four in a row, one of them against a rebuilt binary,
 matched to the digit. Across a working day they did not. `vector` found@10 read
