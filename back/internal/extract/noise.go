@@ -48,9 +48,10 @@ const (
 )
 
 // LayerRules is the version of the rules that judge a PDF's text layer. Raise
-// it whenever unreadable, TextPages or Scan judge a page differently, and every
-// PDF indexed under an older one is read again on the next pass.
-const LayerRules = 1
+// it whenever unreadable, TextPages or Scan judge a page differently, or
+// detectFolios reads a page's number differently, and every PDF indexed under
+// an older one is read again on the next pass.
+const LayerRules = 2
 
 var (
 	dotLeader  = regexp.MustCompile(`\.\s?\.\s?\.\s?\.`)

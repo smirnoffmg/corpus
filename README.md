@@ -17,6 +17,13 @@ to change how a citation looks, which happened twice before it was fixed.
 Where the printed number cannot be read the locator says `PDF 256` rather than
 passing a PDF page off as a page of the book — 40 of the 52 books here have
 readable numbering, and the rest are papers and slides that print none.
+A paper paginated within its journal's volume prints numbers ahead of the PDF
+page — Codd's starts at 377 — and so does a scan missing its first pages. Such
+numbering is read only when at least a third of the pages agree on it: on a
+short two-column paper, section numbers at the top of two or three pages pass
+for page numbers otherwise. Across the 805 PDFs here that gave about a hundred
+papers and books their printed numbers, and the threshold cost two whose
+numbering could not be told from that noise.
 
 Granularity is split on purpose: the text index answers per page, while the
 vector sees a window that carries ~500 characters of the neighbouring pages.

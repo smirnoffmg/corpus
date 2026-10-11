@@ -114,3 +114,42 @@ func TestFolioCandidatesReadBracketsOnlyAroundANumber(t *testing.T) {
 		t.Errorf("candidates = %v, want none: citation marks inside a sentence are not folios", got)
 	}
 }
+
+// A monograph issued as a journal number is paginated within the volume, so
+// its first page prints 247 and every printed number runs ahead of the PDF page.
+func TestDetectFoliosReadsNumbersAheadOfThePDFPage(t *testing.T) {
+	pages := make([]string, 0, 40)
+	for i := range 40 {
+		printed := 247 + i
+		if printed%2 == 0 {
+			pages = append(pages, fmt.Sprintf("%d   Beyond the Mean\n\nbody text\n", printed))
+		} else {
+			pages = append(pages, fmt.Sprintf("5.1 Significance Tests   %d\n\nbody text\n", printed))
+		}
+	}
+	folios := detectFolios(pages)
+
+	if got := folios[0]; got != 247 {
+		t.Errorf("first page printed number = %d, want 247", got)
+	}
+	if got := folios[39]; got != 286 {
+		t.Errorf("last page printed number = %d, want 286", got)
+	}
+}
+
+// A two-column paper sets section numbers at the top of a few pages, and on a
+// short paper they can outvote the absence of any real numbering.
+func TestDetectFoliosIgnoresSectionNumbersThatRunAhead(t *testing.T) {
+	pages := make([]string, 14)
+	for i := range pages {
+		pages[i] = "body text in two columns\n\nmore text\n"
+	}
+	for _, i := range []int{1, 4, 9} {
+		pages[i] = fmt.Sprintf("%d   Experimental Setup\n\nbody text\n", i+2)
+	}
+	for i, got := range detectFolios(pages) {
+		if got != 0 {
+			t.Errorf("page %d got printed number %d, want none", i, got)
+		}
+	}
+}

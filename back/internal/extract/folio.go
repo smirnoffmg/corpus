@@ -26,7 +26,7 @@ func detectFolios(pages []string) []int {
 		counted := map[int]bool{}
 		for _, c := range candidates[i] {
 			offset := i + 1 - c
-			if offset >= 0 && !counted[offset] {
+			if !counted[offset] {
 				votes[offset]++
 				counted[offset] = true
 			}
@@ -35,12 +35,19 @@ func detectFolios(pages []string) []int {
 
 	modal, best := 0, 0
 	for offset, n := range votes {
-		if n > best || (n == best && offset < modal) {
+		if n > best || (n == best && abs(offset) < abs(modal)) {
 			modal, best = offset, n
 		}
 	}
 	// Fewer than a fifth of the pages agreeing means no usable numbering.
 	if best*5 < len(pages) {
+		return make([]int, len(pages))
+	}
+	// Numbers running ahead of the PDF page are a journal's pagination or a
+	// scan missing its first pages, and either agrees on most pages. On a short
+	// two-column paper a section number at the top of two or three pages can
+	// also reach a fifth, so this needs a third and at least three pages.
+	if modal < 0 && (best*3 < len(pages) || best < 3) {
 		return make([]int, len(pages))
 	}
 
@@ -108,6 +115,13 @@ func bareBracketed(line string) string {
 		}
 	}
 	return line
+}
+
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
 }
 
 func containsInt(haystack []int, needle int) bool {
