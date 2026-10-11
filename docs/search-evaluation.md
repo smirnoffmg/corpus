@@ -85,6 +85,24 @@ queries: a heading such as «Итоги встречи» is a poor name even for
 The set is large enough to settle what the hand-written one left open. On it,
 reranking lifts hybrid MRR by 0.073, 56 wins to 15 with p < 0.001 by both
 tests, where the private set had it at the 0.05 threshold.
+
+**A note's sections are embedded under its title and heading path.** Notes
+follow a template, so a section headed «Как устроено» seldom names its subject,
+and its vector described some mechanism or other. The window now opens with
+`title > heading path` (Huyen, *AI Engineering*, p. 271, on augmenting a chunk
+with its document's title). Measured against a saved run on the vault set (245
+pairs): vector MRR +0.091 (46 wins, 22 losses, p < 0.001 by randomization),
+hybrid +0.042 (38 / 16, p = 0.001), and `fts` unchanged, as it should be. The
+private set did not move (hybrid 4 / 3, p = 0.91), and its books were not
+touched.
+
+Most of the gain is on queries that repeat words of the header: section pairs
+whose query is the heading itself (vector +0.308, 13 / 1), and note pairs
+sharing a word with the title (+0.105, 12 / 4). That is partly by construction,
+and it is also the point: the section of «BM25» that explains saturation is now
+found by «BM25». Queries with no word of the title gained a little and lost
+nothing (vector +0.037, 18 / 17, p = 0.12). The heading path is not in the text
+index, and book pages have no header; each is a change of its own to measure.
 Note-level pairs cannot show a change in how sections are cut or what a chunk
 carries (#5). Section pairs can, but there are fewer of them than the ~50 that
 a 5% difference needs (Sanderson, p. 314).
