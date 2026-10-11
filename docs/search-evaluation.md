@@ -81,6 +81,10 @@ the AND query can reach. Hybrid found 94–96% of the copied note pairs and
 by note, are found 40% of the time in hybrid. Judged by section, about 24%. So
 roughly sixteen points are the cost of judging by the chunk, and the rest is the
 queries: a heading such as «Итоги встречи» is a poor name even for its note.
+
+The set is large enough to settle what the hand-written one left open. On it,
+reranking lifts hybrid MRR by 0.073, 56 wins to 15 with p < 0.001 by both
+tests, where the private set had it at the 0.05 threshold.
 Note-level pairs cannot show a change in how sections are cut or what a chunk
 carries (#5). Section pairs can, but there are fewer of them than the ~50 that
 a 5% difference needs (Sanderson, p. 314).
