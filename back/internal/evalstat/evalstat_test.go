@@ -66,3 +66,74 @@ func TestRecall(t *testing.T) {
 		t.Errorf("nothing to find is found: %v", got)
 	}
 }
+
+// exactRandomization enumerates every sign assignment, which is the test the
+// sampled one estimates; it is feasible only for a handful of pairs.
+func exactRandomization(diffs []float64) float64 {
+	observed := 0.0
+	for _, d := range diffs {
+		observed += d
+	}
+	extreme, total := 0, 1<<len(diffs)
+	for mask := range total {
+		sum := 0.0
+		for i, d := range diffs {
+			if mask&(1<<i) != 0 {
+				d = -d
+			}
+			sum += d
+		}
+		if math.Abs(sum) >= math.Abs(observed)-1e-12 {
+			extreme++
+		}
+	}
+	return float64(extreme) / float64(total)
+}
+
+func TestRandomizationTestMatchesEnumeration(t *testing.T) {
+	cases := [][]float64{
+		{1, 1, 1, 1, 1},
+		{0.9, 0.8, 0.9, -0.01, -0.02, -0.01},
+		{0.5, -0.5, 0.25, 0.75, -0.1, 0.2, 0.3, -0.05},
+	}
+	for _, diffs := range cases {
+		want := exactRandomization(diffs)
+		if got := evalstat.RandomizationTest(diffs); math.Abs(got-want) > 0.005 {
+			t.Errorf("RandomizationTest(%v) = %v, enumeration gives %v", diffs, got, want)
+		}
+	}
+}
+
+func TestRandomizationTestWeighsHowFarAQueryMoved(t *testing.T) {
+	// Three up a long way, three down a hair: the sign test sees 3:3, p = 1.
+	// Only the 16 of 64 flips that keep the three large moves together reach
+	// the observed sum, and six pairs can do no better than that.
+	diffs := []float64{0.9, 0.8, 0.9, -0.01, -0.02, -0.01}
+	if p := evalstat.RandomizationTest(diffs); math.Abs(p-0.25) > 0.005 {
+		t.Errorf("p = %v, want 0.25 against the sign test's %v", p, evalstat.SignTest(3, 3))
+	}
+}
+
+func TestRandomizationTestWithoutDifferences(t *testing.T) {
+	if p := evalstat.RandomizationTest([]float64{0, 0, 0}); p != 1 {
+		t.Errorf("all ties: p = %v, want 1", p)
+	}
+	if p := evalstat.RandomizationTest(nil); p != 1 {
+		t.Errorf("no pairs: p = %v, want 1", p)
+	}
+}
+
+func TestCompareIsReproducible(t *testing.T) {
+	baseline, candidate := map[string]float64{}, map[string]float64{}
+	for i := range 40 {
+		id := string(rune('a' + i))
+		baseline[id] = float64(i%7) / 7
+		candidate[id] = float64(i%5) / 5
+	}
+	first := evalstat.Compare(baseline, candidate)
+	for range 10 {
+		if again := evalstat.Compare(baseline, candidate); again.PRandom != first.PRandom {
+			t.Fatalf("p = %v, then %v: a run must reproduce to the digit", first.PRandom, again.PRandom)
+		}
+	}
+}

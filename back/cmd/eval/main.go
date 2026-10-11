@@ -154,7 +154,7 @@ func main() {
 			}
 		}
 		fmt.Printf("\nagainst %s, query by query (reciprocal rank):\n", describe(baselineParams))
-		fmt.Printf("%-8s %5s %6s %5s %9s %7s\n", "mode", "wins", "losses", "ties", "ΔMRR", "p")
+		fmt.Printf("%-8s %5s %6s %5s %9s %7s %7s\n", "mode", "wins", "losses", "ties", "ΔMRR", "p sign", "p rand")
 		for _, mode := range modes {
 			base := map[string]float64{}
 			for _, q := range queries {
@@ -165,9 +165,10 @@ func main() {
 				base[q.ID] = measure(&q, hits).reciprocal
 			}
 			c := evalstat.Compare(base, rr[mode])
-			fmt.Printf("%-8s %5d %6d %5d %+9.3f %7.3f\n", mode, c.Wins, c.Losses, c.Ties, c.MeanDelta, c.P)
+			fmt.Printf("%-8s %5d %6d %5d %+9.3f %7.3f %7.3f\n", mode, c.Wins, c.Losses, c.Ties, c.MeanDelta, c.P, c.PRandom)
 		}
-		fmt.Println("p is a two-sided sign test; on a few dozen queries treat p > 0.05 as no difference.")
+		fmt.Println("p sign counts wins and losses; p rand, a randomization test, also weighs how far each query moved.")
+		fmt.Println("Both are two-sided; on a few dozen queries treat p > 0.05 as no difference.")
 	}
 
 	if *verbose {

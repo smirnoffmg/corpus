@@ -81,9 +81,24 @@ query by query:
 go run ./cmd/eval -queries eval/example.json -set ef_search=200 -against default
 ```
 
-which prints wins, losses and ties per mode, the mean difference, and a
-two-sided sign test. On sets this size, treat p above 0.05 as no difference,
+which prints wins, losses and ties per mode, the mean difference, and two
+two-sided tests. On sets this size, treat p above 0.05 as no difference,
 and a change worth making needs a reason beyond the judged set.
+
+The sign test counts wins and losses only, so a query that rose from tenth to
+first counts the same as one that rose from second. The randomization test
+beside it (`p rand`) flips the sign of each query's difference at random and
+asks how often the mean comes out as far from zero, so it weighs how far each
+query moved. Comparing tests on six years of TREC runs, Smucker et al. found
+the sign and Wilcoxon tests disagreeing with the t-test, the bootstrap and the
+randomization test, and argued for the last (Sanderson, *Test Collection Based
+Evaluation of Information Retrieval Systems*, p. 313). On our sets the two can
+disagree in either direction. Reranking on the private set, hybrid, is 11 wins
+to 2 at p = 0.022 by signs and 0.050 by randomization: the gain recorded below
+sits right at the threshold. Turning `ef_search` back down to 40 on the public
+set is 2 wins to 4, ΔMRR −0.053, p = 0.688 by signs and 0.191 by
+randomization. Both
+columns stay until enough comparisons have run to choose between them.
 
 **HNSW recall was measured, and ef_search raised to 200.** The index is
 approximate, and what it loses happens before ranking starts. `-recall`

@@ -9,7 +9,9 @@
 package evalstat
 
 import (
+	"maps"
 	"math"
+	"math/rand/v2"
 	"slices"
 )
 
@@ -40,11 +42,51 @@ func logChoose(n, k int) float64 {
 	return a - b - c
 }
 
+// randomizationSamples keeps the sampled p within about ±0.003 of the exact
+// one at p = 0.05, which is finer than any decision taken on it.
+const randomizationSamples = 100_000
+
+// RandomizationTest is the two-sided paired randomization test on per-query
+// differences: the share of random sign flips whose mean is at least as far
+// from zero as the observed one. Unlike the sign test it weighs how far a
+// query moved. Smucker et al. found the sign and Wilcoxon tests to disagree
+// with it, the t-test and the bootstrap on TREC runs, and argued for this one
+// (Sanderson, Test Collection Based Evaluation of IR Systems, p. 313).
+//
+// The seed is fixed, so a run reproduces to the digit.
+func RandomizationTest(diffs []float64) float64 {
+	observed := 0.0
+	for _, d := range diffs {
+		observed += d
+	}
+	if len(diffs) == 0 {
+		return 1
+	}
+	rng := rand.New(rand.NewPCG(1, 2))
+	extreme := 0
+	for range randomizationSamples {
+		sum := 0.0
+		for _, d := range diffs {
+			if rng.Uint64()&1 == 1 {
+				d = -d
+			}
+			sum += d
+		}
+		// Sums of the same values in another order differ in the last bits.
+		if math.Abs(sum) >= math.Abs(observed)-1e-12 {
+			extreme++
+		}
+	}
+	// The observed assignment is one of the permutations, so p is never 0.
+	return float64(extreme+1) / float64(randomizationSamples+1)
+}
+
 // Comparison is a candidate configuration against a baseline, query by query.
 type Comparison struct {
 	Wins, Losses, Ties int
 	MeanDelta          float64 // mean of candidate − baseline over shared queries
 	P                  float64 // two-sided sign test on wins and losses
+	PRandom            float64 // two-sided randomization test on the differences
 }
 
 // Compare pairs per-query scores — reciprocal ranks, say — by query id. A query
@@ -52,7 +94,11 @@ type Comparison struct {
 func Compare(baseline, candidate map[string]float64) Comparison {
 	var c Comparison
 	sum := 0.0
-	for id, b := range baseline {
+	// The randomization test draws one flip per difference in order, so the
+	// order must not follow the map's.
+	var diffs []float64
+	for _, id := range slices.Sorted(maps.Keys(baseline)) {
+		b := baseline[id]
 		x, ok := candidate[id]
 		if !ok {
 			continue
@@ -66,11 +112,13 @@ func Compare(baseline, candidate map[string]float64) Comparison {
 			c.Ties++
 		}
 		sum += x - b
+		diffs = append(diffs, x-b)
 	}
 	if n := c.Wins + c.Losses + c.Ties; n > 0 {
 		c.MeanDelta = sum / float64(n)
 	}
 	c.P = SignTest(c.Wins, c.Losses)
+	c.PRandom = RandomizationTest(diffs)
 	return c
 }
 
