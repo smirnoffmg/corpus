@@ -103,6 +103,23 @@ and it is also the point: the section of «BM25» that explains saturation is no
 found by «BM25». Queries with no word of the title gained a little and lost
 nothing (vector +0.037, 18 / 17, p = 0.12). The heading path is not in the text
 index, and book pages have no header; each is a change of its own to measure.
+
+**A note's aliases are its other names.** They join the text index through the
+note's first section, where a note says what it is, and earn the title boost.
+They are measured on link pairs only, since alias pairs would measure the index
+against itself. A separate set of 400 link pairs gives the power. The first
+version boosted a note when the query was contained in one of its aliases, as
+it is for titles: `fts` +0.058, but 28 losses. The losses had one cause. A note
+keeps eight aliases on average, and a long alias of a neighbouring note
+contains every short query: RLVR's «обучение с подкреплением с проверяемыми
+наградами» outranked the note on reinforcement learning. Concept fields that
+are noisy belong in a field of their own with less weight (Turnbull and
+Berryman, *Relevant Search*, p. 296). Here the narrower rule was enough: an
+alias earns the boost when it is the query, stemmed. Result: `fts` +0.071
+(63 wins, 10 losses, p < 0.001), hybrid +0.025 (38 / 17, p = 0.001), vector
+untouched, and no query of the private set moved. The aliases are not yet in
+the embedded text, which would mean re-embedding the vault, and that is
+measured on its own.
 Note-level pairs cannot show a change in how sections are cut or what a chunk
 carries (#5). Section pairs can, but there are fewer of them than the ~50 that
 a 5% difference needs (Sanderson, p. 314).

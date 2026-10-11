@@ -371,11 +371,13 @@ SELECT c.id,
        ts_rank_cd(c.tsv, CASE c.lang WHEN 'russian' THEN q.ru ELSE q.en END, $4)
          + CASE WHEN to_tsvector(c.lang::regconfig, s.title)
                      @@ CASE c.lang WHEN 'russian' THEN q.ru ELSE q.en END
-                  -- An alias is another name of the note, and matches as its
-                  -- title does: whole, not in pieces gathered from several.
+                  -- An alias is another name of the note, so it earns the boost
+                  -- when it is the query, stemmed, not when it merely contains
+                  -- it: a note keeps eight of them on average, and a long one
+                  -- of a neighbouring note contains every short query.
                   OR EXISTS (SELECT 1 FROM unnest(s.aliases) a
-                             WHERE to_tsvector(c.lang::regconfig, a)
-                                   @@ CASE c.lang WHEN 'russian' THEN q.ru ELSE q.en END)
+                             WHERE strip(to_tsvector(c.lang::regconfig, a))
+                                   = strip(to_tsvector(c.lang::regconfig, $1)))
                 THEN $5::float8 ELSE 0 END AS rank,
        ts_headline(c.lang::regconfig, c.body,
                    CASE c.lang WHEN 'russian' THEN q.ru ELSE q.en END,

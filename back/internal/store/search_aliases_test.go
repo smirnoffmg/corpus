@@ -41,3 +41,26 @@ func TestAnAliasFindsItsNote(t *testing.T) {
 	}
 	require.True(t, found, "an alias is stemmed like the text")
 }
+
+// An alias is a name: a query it merely contains is not that name. A note on
+// RLVR whose alias spells out "обучение с подкреплением с проверяемыми
+// наградами" must not outrank the note on reinforcement learning itself.
+func TestALongerAliasIsNotTheQuerysName(t *testing.T) {
+	st, _, ctx := open(t)
+
+	rl := corpus.Source{Kind: "vault", Path: "__test__/Обучение с подкреплением.md", Title: "Обучение с подкреплением", Hash: "r1"}
+	rlvr := corpus.Source{Kind: "vault", Path: "__test__/RLVR.md", Title: "RLVR", Hash: "r2",
+		Aliases: []string{"обучение с подкреплением с проверяемыми наградами"}}
+	require.NoError(t, st.Replace(ctx, rl, []corpus.Chunk{{Ord: 1, Lang: "russian", Body: "Обучение с подкреплением: агент учится на наградах среды."}}))
+	require.NoError(t, st.Replace(ctx, rlvr, []corpus.Chunk{{Ord: 1, Lang: "russian", Body: "Награда проверяется программой."}}))
+
+	hits, err := st.Search(ctx, corpus.Query{Text: "обучение с подкреплением", Limit: 10, TitleBoost: 0.3})
+	require.NoError(t, err)
+	require.NotEmpty(t, hits)
+	require.Equal(t, rl.Path, hits[0].Path)
+	for _, h := range hits {
+		if h.Path == rlvr.Path {
+			require.Less(t, h.Rank, float32(0.3), "a longer alias earns no boost")
+		}
+	}
+}
