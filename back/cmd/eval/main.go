@@ -66,6 +66,8 @@ func main() {
 	against := flag.String("against", "", "also run with these parameters (\"\" for the defaults: -against=default) and compare query by query")
 	recall := flag.String("recall", "", "measure vector recall against an exact scan at these ef_search values, e.g. 40,100,200")
 	k := flag.Int("k", 20, "neighbours compared when measuring recall")
+	save := flag.String("save", "", "write each query's reciprocal rank per mode to this file")
+	baseline := flag.String("baseline", "", "compare query by query with a file written by -save")
 	flag.Parse()
 
 	// Sending title_boost unconditionally would measure a search the service
@@ -165,22 +167,42 @@ func main() {
 				log.Fatal(err)
 			}
 		}
-		fmt.Printf("\nagainst %s, query by query (reciprocal rank):\n", describe(baselineParams))
-		fmt.Printf("%-8s %5s %6s %5s %9s %7s %7s\n", "mode", "wins", "losses", "ties", "ΔMRR", "p sign", "p rand")
+		base := map[string]map[string]float64{}
 		for _, mode := range modes {
-			base := map[string]float64{}
+			base[mode] = map[string]float64{}
 			for _, q := range queries {
 				hits, err := search(*addr, &q, mode, *limit, *norm, *boost, boostSet, baselineParams)
 				if err != nil {
 					log.Fatalf("%s/%s: %v", q.ID, mode, err)
 				}
-				base[q.ID] = measure(&q, hits).reciprocal
+				base[mode][q.ID] = measure(&q, hits).reciprocal
 			}
-			c := evalstat.Compare(base, rr[mode])
-			fmt.Printf("%-8s %5d %6d %5d %+9.3f %7.3f %7.3f\n", mode, c.Wins, c.Losses, c.Ties, c.MeanDelta, c.P, c.PRandom)
 		}
-		fmt.Println("p sign counts wins and losses; p rand, a randomization test, also weighs how far each query moved.")
-		fmt.Println("Both are two-sided; on a few dozen queries treat p > 0.05 as no difference.")
+		compare("against "+describe(baselineParams), modes, styles, queries, base, rr)
+	}
+
+	// A change to the index — what a chunk carries, how it is cut — cannot be
+	// switched per request the way a ranking parameter can, so the run before
+	// it is saved and the run after it compared with the file.
+	if *save != "" {
+		data, err := json.MarshalIndent(rr, "", "  ")
+		if err != nil {
+			log.Fatal(err)
+		}
+		if err := os.WriteFile(*save, append(data, '\n'), 0o600); err != nil {
+			log.Fatal(err)
+		}
+	}
+	if *baseline != "" {
+		data, err := os.ReadFile(*baseline)
+		if err != nil {
+			log.Fatal(err)
+		}
+		var base map[string]map[string]float64
+		if err := json.Unmarshal(data, &base); err != nil {
+			log.Fatal(err)
+		}
+		compare("against "+*baseline, modes, styles, queries, base, rr)
 	}
 
 	if *verbose {
@@ -191,6 +213,48 @@ func main() {
 			}
 		}
 	}
+}
+
+// compare prints a candidate run against a baseline, query by query, for each
+// mode and each group of the set.
+func compare(title string, modes, styles []string, queries []query, base, cand map[string]map[string]float64) {
+	fmt.Printf("\n%s, query by query (reciprocal rank):\n", title)
+	fmt.Printf("%-8s %-18s %5s %6s %5s %9s %7s %7s\n", "mode", "queries", "wins", "losses", "ties", "ΔMRR", "p sign", "p rand")
+	row := func(mode, shown, label string, ids map[string]bool) {
+		b, c := map[string]float64{}, map[string]float64{}
+		for id, v := range base[mode] {
+			if ids == nil || ids[id] {
+				b[id] = v
+			}
+		}
+		for id, v := range cand[mode] {
+			if ids == nil || ids[id] {
+				c[id] = v
+			}
+		}
+		r := evalstat.Compare(b, c)
+		if r.Wins+r.Losses+r.Ties == 0 {
+			return
+		}
+		fmt.Printf("%-8s %-18s %5d %6d %5d %+9.3f %7.3f %7.3f\n", shown, label, r.Wins, r.Losses, r.Ties, r.MeanDelta, r.P, r.PRandom)
+	}
+	for _, mode := range modes {
+		row(mode, mode, "all", nil)
+		if len(styles) < 2 {
+			continue
+		}
+		for _, st := range styles {
+			ids := map[string]bool{}
+			for _, q := range queries {
+				if q.Style == st {
+					ids[q.ID] = true
+				}
+			}
+			row(mode, "", st, ids)
+		}
+	}
+	fmt.Println("p sign counts wins and losses; p rand, a randomization test, also weighs how far each query moved.")
+	fmt.Println("Both are two-sided; on a few dozen queries treat p > 0.05 as no difference.")
 }
 
 // parseParams reads "depth=100,ef_search=200" into query parameters.

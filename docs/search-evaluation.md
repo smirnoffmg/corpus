@@ -130,7 +130,10 @@ go run ./cmd/eval -queries eval/example.json -set ef_search=200 -against default
 ```
 
 which prints wins, losses and ties per mode, the mean difference, and two
-two-sided tests. On sets this size, treat p above 0.05 as no difference,
+two-sided tests. A change to the index itself, such as what a chunk carries,
+cannot be switched per request, so the run before it is saved
+(`-save before.json`) and the run after it compared with the file
+(`-baseline before.json`). On sets this size, treat p above 0.05 as no difference,
 and a change worth making needs a reason beyond the judged set.
 
 The sign test counts wins and losses only, so a query that rose from tenth to
