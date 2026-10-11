@@ -55,6 +55,22 @@ while granite embedded about twice as fast. Two other models were dropped
 earlier by a cheaper test (below), since they stopped reading long before the
 window the corpus hands them ([architecture](architecture.md#embeddings)).
 
+In October 2026 bge-m3 was also measured against deepvk/USER-bge-m3, built
+as an F16 GGUF with llama.cpp. The two ran over the same reduced set of
+39,172 chunks, with two `mcpd`s each on its own side database, compared with
+`cmd/eval -save`/`-baseline`. USER-bge-m3 was rejected on a criterion fixed in
+advance:
+
+- No gain on Russian paraphrases: ΔMRR −0.037 in vector and −0.002 in hybrid,
+  with neither significant.
+- One hybrid loss on the six cross-language book queries.
+- ΔMRR on English queries below −0.02.
+
+One deviation from the protocol: the main indexer, its queue empty, kept running
+on the same ollama during both runs. That can move timings but not ranks. The reduced set
+makes its absolute numbers incomparable with the main stack's
+([architecture](architecture.md#embeddings)).
+
 That choice was made on a laptop, where a full re-embed was the expensive
 part. On the target machine it is not, which opens larger models.
 
@@ -187,7 +203,7 @@ task that does not get delegated.
 | piece                                                      | state                                                                                                       |
 | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
 | judged query sets and `cmd/eval`                           | exist                                                                                                       |
-| query-by-query comparison against a baseline               | exists within one server (`-against`); across two servers, one per embedding model, it is to be built       |
+| query-by-query comparison against a baseline               | exists: `-against` within one server; across two servers, `-save` on one and `-baseline` on the other       |
 | the embedder's address in `compose.yaml`                   | to be built: `indexer` and `mcpd` take Ollama's address from a flag default, not from `.env`                |
 | an output dimension sent to the embedder                   | to be built, and Ollama's support for it checked; `internal/embed` does not send one                        |
 | a script that raises a candidate stack on its own database | to be built                                                                                                 |

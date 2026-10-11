@@ -12,6 +12,30 @@ every query. The comparison cost eight minutes because it ran in its own databas
 with 768-dimension vectors and the vault only — the same chunks for both, so the
 model was the only thing that differed.
 
+**bge-m3 was also kept over deepvk/USER-bge-m3, its Russian-tuned derivative.**
+USER-bge-m3 was converted from Hugging Face to an F16 GGUF with llama.cpp's
+`convert_hf_to_gguf.py --outtype f16` (CLS pooling, its vocabulary trimmed to
+46k tokens) and served by the same ollama. Both models ran over one reduced
+chunk set: the vault, the judged books (with two more that a judgement's path
+also matches), and the scikit-learn and nltk docs. That is 39,172 chunks, with identical embed hashes and a fresh HNSW index in
+each of two side databases, so absolute numbers do not compare with the main
+stack's. The bar was set before the first run. USER-bge-m3 had to gain on
+Russian paraphrases in both vector and hybrid mode by a randomization test
+(Sanderson, p. 313), and lose nothing on Russian queries with English answers
+or on English queries. It failed all three conditions:
+
+- Russian paraphrases (76 queries): ΔMRR −0.037 in vector (p 0.11) and −0.002
+  in hybrid (p 0.91).
+- Russian to English (20): 3 wins and 3 losses overall, but one hybrid loss
+  on the six book queries, where none was allowed.
+- English (58): ΔMRR −0.025 in vector and −0.029 in hybrid. Neither drop is
+  significant, but both pass the −0.02 margin.
+
+In vector mode it is clearly worse on the vault: 16 wins to 41 (p 0.013), and
+recall@20 falls from 0.906 to 0.892. What it gains is speed: with a vocabulary
+a fifth the size it has 358M parameters to 567M, and the evaluation ran in
+half the time.
+
 Two other candidates were rejected before that, by a cheaper test: embed a page,
 then embed its first 400, 1200 and 2400 characters and compare. If the vector
 stops changing, the model has stopped reading. paraphrase-multilingual stops at
