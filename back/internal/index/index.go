@@ -401,6 +401,13 @@ func (ix *Indexer) indexFile(
 	}
 
 	src := corpus.Source{Kind: kind, Path: rel, Title: title, Hash: hash, Recognised: recognised, Rules: rules}
+	if kind == "vault" {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return false, err
+		}
+		src.Aliases = extract.NoteAliases(string(raw))
+	}
 	return true, ix.store.Replace(ctx, src, chunks)
 }
 

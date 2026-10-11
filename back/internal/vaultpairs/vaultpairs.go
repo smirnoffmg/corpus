@@ -233,7 +233,7 @@ func readNote(root, path string) (*note, error) {
 	n := &note{
 		rel:      filepath.ToSlash(rel),
 		title:    strings.TrimSuffix(filepath.Base(path), ".md"),
-		aliases:  aliases(string(raw)),
+		aliases:  extract.NoteAliases(string(raw)),
 		sections: map[string]string{},
 		raw:      string(raw),
 	}
@@ -249,49 +249,6 @@ func readNote(root, path string) (*note, error) {
 	}
 	n.text = all.String()
 	return n, nil
-}
-
-// aliases reads `aliases:` from the frontmatter, as a block list or an inline
-// one.
-func aliases(raw string) []string {
-	if !strings.HasPrefix(raw, "---\n") {
-		return nil
-	}
-	matter, _, ok := strings.Cut(raw[4:], "\n---")
-	if !ok {
-		return nil
-	}
-	var out []string
-	inList := false
-	for line := range strings.SplitSeq(matter, "\n") {
-		if key, value, ok := strings.Cut(line, ":"); ok && !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "-") {
-			inList = false
-			if key != "aliases" && key != "alias" {
-				continue
-			}
-			value = strings.TrimSpace(value)
-			if value == "" {
-				inList = true
-				continue
-			}
-			for v := range strings.SplitSeq(strings.Trim(value, "[]"), ",") {
-				out = appendAlias(out, v)
-			}
-			continue
-		}
-		if item, ok := strings.CutPrefix(strings.TrimSpace(line), "- "); ok && inList {
-			out = appendAlias(out, item)
-		}
-	}
-	return out
-}
-
-func appendAlias(out []string, v string) []string {
-	v = strings.Trim(strings.TrimSpace(v), `"'`)
-	if v == "" {
-		return out
-	}
-	return append(out, v)
 }
 
 // stemShare is the share of the query's content words whose stem occurs in the

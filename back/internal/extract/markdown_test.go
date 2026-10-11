@@ -3,6 +3,7 @@ package extract_test
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -186,6 +187,24 @@ func TestCodeFenceIsNeverCutInHalf(t *testing.T) {
 	for i, c := range chunks {
 		if strings.Count(c.Body, "```")%2 != 0 {
 			t.Errorf("часть %d разрезала блок кода: %.60s…", i, c.Body)
+		}
+	}
+}
+
+func TestNoteAliasesReadsBlockAndInlineLists(t *testing.T) {
+	cases := []struct {
+		raw  string
+		want []string
+	}{
+		{"---\naliases:\n  - cross-entropy\n  - \"log loss\"\ntags: [ml]\n---\nТекст.\n", []string{"cross-entropy", "log loss"}},
+		{"---\naliases: [Okapi BM25, 'best matching']\n---\nТекст.\n", []string{"Okapi BM25", "best matching"}},
+		{"---\nalias: GBM\n---\nТекст.\n", []string{"GBM"}},
+		{"---\ntags: [ml]\n---\naliases: [not, frontmatter]\n", nil},
+		{"Без фронтматтера.\n", nil},
+	}
+	for _, c := range cases {
+		if got := extract.NoteAliases(c.raw); !slices.Equal(got, c.want) {
+			t.Errorf("NoteAliases(%q) = %q, want %q", c.raw, got, c.want)
 		}
 	}
 }

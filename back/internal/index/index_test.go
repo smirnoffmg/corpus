@@ -1770,3 +1770,20 @@ func TestRunBeatsWhileAPhaseLasts(t *testing.T) {
 
 	runFor(t, ix, ctx, time.Hour, nil)
 }
+
+func TestANoteCarriesItsAliases(t *testing.T) {
+	notes, books := vault(t, 0)
+	body := "---\naliases:\n  - cross-entropy\n  - log loss\n---\n## Что это\n\nМера расхождения.\n"
+	if err := os.WriteFile(filepath.Join(notes, "Кросс-энтропия.md"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := newStore()
+	if err := index.New(store, nopEmbedder{}, index.Options{Books: books, Vault: notes}).Index(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if got := store.sources["Кросс-энтропия.md"].Aliases; !slices.Equal(got, []string{"cross-entropy", "log loss"}) {
+		t.Errorf("aliases = %q", got)
+	}
+}

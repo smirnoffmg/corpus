@@ -33,6 +33,8 @@ type Source struct {
 	// Rules is the version of extract.LayerRules that judged a PDF's text layer;
 	// 0 for anything else.
 	Rules int
+	// Aliases are the other names a note answers to, from its frontmatter.
+	Aliases []string
 }
 
 // Scan is a PDF with no text layer, waiting for its pages to be recognised.

@@ -176,14 +176,14 @@ func (s *Store) Replace(ctx context.Context, src corpus.Source, chunks []corpus.
 
 	var id int64
 	err = tx.QueryRow(ctx, `
-		INSERT INTO sources (kind, path, title, hash, recognised, rules)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO sources (kind, path, title, hash, recognised, rules, aliases)
+		VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7::text[], '{}'))
 		ON CONFLICT (path) DO UPDATE
 		    SET kind = EXCLUDED.kind, title = EXCLUDED.title,
 		        hash = EXCLUDED.hash, recognised = EXCLUDED.recognised,
-		        rules = EXCLUDED.rules, indexed_at = now()
+		        rules = EXCLUDED.rules, aliases = EXCLUDED.aliases, indexed_at = now()
 		RETURNING id`,
-		src.Kind, src.Path, storable(src.Title), src.Hash, src.Recognised, src.Rules).Scan(&id)
+		src.Kind, src.Path, storable(src.Title), src.Hash, src.Recognised, src.Rules, storableAll(src.Aliases)).Scan(&id)
 	if err != nil {
 		return fmt.Errorf("upsert source %s: %w", src.Path, err)
 	}
@@ -195,12 +195,20 @@ func (s *Store) Replace(ctx context.Context, src corpus.Source, chunks []corpus.
 	chunks = storableChunks(chunks)
 	keys := s.embedKeys(src, chunks)
 	batch := &pgx.Batch{}
+	// A note's aliases join the text index through its first section, which is
+	// where a note says what it is: the note becomes a candidate for its other
+	// names without every section of it matching them.
+	aliases := strings.Join(storableAll(src.Aliases), " ")
 	for i, c := range chunks {
+		extra := ""
+		if i == 0 {
+			extra = aliases
+		}
 		batch.Queue(`
 			INSERT INTO chunks (source_id, ord, page, printed_page, heading, anchor, lang, tags, body, tsv, embed_hash)
 			VALUES ($1, $2, NULLIF($3, 0), NULLIF($4, 0), NULLIF($5, ''), NULLIF($10, ''), $6, COALESCE($7::text[], '{}'), $8,
-			        to_tsvector($9::regconfig, $8), $11)`,
-			id, c.Ord, c.Page, c.Printed, c.Heading, c.Lang, c.Tags, c.Body, c.Lang, c.Anchor, keys[i])
+			        to_tsvector($9::regconfig, concat_ws(' ', $8::text, NULLIF($12::text, ''))), $11)`,
+			id, c.Ord, c.Page, c.Printed, c.Heading, c.Lang, c.Tags, c.Body, c.Lang, c.Anchor, keys[i], extra)
 	}
 	if err := tx.SendBatch(ctx, batch).Close(); err != nil {
 		return fmt.Errorf("insert chunks for %s: %w", src.Path, err)
@@ -213,6 +221,14 @@ func (s *Store) Replace(ctx context.Context, src corpus.Source, chunks []corpus.
 // They carry nothing a reader or a search could use — they come from fonts
 // that map glyphs to control codes.
 func storable(s string) string { return strings.ReplaceAll(s, "\x00", "") }
+
+func storableAll(ss []string) []string {
+	out := make([]string, len(ss))
+	for i, s := range ss {
+		out[i] = storable(s)
+	}
+	return out
+}
 
 // storableChunks cleans a copy, leaving the caller's chunks as they were.
 func storableChunks(chunks []corpus.Chunk) []corpus.Chunk {
@@ -355,6 +371,11 @@ SELECT c.id,
        ts_rank_cd(c.tsv, CASE c.lang WHEN 'russian' THEN q.ru ELSE q.en END, $4)
          + CASE WHEN to_tsvector(c.lang::regconfig, s.title)
                      @@ CASE c.lang WHEN 'russian' THEN q.ru ELSE q.en END
+                  -- An alias is another name of the note, and matches as its
+                  -- title does: whole, not in pieces gathered from several.
+                  OR EXISTS (SELECT 1 FROM unnest(s.aliases) a
+                             WHERE to_tsvector(c.lang::regconfig, a)
+                                   @@ CASE c.lang WHEN 'russian' THEN q.ru ELSE q.en END)
                 THEN $5::float8 ELSE 0 END AS rank,
        ts_headline(c.lang::regconfig, c.body,
                    CASE c.lang WHEN 'russian' THEN q.ru ELSE q.en END,
