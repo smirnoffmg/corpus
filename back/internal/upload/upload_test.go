@@ -3,6 +3,7 @@ package upload_test
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"io/fs"
@@ -16,10 +17,10 @@ import (
 
 const pdf = "%PDF-1.7\n%âãÏÓ\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n"
 
-func library(t *testing.T, limits upload.Limits) (lib *upload.Library, books, docs, papers string) {
+func library(t *testing.T, limits upload.Limits, opts ...upload.Option) (lib *upload.Library, books, docs, papers string) {
 	t.Helper()
 	books, docs, papers = t.TempDir(), t.TempDir(), t.TempDir()
-	lib, err := upload.Open(books, docs, papers, limits)
+	lib, err := upload.Open(books, docs, papers, limits, opts...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -354,5 +355,92 @@ func TestOpenRequiresEveryRoot(t *testing.T) {
 		if _, err := upload.Open(roots[0], roots[1], roots[2], upload.Limits{}); err == nil {
 			t.Errorf("want an error for a missing %s root", name)
 		}
+	}
+}
+
+// shrinkTo is a shrinker that writes body as the shrunk file and reports kept,
+// or fails with err; calls counts what it was asked to shrink.
+func shrinkTo(body string, kept bool, err error, calls *[]string) upload.Option {
+	return upload.WithShrink(func(_ context.Context, src, dst string) (bool, error) {
+		*calls = append(*calls, filepath.Base(src))
+		if err != nil {
+			return false, err
+		}
+		if kept {
+			return true, os.WriteFile(dst, []byte(body), 0o600)
+		}
+		return false, nil
+	})
+}
+
+func TestAnUploadedPDFIsShelvedShrunk(t *testing.T) {
+	const small = "%PDF-1.7\nsmaller\n%%EOF\n"
+	var calls []string
+	for _, add := range []struct {
+		name string
+		do   func(*upload.Library) (string, error)
+		root func(books, papers string) string
+	}{
+		{"book", func(l *upload.Library) (string, error) { return l.AddBook("book.pdf", strings.NewReader(pdf)) }, func(b, _ string) string { return b }},
+		{"paper", func(l *upload.Library) (string, error) { return l.AddPaper("paper.pdf", strings.NewReader(pdf)) }, func(_, p string) string { return p }},
+	} {
+		t.Run(add.name, func(t *testing.T) {
+			lib, books, _, papers := library(t, upload.Limits{}, shrinkTo(small, true, nil, &calls))
+			path, err := add.do(lib)
+			if err != nil {
+				t.Fatal(err)
+			}
+			root := add.root(books, papers)
+			got, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(path)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != small {
+				t.Errorf("shelved %q, want the shrunk file", got)
+			}
+			if files := tree(t, root); len(files) != 1 {
+				t.Errorf("library holds %v, want only the file", files)
+			}
+		})
+	}
+	if len(calls) != 2 {
+		t.Errorf("shrinker called for %v, want the book and the paper", calls)
+	}
+}
+
+func TestAnUnshrunkPDFIsShelvedAsUploaded(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{{"refused", nil}, {"failed", errors.New("pikepdf: cannot open")}} {
+		t.Run(tc.name, func(t *testing.T) {
+			var calls []string
+			lib, books, _, _ := library(t, upload.Limits{}, shrinkTo("", false, tc.err, &calls))
+			path, err := lib.AddBook("book.pdf", strings.NewReader(pdf))
+			if err != nil {
+				t.Fatalf("a shrinker's failure failed the upload: %v", err)
+			}
+			got, err := os.ReadFile(filepath.Join(books, filepath.FromSlash(path)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != pdf {
+				t.Error("saved bytes differ from the upload")
+			}
+			if files := tree(t, books); len(files) != 1 {
+				t.Errorf("books holds %v, want only the book", files)
+			}
+		})
+	}
+}
+
+func TestAnEbookIsNotShrunk(t *testing.T) {
+	var calls []string
+	lib, _, _, _ := library(t, upload.Limits{}, shrinkTo("", true, nil, &calls))
+	if _, err := lib.AddBook("book.epub", strings.NewReader("PK\x03\x04 an epub")); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 0 {
+		t.Errorf("shrinker called for %v", calls)
 	}
 }

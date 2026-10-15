@@ -171,6 +171,23 @@ starts on it at once.
 and quarantined; `kind` and `prefix` narrow it. Uploads are limited to 300 MB
 (`mcpd --upload-max`).
 
+An uploaded PDF is shrunk before it is shelved: its images are re-encoded as
+JPEG at 150 dpi, or 300 dpi for a scan, which recognition reads, and its text
+and fonts are left as they are. The smaller copy is kept only when it is a
+tenth smaller and the text the indexer reads from it is byte for byte the
+same; otherwise the upload is shelved as it came (`mcpd --shrink-uploads=false`
+turns this off). Files that were in the library before are shrunk once with
+`cmd/shrink`, which also moves what is filed under each file's content hash —
+the source, its description, its reference list, its recognised pages — to the
+new one:
+
+```sh
+docker compose stop indexer
+docker compose --profile tools run --rm shrink --dry-run   # reports, changes nothing
+docker compose --profile tools run --rm shrink
+docker compose start indexer
+```
+
 ## Naming books
 
 A citation shows the source's title, and a title comes from the filename, so the

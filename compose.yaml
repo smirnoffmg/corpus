@@ -122,6 +122,28 @@ services:
         condition: service_started
     restart: unless-stopped
 
+  # One-off: shrink the PDFs already in the library (cmd/shrink). Not started
+  # with the stack; stop the indexer first, then
+  #   docker compose --profile tools run --rm shrink --dry-run
+  shrink:
+    profiles: [tools]
+    logging: *logging
+    build: ./back
+    image: corpus:latest
+    entrypoint: ["shrink"]
+    environment:
+      DATABASE_URL: postgres://corpus:${POSTGRES_PASSWORD:-corpus}@db:5432/corpus
+    # Writable, unlike the indexer's: files are replaced in place, recognised
+    # pages copied to the new hash and the bibliography file rewritten.
+    volumes:
+      - ${LIBRARY_DIR:-${HOME}/.corpus/data}/books:/data/books
+      - ${LIBRARY_DIR:-${HOME}/.corpus/data}/papers:/data/papers
+      - ${LIBRARY_DIR:-${HOME}/.corpus/data}/ocr:/data/ocr
+      - ${LIBRARY_DIR:-${HOME}/.corpus/data}/bibliography:/data/bibliography
+    depends_on:
+      db:
+        condition: service_healthy
+
   front:
     logging: *logging
     build: ./front

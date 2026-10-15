@@ -35,3 +35,8 @@ image built from `front/` bundles the second group.
   License 1.1.
 
 `cd front && npm ls --all` lists every package with its version.
+
+The back image installs Alpine packages and calls them as separate programs:
+poppler-utils (GPL-2.0-or-later), Tesseract (Apache 2.0), Python (PSF-2.0),
+pikepdf (MPL-2.0) with qpdf (Apache 2.0), and Pillow (the PIL license).
+`apk list -I` inside the image lists them with their licenses.

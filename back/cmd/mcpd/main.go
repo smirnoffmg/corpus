@@ -19,6 +19,7 @@ import (
 	"github.com/smirnoffmg/corpus/internal/cite"
 	"github.com/smirnoffmg/corpus/internal/embed"
 	"github.com/smirnoffmg/corpus/internal/rerank"
+	"github.com/smirnoffmg/corpus/internal/shrink"
 	"github.com/smirnoffmg/corpus/internal/store"
 	"github.com/smirnoffmg/corpus/internal/upload"
 )
@@ -67,6 +68,7 @@ func run() error {
 	papers := flag.String("papers", "/data/papers", "publications directory that uploaded PDFs are saved into")
 	bibliography := flag.String("bibliography", "/data/bibliography", "directory of the bibliography file, the descriptions' system of record; empty keeps them in the database alone")
 	uploadMax := flag.Int64("upload-max", 300<<20, "largest upload accepted, in bytes")
+	shrinkUploads := flag.Bool("shrink-uploads", true, "re-encode the images of an uploaded PDF, keeping the copy only when its text is unchanged")
 	allowedHosts := flag.String("allowed-hosts", "localhost,127.0.0.1,::1", "comma-separated host names requests may be addressed to; anything else is refused, against DNS rebinding")
 	// Inside the container the vault is /data/vault; its Obsidian name is the
 	// name of the directory on the host, which compose passes along.
@@ -107,7 +109,11 @@ func run() error {
 	}
 	// Uploads are an addition to search, not a condition of it: a server whose
 	// library directories are missing still answers queries.
-	if lib, err := upload.Open(*books, *docs, *papers, upload.Limits{}); err != nil {
+	var uploadOpts []upload.Option
+	if *shrinkUploads {
+		uploadOpts = append(uploadOpts, upload.WithShrink(shrinkUpload))
+	}
+	if lib, err := upload.Open(*books, *docs, *papers, upload.Limits{}, uploadOpts...); err != nil {
 		slog.WarnContext(ctx, "uploads disabled", "err", err)
 	} else {
 		defer lib.Close()
@@ -131,4 +137,12 @@ func run() error {
 	shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdown)
+}
+
+func shrinkUpload(ctx context.Context, src, dst string) (bool, error) {
+	res, err := shrink.Shrinker{}.Shrink(ctx, src, dst)
+	if err == nil {
+		slog.InfoContext(ctx, "upload shrink", "file", filepath.Base(src), "before", res.Before, "after", res.After, "kept", res.Kept, "reason", res.Reason)
+	}
+	return res.Kept, err
 }

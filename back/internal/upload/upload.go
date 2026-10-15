@@ -10,17 +10,20 @@ package upload
 
 import (
 	"archive/zip"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path"
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 )
 
 var (
@@ -54,9 +57,26 @@ const (
 type Library struct {
 	books, docs, papers *os.Root
 	limits              Limits
+	shrink              ShrinkFunc
 }
 
-func Open(books, docs, papers string, limits Limits) (*Library, error) {
+// ShrinkFunc writes a smaller copy of the PDF src to dst and reports whether
+// the copy is to be kept; when it is not, or on an error, the upload is shelved
+// as it came.
+type ShrinkFunc func(ctx context.Context, src, dst string) (kept bool, err error)
+
+// shrinkTimeout bounds a shrink. A 400 MB textbook took under twenty seconds
+// and a 160 MB scan two minutes; past this the upload is shelved unshrunk.
+const shrinkTimeout = 10 * time.Minute
+
+type Option func(*Library)
+
+// WithShrink makes every uploaded PDF go through shrink before it is shelved.
+func WithShrink(shrink ShrinkFunc) Option {
+	return func(l *Library) { l.shrink = shrink }
+}
+
+func Open(books, docs, papers string, limits Limits, opts ...Option) (*Library, error) {
 	if limits.Entries <= 0 {
 		limits.Entries = defaultEntries
 	}
@@ -78,7 +98,11 @@ func Open(books, docs, papers string, limits Limits) (*Library, error) {
 		d.Close()
 		return nil, fmt.Errorf("papers root: %w", err)
 	}
-	return &Library{books: b, docs: d, papers: p, limits: limits}, nil
+	l := &Library{books: b, docs: d, papers: p, limits: limits}
+	for _, opt := range opts {
+		opt(l)
+	}
+	return l, nil
 }
 
 func (l *Library) Close() error {
@@ -88,14 +112,14 @@ func (l *Library) Close() error {
 // AddBook saves a PDF, EPUB or FB2 as uploads/<name> under the books root and
 // returns that path, which is the path the indexer will give the source.
 func (l *Library) AddBook(name string, r io.Reader) (string, error) {
-	return addFile(l.books, name, r, pdfFormat, epubFormat, fb2Format)
+	return l.addFile(l.books, name, r, pdfFormat, epubFormat, fb2Format)
 }
 
 // AddPaper saves a publication the same way, under the papers root. A paper is
 // kept apart from the books rather than tagged among them because a pass prunes
 // every source of a kind missing from that kind's root.
 func (l *Library) AddPaper(name string, r io.Reader) (string, error) {
-	return addFile(l.papers, name, r, pdfFormat)
+	return l.addFile(l.papers, name, r, pdfFormat)
 }
 
 // format is a kind of file a shelf takes, known by its extension and by how
@@ -114,7 +138,7 @@ var (
 	}}
 )
 
-func addFile(root *os.Root, name string, r io.Reader, formats ...format) (string, error) {
+func (l *Library) addFile(root *os.Root, name string, r io.Reader, formats ...format) (string, error) {
 	name = baseName(name)
 	i := slices.IndexFunc(formats, func(f format) bool { return strings.EqualFold(filepath.Ext(name), f.ext) })
 	if i < 0 || strings.HasPrefix(name, ".") {
@@ -145,6 +169,9 @@ func addFile(root *os.Root, name string, r io.Reader, formats ...format) (string
 	}
 	_, err = io.Copy(f, io.MultiReader(strings.NewReader(string(head)), r))
 	err = errors.Join(err, f.Close())
+	if err == nil && formats[i].ext == pdfFormat.ext {
+		l.shrinkPart(root, part)
+	}
 	if err == nil {
 		err = root.Rename(part, final)
 	}
@@ -153,6 +180,27 @@ func addFile(root *os.Root, name string, r io.Reader, formats ...format) (string
 		return "", err
 	}
 	return final, nil
+}
+
+// shrinkPart replaces the upload being written with its shrunk copy, if the
+// shrinker keeps one. A shrink that fails costs only the saving, so it is
+// logged rather than returned.
+func (l *Library) shrinkPart(root *os.Root, part string) {
+	if l.shrink == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), shrinkTimeout)
+	defer cancel()
+	small := part + ".small"
+	dir := root.Name()
+	kept, err := l.shrink(ctx, filepath.Join(dir, filepath.FromSlash(part)), filepath.Join(dir, filepath.FromSlash(small)))
+	if err == nil && kept {
+		err = root.Rename(small, part)
+	}
+	if err != nil {
+		slog.WarnContext(ctx, "upload not shrunk", "file", part, "err", err)
+	}
+	_ = root.Remove(small)
 }
 
 // AddManual unpacks a ZIP of built HTML into <name>/ under the docs root and
