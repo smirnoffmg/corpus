@@ -1,4 +1,4 @@
-.PHONY: up down test lint cover front-test front-lint check-security
+.PHONY: up down test lint cover front-test front-lint check-security diagrams
 
 up:
 	docker compose up -d --build
@@ -24,3 +24,7 @@ front-lint:
 # Against the running stack: security headers, and what the UI opens cannot reach the API.
 check-security:
 	front/scripts/check-security.sh
+
+# The C4 diagrams and the schema, from their PlantUML sources; GitHub shows the SVGs.
+diagrams:
+	plantuml -tsvg docs/c4/*.puml docs/db/*.puml

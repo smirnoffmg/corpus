@@ -1,0 +1,38 @@
+@startuml indexer
+!include <C4/C4_Component>
+
+title Corpus — components of the indexer
+
+ContainerDb(db, "Database", "Postgres, pgvector")
+ContainerDb(library, "Library", "files")
+ContainerDb(files, "Bibliography and OCR cache", "files")
+System_Ext(obsidian, "Obsidian vault")
+System_Ext(ollama, "ollama")
+
+Container_Boundary(indexer, "indexer") {
+    Component(loop, "Pass loop", "index.Run", "Index, embed, recognise; waits the interval by the wall clock or for a reindex request; beats")
+    Component(walk, "Walk and diff", "index", "Lists files, compares hashes, prunes what is gone")
+    Component(extract, "Extraction and chunking", "extract, lang", "PDF pages via poppler; EPUB and FB2 chapters; note sections; manual pages; reference lists; language")
+    Component(ocr, "Recognition", "ocr", "Scanned pages via pdftoppm and tesseract, cached by hash")
+    Component(embedc, "Embedder client", "embed", "Batches of 16, retried text by text")
+    Component(bib, "Bibliography file", "bibfile", "Imports descriptions each pass, exports after drafting")
+    Component(store, "Store", "store", "SQL: sources, chunks, embedding queue and quarantine, scans, beat; migrations")
+}
+
+Rel(loop, walk, "Starts a pass with")
+Rel(loop, ocr, "Recognises scans with", "last, interruptible")
+Rel(loop, embedc, "Drains the queue with")
+Rel(loop, bib, "Imports with")
+Rel(walk, extract, "Splits changed files with")
+Rel(walk, store, "Replaces sources through")
+Rel(ocr, store, "Records progress through")
+Rel(embedc, store, "Takes batches from, writes vectors to")
+Rel(walk, library, "Reads")
+Rel(walk, obsidian, "Reads")
+Rel(ocr, files, "Caches pages in")
+Rel(bib, files, "Reads and writes")
+Rel(store, db, "SQL; LISTEN corpus_reindex")
+Rel(embedc, ollama, "HTTP")
+
+SHOW_LEGEND()
+@enduml

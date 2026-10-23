@@ -1,0 +1,44 @@
+@startuml mcpd
+!include <C4/C4_Component>
+
+title Corpus — components of mcpd
+
+Container_Ext(front, "Web UI", "nginx")
+System_Ext(agent, "AI agent", "MCP client")
+ContainerDb(db, "Database", "Postgres, pgvector")
+ContainerDb(library, "Library", "files")
+System_Ext(ollama, "ollama")
+System_Ext(reranker, "llama-server")
+System_Ext(internet, "doi.org, Open Library, CSL styles")
+
+Container_Boundary(mcpd, "mcpd") {
+    Component(guard, "Guard", "api", "Refuses requests addressed to an unknown host, against DNS rebinding")
+    Component(service, "Search service", "api", "MCP tools and HTTP routes; hybrid search, notices, /status, journal")
+    Component(rank, "Fusion", "rank", "Reciprocal rank fusion of the text and vector legs")
+    Component(embedc, "Embedder client", "embed", "Query embeddings, with a timeout and a cooldown")
+    Component(rerankc, "Reranker client", "rerank", "Cross-encoder over the first 20 hits")
+    Component(cite, "Citations and lookup", "cite", "Formats citations; DOI, ISBN and style lookup")
+    Component(upload, "Uploads", "upload, shrink", "Writes into the library under a dot name, then renames; re-encodes PDF images")
+    Component(shelf, "Shelf", "index.Files", "Lists the files a pass would read, for /status")
+    Component(store, "Store", "store", "SQL: search, read, sources, descriptions, journal, pulse")
+}
+
+Rel(agent, guard, "MCP", "HTTP")
+Rel(front, guard, "HTTP")
+Rel(guard, service, "Passes on")
+Rel(service, rank, "Fuses with")
+Rel(service, embedc, "Embeds the query with")
+Rel(service, rerankc, "Reranks with", "rerank=1")
+Rel(service, cite, "Cites and looks up with")
+Rel(service, upload, "Saves uploads with")
+Rel(service, shelf, "Lists unindexed files with")
+Rel(service, store, "Reads and writes through")
+Rel(store, db, "SQL")
+Rel(embedc, ollama, "HTTP")
+Rel(rerankc, reranker, "HTTP")
+Rel(cite, internet, "HTTPS")
+Rel(upload, library, "Writes")
+Rel(shelf, library, "Walks")
+
+SHOW_LEGEND()
+@enduml

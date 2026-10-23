@@ -1,0 +1,29 @@
+@startuml context
+!include <C4/C4_Context>
+
+title Corpus — system context
+
+Person(reader, "Reader", "Writes notes and papers; searches, reads and cites from the web UI")
+System_Ext(agent, "AI agent", "Claude Code and its subagents; searches before answering")
+
+System(corpus, "Corpus", "Search over a personal library that returns citable places: a printed page, a note heading, a manual section")
+
+System_Ext(obsidian, "Obsidian vault", "The reader's notes, a git repository the Obsidian backup commits to")
+System_Ext(ollama, "ollama", "bge-m3 embeddings, on the host for the GPU")
+System_Ext(reranker, "llama-server", "Cross-encoder reranker, on the host; optional")
+System_Ext(doi, "doi.org", "CSL-JSON for a DOI, from Crossref or DataCite")
+System_Ext(openlibrary, "Open Library", "Books by ISBN, title and author; editions")
+System_Ext(styles, "CSL styles repository", "Citation styles on GitHub")
+
+Rel(reader, corpus, "Searches, reads, cites, uploads", "browser")
+Rel(agent, corpus, "Searches and reads", "MCP over HTTP")
+Rel(reader, obsidian, "Writes notes in")
+Rel(corpus, obsidian, "Indexes the notes of", "read-only")
+Rel(corpus, ollama, "Embeds passages and queries with", "HTTP")
+Rel(corpus, reranker, "Reorders the first hits with", "HTTP")
+Rel(corpus, doi, "Looks up descriptions in", "HTTPS")
+Rel(corpus, openlibrary, "Finds books not in the library in", "HTTPS")
+Rel(corpus, styles, "Fetches styles from", "HTTPS")
+
+SHOW_LEGEND()
+@enduml

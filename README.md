@@ -218,6 +218,8 @@ MOBI and AZW3 are not read: convert them to EPUB with Calibre first.
 ## Documentation
 
 - [Architecture](docs/architecture.md) — embeddings, Postgres, containers, design notes
+- [C4 diagrams](docs/c4.md) — context, containers, and the components of mcpd and the indexer
+- [Database schema](docs/database.md) — the tables, and why most links between them are not foreign keys
 - [Publications](docs/publications.md) — papers, and the list of works each one cites
 - [Search evaluation](docs/search-evaluation.md) — the judged set and what it decided
 - [Is it used](docs/usage.md) — files not indexed yet, the search journal, citations in the vault

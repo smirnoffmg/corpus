@@ -1,0 +1,161 @@
+@startuml schema
+' Solid lines are foreign keys; dashed ones are references the schema leaves
+' without a key on purpose, by content hash or by id.
+hide circle
+skinparam linetype ortho
+skinparam shadowing false
+skinparam class {
+  BackgroundColor #FFFFFF
+  BorderColor #555555
+  ArrowColor #555555
+}
+skinparam package {
+  BorderColor #999999
+  FontColor #555555
+}
+
+title Corpus — database schema (migration 025)
+
+package "Index — rebuilt from the files" {
+  entity sources {
+    * id : bigserial <<PK>>
+    --
+    * kind : text <<UQ kind, path>>
+    * path : text <<UQ kind, path>>
+    * title : text
+    * hash : text
+    * indexed_at : timestamptz
+    * recognised : boolean
+    * rules : int
+    * aliases : text[]
+  }
+
+  entity chunks {
+    * id : bigserial <<PK>>
+    --
+    * source_id : bigint <<FK>>
+    * ord : int
+    page : int
+    printed_page : int
+    heading : text
+    anchor : text
+    * lang : text
+    * tags : text[]
+    * body : text
+    * tsv : tsvector <<GIN>>
+    * embed_hash : text
+  }
+
+  entity embeddings {
+    * hash : text <<PK>>
+    --
+    embedding : vector(1024) <<HNSW>>
+    * attempts : int
+    embedded_at : timestamptz
+    last_error : text
+  }
+
+  entity scans {
+    * hash : text <<PK>>
+    --
+    * kind : text
+    * path : text
+    * pages : int
+    * recognised : int
+    * attempts : int
+    last_error : text
+    * updated_at : timestamptz
+  }
+}
+
+package "Bibliography — typed or confirmed by hand" {
+  entity bibliography {
+    * key : text <<PK>>
+    --
+    * citekey : text <<UQ>>
+    * csl : jsonb
+    * status : draft | checked
+    * updated_at : timestamptz
+  }
+
+  entity csl_styles {
+    * id : text <<PK>>
+    --
+    * title : text
+    * xml : text
+    * added_at : timestamptz
+  }
+
+  entity bibliographies {
+    * paper : text <<PK>>
+    --
+    * parsed_at : timestamptz
+    * entries : int
+    * parser : int
+  }
+
+  entity citations {
+    * paper : text <<PK, FK>>
+    * list : references | primary <<PK>>
+    * ord : int <<PK>>
+    --
+    * raw : text
+    label, doi, arxiv, isbn, url : text
+    authors, title, container : text
+    year : int
+    * fingerprint : text
+    resolved : text
+    matched_by : doi | isbn | arxiv | title
+  }
+}
+
+package "Operations" {
+  entity indexer_beat {
+    * id : boolean = true <<PK>>
+    --
+    * at, phase_from, started : timestamptz
+    * phase : text
+    last_pass : timestamptz
+    last_took : interval
+    * last_error : text
+    * pause : interval
+    * settings : jsonb
+  }
+
+  entity search_log {
+    * id : bigserial <<PK>>
+    --
+    * at : timestamptz
+    * origin : mcp | http
+    * query, mode, kind : text
+    * hits : bigint[]
+    * err : text
+  }
+
+  entity read_log {
+    * id : bigserial <<PK>>
+    --
+    * at : timestamptz
+    * origin : mcp | http
+    * chunk_id : bigint
+  }
+
+  entity goose_db_version {
+    * id : int <<PK>>
+    --
+    * version_id : bigint
+    * is_applied : boolean
+    * tstamp : timestamp
+  }
+}
+
+sources ||--o{ chunks : "ON DELETE CASCADE"
+chunks }o..|| embeddings : "embed_hash = hash\n(the text embedded)"
+scans |o..o| sources : "hash = hash\n(a scan becomes a source)"
+bibliography |o..o| sources : "key = hash,\nor manual:<name>"
+bibliographies |o..o| sources : "paper = hash"
+bibliographies ||--o{ citations : "ON DELETE CASCADE"
+citations }o..o| bibliography : "resolved = key"
+search_log }o..o{ chunks : "hits ∋ id"
+read_log }o..|| chunks : "chunk_id = id"
+@enduml

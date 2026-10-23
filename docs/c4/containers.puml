@@ -1,0 +1,41 @@
+@startuml containers
+!include <C4/C4_Container>
+
+title Corpus — containers
+
+Person(reader, "Reader")
+System_Ext(agent, "AI agent", "Claude Code")
+System_Ext(obsidian, "Obsidian vault", "Markdown notes")
+System_Ext(ollama, "ollama", "bge-m3, host")
+System_Ext(reranker, "llama-server", "reranker, host")
+System_Ext(internet, "doi.org, Open Library, CSL styles", "the only use of the internet")
+
+System_Boundary(corpus, "Corpus") {
+    Container(front, "Web UI", "React, nginx", "Search, reading, citing, uploads, the system page; serves the originals on a port of its own")
+    Container(mcpd, "mcpd", "Go", "The search service: MCP tools and the same over HTTP; uploads, bibliography, journal")
+    Container(indexer, "indexer", "Go, poppler, tesseract", "Walks the library and the vault every 15 minutes or on request; extracts, chunks, embeds, recognises scans; applies migrations")
+    ContainerDb(db, "Database", "Postgres 18, pgvector", "Sources, chunks, full-text and HNSW indexes, descriptions, citations, the indexer's beat, the search journal")
+    ContainerDb(library, "Library", "files: books/, papers/, manuals/", "PDF, EPUB, FB2 and Sphinx HTML; the system of record for texts")
+    ContainerDb(files, "Bibliography and OCR cache", "files: bibliography/, ocr/", "Descriptions outside the database; recognised pages by the book's hash")
+}
+
+Rel(reader, front, "Uses", "browser, localhost:8081")
+Rel(agent, mcpd, "corpus_search, corpus_read, …", "MCP, localhost:8080/mcp")
+Rel(front, mcpd, "Calls", "HTTP /api → :8080")
+Rel(front, library, "Serves originals from", "read-only, :8082")
+Rel(mcpd, db, "Searches, reads, journals", "SQL")
+Rel(indexer, db, "Writes sources, chunks, vectors, beat", "SQL")
+Rel(mcpd, db, "NOTIFY corpus_reindex", "after an upload")
+Rel(db, indexer, "LISTEN corpus_reindex", "wakes a pass")
+Rel(mcpd, library, "Saves uploads into; lists for /status", "read-write")
+Rel(indexer, library, "Reads", "read-only")
+Rel(indexer, obsidian, "Reads notes", "read-only")
+Rel(indexer, files, "Imports and exports descriptions; caches recognised pages")
+Rel(mcpd, files, "Exports descriptions")
+Rel(indexer, ollama, "Embeds chunks", "HTTP")
+Rel(mcpd, ollama, "Embeds the query", "HTTP")
+Rel(mcpd, reranker, "Reranks", "HTTP")
+Rel(mcpd, internet, "Looks up DOI, ISBN, styles", "HTTPS")
+
+SHOW_LEGEND()
+@enduml
