@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/smirnoffmg/corpus/internal/corpus"
@@ -39,10 +40,12 @@ func WithStatusTimeout(d time.Duration) Option { return func(s *Service) { s.sta
 
 // WithEmbedderCooldown is how long searches skip the vector leg after the
 // embedder failed.
-func WithEmbedderCooldown(d time.Duration) Option { return func(s *Service) { s.cooldown = d } }
+func WithEmbedderCooldown(d time.Duration) Option {
+	return func(s *Service) { s.embedBreaker.cooldown = d }
+}
 
 // WithClock replaces the clock the cooldown is measured with.
-func WithClock(now func() time.Time) Option { return func(s *Service) { s.now = now } }
+func WithClock(now func() time.Time) Option { return func(s *Service) { s.embedBreaker.now = now } }
 
 // isEmbedderDown tells a search that could not embed its query — skipped during
 // a cooldown, refused, or out of time — from a search that broke.
@@ -61,7 +64,7 @@ type trace struct {
 // embedQuery embeds a query, or declines at once while the embedder is known
 // to be down.
 func (s *Service) embedQuery(ctx context.Context, text string, tr *trace) ([]float32, error) {
-	if s.skipping() {
+	if s.embedBreaker.open() {
 		tr.vector = "skipped"
 		return nil, errEmbedderUnavailable
 	}
@@ -73,52 +76,68 @@ func (s *Service) embedQuery(ctx context.Context, text string, tr *trace) ([]flo
 	tr.vectorTook = time.Since(start)
 	if err != nil {
 		tr.vector = "failed"
-		s.fail(ctx, err, errors.Is(ctx.Err(), context.DeadlineExceeded))
+		s.embedBreaker.fail(ctx, err, errors.Is(ctx.Err(), context.DeadlineExceeded))
 		return nil, fmt.Errorf("%w (%w)", errEmbedderUnavailable, err)
 	}
 	tr.vector = "ok"
-	s.mu.Lock()
-	s.timeouts = 0
-	s.mu.Unlock()
+	s.embedBreaker.succeed()
 	return vectors[0], nil
 }
 
-// fail counts a failed query embedding against the breaker.
-func (s *Service) fail(ctx context.Context, err error, timedOut bool) {
-	s.mu.Lock()
+// breaker keeps searches off the embedder for a cooldown once it has failed,
+// so that each search does not pay for the same timeout.
+type breaker struct {
+	cooldown time.Duration
+	now      func() time.Time
+
+	mu        sync.Mutex
+	skipUntil time.Time
+	timeouts  int // query embeddings timed out in a row
+}
+
+func (b *breaker) open() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.now().Before(b.skipUntil)
+}
+
+// fail counts a failed call: a refusal opens the breaker at once, a timeout
+// only once timeoutsToTrip of them come in a row.
+func (b *breaker) fail(ctx context.Context, err error, timedOut bool) {
+	b.mu.Lock()
 	if timedOut {
-		s.timeouts++
+		b.timeouts++
 	}
-	open := !timedOut || s.timeouts >= timeoutsToTrip
-	s.mu.Unlock()
+	open := !timedOut || b.timeouts >= timeoutsToTrip
+	b.mu.Unlock()
 	if open {
-		s.trip(ctx, err)
+		b.trip(ctx, err)
 	}
 }
 
-func (s *Service) skipping() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.now().Before(s.skipUntil)
+func (b *breaker) succeed() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.timeouts = 0
 }
 
 // trip starts a cooldown. Logged once per cooldown rather than per search: a
 // breaker that opens has to be visible (Release It!, с. 118), and a line per
 // search would bury it.
-func (s *Service) trip(ctx context.Context, err error) {
-	s.mu.Lock()
-	s.skipUntil = s.now().Add(s.cooldown)
-	s.timeouts = 0
-	s.mu.Unlock()
+func (b *breaker) trip(ctx context.Context, err error) {
+	b.mu.Lock()
+	b.skipUntil = b.now().Add(b.cooldown)
+	b.timeouts = 0
+	b.mu.Unlock()
 	slog.WarnContext(ctx, "embedder unavailable, searching text alone for a while",
-		"cooldown", s.cooldown.String(), "err", err)
+		"cooldown", b.cooldown.String(), "err", err)
 }
 
-func (s *Service) reset() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.skipUntil = time.Time{}
-	s.timeouts = 0
+func (b *breaker) reset() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.skipUntil = time.Time{}
+	b.timeouts = 0
 }
 
 // probeEmbedder is /status asking the embedder directly, cooldown or not, so a
@@ -127,10 +146,10 @@ func (s *Service) probeEmbedder(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, s.statusTimeout)
 	defer cancel()
 	if _, err := s.embedder.Embed(ctx, []string{"проверка"}); err != nil {
-		s.trip(ctx, err)
+		s.embedBreaker.trip(ctx, err)
 		return err
 	}
-	s.reset()
+	s.embedBreaker.reset()
 	return nil
 }
 

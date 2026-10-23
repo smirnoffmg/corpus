@@ -17,7 +17,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -72,11 +71,7 @@ type Service struct {
 
 	queryTimeout   time.Duration
 	statusTimeout  time.Duration
-	cooldown       time.Duration
-	now            func() time.Time
-	mu             sync.Mutex
-	skipUntil      time.Time
-	timeouts       int          // query embeddings timed out in a row
+	embedBreaker   breaker
 	withoutVectors atomic.Int64 // hybrid searches answered by the text leg alone
 }
 
@@ -112,8 +107,8 @@ func New(store Store, embedder Embedder, opts ...Option) *Service {
 	s := &Service{
 		store: store, embedder: embedder,
 		queryTimeout: defaultQueryTimeout, statusTimeout: defaultStatusTimeout,
-		cooldown: defaultCooldown, now: time.Now,
-		rerankSlots: make(chan struct{}, defaultRerankConcurrency),
+		embedBreaker: breaker{cooldown: defaultCooldown, now: time.Now},
+		rerankSlots:  make(chan struct{}, defaultRerankConcurrency),
 	}
 	for _, opt := range opts {
 		opt(s)
