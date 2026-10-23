@@ -61,7 +61,7 @@ func (s *Store) Sources(ctx context.Context, kind, prefix string) ([]corpus.Sour
 		    FROM scans sc
 		    WHERE ($1 = '' OR $1 = sc.kind)
 		      AND starts_with(sc.path, $2)
-		      AND NOT EXISTS (SELECT 1 FROM sources s WHERE s.path = sc.path)
+		      AND NOT EXISTS (SELECT 1 FROM sources s WHERE s.kind = sc.kind AND s.path = sc.path)
 		) listed
 		ORDER BY kind, path`,
 		kind, prefix, maxEmbedAttempts, maxScanAttempts)

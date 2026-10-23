@@ -49,7 +49,7 @@ func TestCitationsSurviveTheFileBeingRenamed(t *testing.T) {
 	require.NoError(t, st.Replace(ctx, paper("old.pdf", "A", "pa"), oneChunk("текст статьи")))
 	require.NoError(t, st.SaveCitations(ctx, "pa", 1, []corpus.Citation{cited(1, "[1] Работа", "fp-1")}))
 
-	require.NoError(t, st.Rename(ctx, "old.pdf", "new.pdf", "A"))
+	require.NoError(t, st.Rename(ctx, "paper", "old.pdf", "new.pdf", "A"))
 
 	got, err := st.Citations(ctx, "pa")
 	require.NoError(t, err)

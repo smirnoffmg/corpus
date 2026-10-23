@@ -187,10 +187,10 @@ func TestVectorsNoChunkUsesArePruned(t *testing.T) {
 	require.NoError(t, st.Replace(ctx, book("__test__/gone.pdf", "Удалить", "g"), pages("только здесь")))
 	require.NoError(t, st.Replace(ctx, book("__test__/also-gone.pdf", "Удалить тоже", "g2"), pages("и здесь")))
 	embedAll(t, st, ctx)
-	_, err := st.Forget(ctx, "__test__/also-gone.pdf")
+	_, err := st.Forget(ctx, "book", "__test__/also-gone.pdf")
 	require.NoError(t, err)
 
-	_, err = st.Forget(ctx, "__test__/gone.pdf")
+	_, err = st.Forget(ctx, "book", "__test__/gone.pdf")
 	require.NoError(t, err)
 	pruned, err := st.PruneEmbeddings(ctx)
 	require.NoError(t, err)
@@ -502,7 +502,7 @@ func TestRenamingANoteRefilesItsSections(t *testing.T) {
 	require.NoError(t, st.Replace(ctx, notePage("__test__/old.md", "Старое имя", "r1"), sections("Раздел")))
 	embedAll(t, st, ctx)
 
-	require.NoError(t, st.Rename(ctx, "__test__/old.md", "__test__/new.md", "Новое имя"))
+	require.NoError(t, st.Rename(ctx, "vault", "__test__/old.md", "__test__/new.md", "Новое имя"))
 
 	pending, err := st.PendingEmbeddings(ctx, 10)
 	require.NoError(t, err)

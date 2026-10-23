@@ -24,7 +24,7 @@ type fakeCitations struct {
 	askedB  string
 }
 
-func (f *fakeCitations) SourceHash(_ context.Context, path string) (string, bool, error) {
+func (f *fakeCitations) SourceHash(_ context.Context, _, path string) (string, bool, error) {
 	hash, ok := f.hashes[path]
 	return hash, ok, nil
 }

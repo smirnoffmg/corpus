@@ -27,8 +27,8 @@ func (s *Store) Rehash(ctx context.Context, kind, path, oldHash, newHash string)
 
 	var shared bool
 	if err := tx.QueryRow(ctx, `
-		SELECT EXISTS (SELECT 1 FROM sources WHERE hash = $1 AND path <> $2)
-		    OR EXISTS (SELECT 1 FROM scans WHERE hash = $1 AND path <> $2)`, oldHash, path).Scan(&shared); err != nil {
+		SELECT EXISTS (SELECT 1 FROM sources WHERE hash = $1 AND NOT (kind = $3 AND path = $2))
+		    OR EXISTS (SELECT 1 FROM scans WHERE hash = $1 AND NOT (kind = $3 AND path = $2))`, oldHash, path, kind).Scan(&shared); err != nil {
 		return err
 	}
 	if shared {

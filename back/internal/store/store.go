@@ -151,10 +151,10 @@ func (s *Store) provider() (*goose.Provider, *sql.DB, error) {
 
 // Unchanged reports whether the file is already indexed under the same content
 // hash and judged by rules at least as new, so that a reindex pass can skip it.
-func (s *Store) Unchanged(ctx context.Context, path, hash string, rules int) (bool, error) {
+func (s *Store) Unchanged(ctx context.Context, kind, path, hash string, rules int) (bool, error) {
 	var stored string
 	var storedRules int
-	err := s.pool.QueryRow(ctx, `SELECT hash, rules FROM sources WHERE path = $1`, path).Scan(&stored, &storedRules)
+	err := s.pool.QueryRow(ctx, `SELECT hash, rules FROM sources WHERE kind = $1 AND path = $2`, kind, path).Scan(&stored, &storedRules)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return false, nil
@@ -178,8 +178,8 @@ func (s *Store) Replace(ctx context.Context, src corpus.Source, chunks []corpus.
 	err = tx.QueryRow(ctx, `
 		INSERT INTO sources (kind, path, title, hash, recognised, rules, aliases)
 		VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7::text[], '{}'))
-		ON CONFLICT (path) DO UPDATE
-		    SET kind = EXCLUDED.kind, title = EXCLUDED.title,
+		ON CONFLICT (kind, path) DO UPDATE
+		    SET title = EXCLUDED.title,
 		        hash = EXCLUDED.hash, recognised = EXCLUDED.recognised,
 		        rules = EXCLUDED.rules, aliases = EXCLUDED.aliases, indexed_at = now()
 		RETURNING id`,
@@ -273,8 +273,8 @@ func (s *Store) Bodies(ctx context.Context, ids []int64, chars int) (map[int64]s
 // search can ever return.
 // The bool says whether anything was actually removed, so a caller can report
 // the change once instead of every pass.
-func (s *Store) Forget(ctx context.Context, path string) (bool, error) {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM sources WHERE path = $1`, path)
+func (s *Store) Forget(ctx context.Context, kind, path string) (bool, error) {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM sources WHERE kind = $1 AND path = $2`, kind, path)
 	if err != nil {
 		return false, err
 	}
@@ -299,15 +299,15 @@ func (s *Store) PathByHash(ctx context.Context, kind, hash string) (string, bool
 
 // Rename moves a source to its new path, keeping its chunks and their
 // embeddings: the file was renamed, not replaced.
-func (s *Store) Rename(ctx context.Context, oldPath, newPath, title string) error {
+func (s *Store) Rename(ctx context.Context, kind, oldPath, newPath, title string) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := tx.Exec(ctx,
-		`UPDATE sources SET path = $2, title = $3, indexed_at = now() WHERE path = $1`,
-		oldPath, newPath, storable(title)); err != nil {
+		`UPDATE sources SET path = $2, title = $3, indexed_at = now() WHERE kind = $4 AND path = $1`,
+		oldPath, newPath, storable(title), kind); err != nil {
 		return err
 	}
 	// A note's title is part of the text its sections are embedded as, so its
@@ -328,9 +328,9 @@ func (s *Store) Rename(ctx context.Context, oldPath, newPath, title string) erro
 
 // SetTitle refreshes a source's display name without touching its chunks, so
 // recognising a better title never costs the embeddings.
-func (s *Store) SetTitle(ctx context.Context, path, title string) error {
+func (s *Store) SetTitle(ctx context.Context, kind, path, title string) error {
 	_, err := s.pool.Exec(ctx,
-		`UPDATE sources SET title = $2 WHERE path = $1 AND title <> $2`, path, storable(title))
+		`UPDATE sources SET title = $3 WHERE kind = $1 AND path = $2 AND title <> $3`, kind, path, storable(title))
 	return err
 }
 

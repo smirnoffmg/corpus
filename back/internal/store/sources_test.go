@@ -24,15 +24,15 @@ func TestUnchangedComparesTheStoredHash(t *testing.T) {
 	src := book("__test__/hash.pdf", "Книга", "h1")
 	require.NoError(t, st.Replace(ctx, src, oneChunk("корпускрипт один")))
 
-	same, err := st.Unchanged(ctx, src.Path, "h1", 0)
+	same, err := st.Unchanged(ctx, "book", src.Path, "h1", 0)
 	require.NoError(t, err)
 	require.True(t, same)
 
-	same, err = st.Unchanged(ctx, src.Path, "h2", 0)
+	same, err = st.Unchanged(ctx, "book", src.Path, "h2", 0)
 	require.NoError(t, err)
 	require.False(t, same, "a different hash is a changed file")
 
-	same, err = st.Unchanged(ctx, "__test__/never-seen.pdf", "h1", 0)
+	same, err = st.Unchanged(ctx, "book", "__test__/never-seen.pdf", "h1", 0)
 	require.NoError(t, err)
 	require.False(t, same, "an unknown path was never indexed")
 }
@@ -46,20 +46,20 @@ func TestUnchangedComparesTheStoredRules(t *testing.T) {
 	src.Rules = 1
 	require.NoError(t, st.Replace(ctx, src, oneChunk("корпускрипт правила")))
 
-	same, err := st.Unchanged(ctx, src.Path, "h1", 1)
+	same, err := st.Unchanged(ctx, "book", src.Path, "h1", 1)
 	require.NoError(t, err)
 	require.True(t, same)
 
-	same, err = st.Unchanged(ctx, src.Path, "h1", 2)
+	same, err = st.Unchanged(ctx, "book", src.Path, "h1", 2)
 	require.NoError(t, err)
 	require.False(t, same, "newer rules have not judged this file")
 
-	same, err = st.Unchanged(ctx, src.Path, "h1", 0)
+	same, err = st.Unchanged(ctx, "book", src.Path, "h1", 0)
 	require.NoError(t, err)
 	require.True(t, same, "a file judged by newer rules need not be read again")
 
-	require.NoError(t, st.Rename(ctx, src.Path, "__test__/rules-moved.pdf", "Книга"))
-	same, err = st.Unchanged(ctx, "__test__/rules-moved.pdf", "h1", 1)
+	require.NoError(t, st.Rename(ctx, "book", src.Path, "__test__/rules-moved.pdf", "Книга"))
+	same, err = st.Unchanged(ctx, "book", "__test__/rules-moved.pdf", "h1", 1)
 	require.NoError(t, err)
 	require.True(t, same, "a rename keeps the rules that judged the file")
 }
@@ -96,7 +96,7 @@ func TestRenameKeepsTheChunks(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx,
 		`SELECT id FROM sources WHERE path = $1`, src.Path).Scan(&before))
 
-	require.NoError(t, st.Rename(ctx, src.Path, "__test__/после.pdf", "Новое название"))
+	require.NoError(t, st.Rename(ctx, "book", src.Path, "__test__/после.pdf", "Новое название"))
 
 	var after int64
 	var title string
@@ -116,7 +116,7 @@ func TestSetTitleLeavesEverythingElseAlone(t *testing.T) {
 
 	src := book("__test__/title.pdf", "Старое", "h1")
 	require.NoError(t, st.Replace(ctx, src, oneChunk("корпускрипт четыре")))
-	require.NoError(t, st.SetTitle(ctx, src.Path, "Новое"))
+	require.NoError(t, st.SetTitle(ctx, "book", src.Path, "Новое"))
 
 	var title, hash string
 	require.NoError(t, pool.QueryRow(ctx,
@@ -131,11 +131,11 @@ func TestForgetReportsWhetherItRemovedAnything(t *testing.T) {
 	src := book("__test__/forget.pdf", "Книга", "h1")
 	require.NoError(t, st.Replace(ctx, src, oneChunk("корпускрипт пять")))
 
-	dropped, err := st.Forget(ctx, src.Path)
+	dropped, err := st.Forget(ctx, "book", src.Path)
 	require.NoError(t, err)
 	require.True(t, dropped)
 
-	dropped, err = st.Forget(ctx, src.Path)
+	dropped, err = st.Forget(ctx, "book", src.Path)
 	require.NoError(t, err)
 	require.False(t, dropped, "the second call has nothing left to remove")
 }
@@ -243,7 +243,7 @@ func TestOptionsAreApplied(t *testing.T) {
 	// The window is only observable through what the embedding queue hands out.
 	require.NoError(t, st.Replace(ctx, book("__test__/window.pdf", "Книга", "h1"),
 		[]corpus.Chunk{{Ord: 1, Page: 1, Lang: "russian", Body: strings.Repeat("я", 3000)}}))
-	t.Cleanup(func() { _, _ = st.Forget(ctx, "__test__/window.pdf") })
+	t.Cleanup(func() { _, _ = st.Forget(ctx, "book", "__test__/window.pdf") })
 
 	pending, err := st.PendingEmbeddings(ctx, 10)
 	require.NoError(t, err)

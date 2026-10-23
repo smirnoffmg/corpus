@@ -29,7 +29,7 @@ func TestRehashMovesWhatIsFiledUnderAFilesContent(t *testing.T) {
 
 	require.NoError(t, st.Rehash(ctx, "paper", "uploads/a.pdf", "old-a", "new-a"))
 
-	unchanged, err := st.Unchanged(ctx, "uploads/a.pdf", "new-a", 0)
+	unchanged, err := st.Unchanged(ctx, "paper", "uploads/a.pdf", "new-a", 0)
 	require.NoError(t, err)
 	require.True(t, unchanged, "the source is filed under the new hash")
 
@@ -76,7 +76,7 @@ func TestRehashRefusesAHashAnotherFileShares(t *testing.T) {
 	err := st.Rehash(ctx, "book", "uploads/one.pdf", "same", "new")
 	require.ErrorIs(t, err, store.ErrSharedHash)
 
-	unchanged, err := st.Unchanged(ctx, "uploads/one.pdf", "same", 0)
+	unchanged, err := st.Unchanged(ctx, "book", "uploads/one.pdf", "same", 0)
 	require.NoError(t, err)
 	require.True(t, unchanged, "nothing moved")
 }

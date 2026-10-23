@@ -33,12 +33,12 @@ import (
 )
 
 type Store interface {
-	Unchanged(ctx context.Context, path, hash string, rules int) (bool, error)
+	Unchanged(ctx context.Context, kind, path, hash string, rules int) (bool, error)
 	Replace(ctx context.Context, src corpus.Source, chunks []corpus.Chunk) error
-	SetTitle(ctx context.Context, path, title string) error
-	Forget(ctx context.Context, path string) (bool, error)
+	SetTitle(ctx context.Context, kind, path, title string) error
+	Forget(ctx context.Context, kind, path string) (bool, error)
 	PathByHash(ctx context.Context, kind, hash string) (string, bool, error)
-	Rename(ctx context.Context, oldPath, newPath, title string) error
+	Rename(ctx context.Context, kind, oldPath, newPath, title string) error
 	Prune(ctx context.Context, kind string, seen []string) (int64, error)
 	Stats(ctx context.Context) (sources, chunks int64, err error)
 	MissingEmbeddings(ctx context.Context) (int64, error)
@@ -352,14 +352,14 @@ func (ix *Indexer) indexFile(
 	if isPDF(path) {
 		rules = extract.LayerRules
 	}
-	unchanged, err := ix.store.Unchanged(ctx, rel, hash, rules)
+	unchanged, err := ix.store.Unchanged(ctx, kind, rel, hash, rules)
 	if err != nil {
 		return false, err
 	}
 	if unchanged {
 		// The file is the same, but the title may have been recognised better
 		// since; that is a column update, not a reason to re-extract.
-		return false, ix.store.SetTitle(ctx, rel, title)
+		return false, ix.store.SetTitle(ctx, kind, rel, title)
 	}
 
 	// Nothing is indexed under this path, but the same bytes may already be
@@ -371,7 +371,7 @@ func (ix *Indexer) indexFile(
 	}
 	if found && !present[old] {
 		slog.InfoContext(ctx, "renamed", "from", old, "to", rel)
-		return false, ix.store.Rename(ctx, old, rel, title)
+		return false, ix.store.Rename(ctx, kind, old, rel, title)
 	}
 
 	chunks, err := parse(path)
@@ -396,7 +396,7 @@ func (ix *Indexer) indexFile(
 				return false, err
 			}
 		}
-		dropped, err := ix.store.Forget(ctx, rel)
+		dropped, err := ix.store.Forget(ctx, kind, rel)
 		if dropped && (!isPDF(path) || ix.opts.OCR == nil) {
 			slog.WarnContext(ctx, "no text, dropped (a scan without OCR?)", "path", rel)
 		}

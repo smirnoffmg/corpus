@@ -15,7 +15,7 @@ import (
 // Citations is a publication's list of references and the graph it makes with
 // the rest of the corpus.
 type Citations interface {
-	SourceHash(ctx context.Context, path string) (string, bool, error)
+	SourceHash(ctx context.Context, kind, path string) (string, bool, error)
 	Citations(ctx context.Context, paper string) ([]corpus.Citation, error)
 	Citing(ctx context.Context, key, fingerprint string) ([]corpus.CitingPaper, error)
 	SharedCitations(ctx context.Context, a, b string) ([]corpus.Citation, error)
@@ -31,6 +31,7 @@ var errNoCitations = errors.New("citations are not configured on this server")
 
 type citationsInput struct {
 	Path      string `json:"path" jsonschema:"path of a source, exactly as corpus_search returned it"`
+	Kind      string `json:"kind,omitempty" jsonschema:"kind of the source, as corpus_search returned it; needed only when a book and a publication share the path"`
 	Direction string `json:"direction,omitempty" jsonschema:"'cited' (default) for the works this publication cites, 'citing' for the publications in the corpus that cite this source"`
 	Limit     int    `json:"limit,omitempty" jsonschema:"maximum entries to return, default 50"`
 }
@@ -53,7 +54,7 @@ func (s *Service) citationsTool(ctx context.Context, in citationsInput) (citatio
 	if s.citations == nil {
 		return citationsOutput{}, errNoCitations
 	}
-	hash, found, err := s.citations.SourceHash(ctx, in.Path)
+	hash, found, err := s.citations.SourceHash(ctx, in.Kind, in.Path)
 	if err != nil {
 		return citationsOutput{}, err
 	}
@@ -114,7 +115,7 @@ func (s *Service) hashOf(w http.ResponseWriter, r *http.Request, path string) (s
 		http.Error(w, "path is required", http.StatusBadRequest)
 		return "", false
 	}
-	hash, found, err := s.citations.SourceHash(r.Context(), path)
+	hash, found, err := s.citations.SourceHash(r.Context(), r.URL.Query().Get("kind"), path)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return "", false

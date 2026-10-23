@@ -2,7 +2,7 @@ package store
 
 import (
 	"context"
-	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 
@@ -57,13 +57,23 @@ func (s *Store) UnparsedPapers(ctx context.Context, parser int) ([]corpus.Unpars
 
 // SourceHash is what a source is filed under everywhere a file's identity
 // matters — its citations, its description — rather than where it sits.
-func (s *Store) SourceHash(ctx context.Context, path string) (string, bool, error) {
-	var hash string
-	err := s.pool.QueryRow(ctx, `SELECT hash FROM sources WHERE path = $1`, path).Scan(&hash)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return "", false, nil
+// An empty kind matches any, which is enough unless a book and a publication
+// share the path; then the kind has to be named.
+func (s *Store) SourceHash(ctx context.Context, kind, path string) (string, bool, error) {
+	rows, err := s.pool.Query(ctx, `SELECT hash FROM sources WHERE ($1 = '' OR kind = $1) AND path = $2 LIMIT 2`, kind, path)
+	if err != nil {
+		return "", false, err
 	}
-	return hash, err == nil, err
+	hashes, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	switch {
+	case err != nil:
+		return "", false, err
+	case len(hashes) == 0:
+		return "", false, nil
+	case len(hashes) > 1:
+		return "", false, fmt.Errorf("%s is both a book and a publication: name the kind", path)
+	}
+	return hashes[0], true, nil
 }
 
 // SaveCitations records what a publication cites, replacing whatever was read

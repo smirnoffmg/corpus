@@ -96,7 +96,7 @@ func TestADescriptionOutlivesItsSource(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "draft", sources[0].Description)
 
-	_, err = st.Forget(ctx, "a.pdf")
+	_, err = st.Forget(ctx, "book", "a.pdf")
 	require.NoError(t, err)
 	_, err = st.Reference(ctx, "hash-a")
 	require.NoError(t, err, "forgetting the source must not take the description with it")

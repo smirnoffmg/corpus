@@ -30,9 +30,10 @@ type recordingStore struct {
 	chunks     map[string][]corpus.Chunk
 	titles     map[string]string
 	pruned     map[string][]string
-	indexed    map[string]string // path -> hash, as a real store would remember
-	byHash     map[string]string // hash -> path
-	rules      map[string]int    // path -> the layer rules that judged it
+	indexed    map[string]string // kind and path -> hash, as a real store would remember
+	byHash     map[string]string // kind and hash -> path
+	rules      map[string]int    // kind and path -> the layer rules that judged it
+	replacedAs []string          // "kind:path" of every Replace
 	renamed    []string
 	forgotten  []string
 	unchanged  bool
@@ -75,57 +76,66 @@ func newStore() *recordingStore {
 	}
 }
 
-func (s *recordingStore) Unchanged(_ context.Context, path, hash string, rules int) (bool, error) {
+// sourceKey is what the store keys a source by: a book and a publication may
+// share a relative path.
+func sourceKey(kind, path string) string { return kind + "\x00" + path }
+
+func (s *recordingStore) Unchanged(_ context.Context, kind, path, hash string, rules int) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.unchanged || (s.indexed[path] == hash && s.rules[path] >= rules), nil
+	k := sourceKey(kind, path)
+	return s.unchanged || (s.indexed[k] == hash && s.rules[k] >= rules), nil
 }
 
-func (s *recordingStore) PathByHash(_ context.Context, _, hash string) (string, bool, error) {
+func (s *recordingStore) PathByHash(_ context.Context, kind, hash string) (string, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	path, ok := s.byHash[hash]
+	path, ok := s.byHash[sourceKey(kind, hash)]
 	return path, ok, nil
 }
 
-func (s *recordingStore) Rename(_ context.Context, oldPath, newPath, _ string) error {
+func (s *recordingStore) Rename(_ context.Context, kind, oldPath, newPath, _ string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.renamed = append(s.renamed, oldPath+" -> "+newPath)
-	hash := s.indexed[oldPath]
-	delete(s.indexed, oldPath)
-	s.indexed[newPath] = hash
-	s.rules[newPath] = s.rules[oldPath]
-	delete(s.rules, oldPath)
-	s.byHash[hash] = newPath
+	oldKey, newKey := sourceKey(kind, oldPath), sourceKey(kind, newPath)
+	hash := s.indexed[oldKey]
+	delete(s.indexed, oldKey)
+	s.indexed[newKey] = hash
+	s.rules[newKey] = s.rules[oldKey]
+	delete(s.rules, oldKey)
+	s.byHash[sourceKey(kind, hash)] = newPath
 	return nil
 }
 
 func (s *recordingStore) Replace(_ context.Context, src corpus.Source, chunks []corpus.Chunk) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	k := sourceKey(src.Kind, src.Path)
 	s.replaced[src.Path] = len(chunks)
+	s.replacedAs = append(s.replacedAs, src.Kind+":"+src.Path)
 	s.sources[src.Path] = src
 	s.chunks[src.Path] = chunks
-	s.indexed[src.Path] = src.Hash
-	s.byHash[src.Hash] = src.Path
-	s.rules[src.Path] = src.Rules
+	s.indexed[k] = src.Hash
+	s.byHash[sourceKey(src.Kind, src.Hash)] = src.Path
+	s.rules[k] = src.Rules
 	return nil
 }
 
-func (s *recordingStore) SetTitle(_ context.Context, path, title string) error {
+func (s *recordingStore) SetTitle(_ context.Context, _, path, title string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.titles[path] = title
 	return nil
 }
 
-func (s *recordingStore) Forget(_ context.Context, path string) (bool, error) {
+func (s *recordingStore) Forget(_ context.Context, kind, path string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.forgotten = append(s.forgotten, path)
-	_, existed := s.indexed[path]
-	delete(s.indexed, path)
+	k := sourceKey(kind, path)
+	_, existed := s.indexed[k]
+	delete(s.indexed, k)
 	return existed, nil
 }
 
@@ -1374,7 +1384,7 @@ func TestABookIndexedUnderOlderRulesIsJudgedAgain(t *testing.T) {
 	if got := store.sources["hoeffding.pdf"].Rules; got != extract.LayerRules {
 		t.Fatalf("rules = %d, want %d", got, extract.LayerRules)
 	}
-	store.rules["hoeffding.pdf"] = extract.LayerRules - 1
+	store.rules[sourceKey("book", "hoeffding.pdf")] = extract.LayerRules - 1
 	store.mu.Unlock()
 
 	recognizer := &fakeRecognizer{pages: 4}
@@ -1769,6 +1779,31 @@ func TestRunBeatsWhileAPhaseLasts(t *testing.T) {
 	}()
 
 	runFor(t, ix, ctx, time.Hour, nil)
+}
+
+// The same file uploaded as a book and as a publication sits at one relative
+// path under two roots; each is a source of its own kind.
+func TestABookAndAPaperUnderTheSamePathAreBothIndexed(t *testing.T) {
+	notes, books := vault(t, 0)
+	papers := t.TempDir()
+	for _, root := range []string{books, papers} {
+		if err := os.MkdirAll(filepath.Join(root, "uploads"), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		pdfWithText(t, filepath.Join(root, "uploads"), "same.pdf", []string{coverText(1)})
+	}
+	store := newStore()
+
+	if err := index.New(store, nopEmbedder{}, index.Options{Books: books, Vault: notes, Papers: papers}).Index(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	got := slices.Sorted(slices.Values(store.replacedAs))
+	if want := []string{"book:uploads/same.pdf", "paper:uploads/same.pdf"}; !slices.Equal(got, want) {
+		t.Errorf("replaced = %v, want %v", got, want)
+	}
 }
 
 func TestFilesListsWhatAPassWouldRead(t *testing.T) {

@@ -31,7 +31,7 @@ func (s *Store) NextScan(ctx context.Context) (corpus.Scan, bool, error) {
 		SELECT sc.kind, sc.hash, sc.path, sc.pages, sc.recognised
 		FROM scans sc
 		WHERE sc.attempts < $1
-		  AND NOT EXISTS (SELECT 1 FROM sources s WHERE s.path = sc.path)
+		  AND NOT EXISTS (SELECT 1 FROM sources s WHERE s.kind = sc.kind AND s.path = sc.path)
 		ORDER BY sc.path
 		LIMIT 1`, maxScanAttempts).Scan(&sc.Kind, &sc.Hash, &sc.Path, &sc.Pages, &sc.Recognised)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -60,7 +60,7 @@ func (s *Store) PruneScans(ctx context.Context, kind string, seen []string) (int
 	tag, err := s.pool.Exec(ctx, `
 		DELETE FROM scans sc
 		WHERE (sc.kind = $2 AND NOT (sc.path = ANY($1)))
-		   OR EXISTS (SELECT 1 FROM sources s WHERE s.path = sc.path)`, seen, kind)
+		   OR EXISTS (SELECT 1 FROM sources s WHERE s.kind = sc.kind AND s.path = sc.path)`, seen, kind)
 	if err != nil {
 		return 0, err
 	}

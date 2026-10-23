@@ -447,3 +447,46 @@ func TestABeatBeforeAnyFinishedPassHasNoLastPass(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, pulse.LastPass.IsZero())
 }
+
+// Books and publications each keep an uploads/ directory, so the same file
+// uploaded as both has one relative path under two roots. Keyed by the path
+// alone, the second overwrote the first, and the book was then taken for
+// unchanged and never came back.
+func TestABookAndAPaperMayShareARelativePath(t *testing.T) {
+	st, _, ctx := open(t)
+
+	const path = "uploads/__test__/shared.pdf"
+	chunk := []corpus.Chunk{{Ord: 1, Page: 1, Lang: "english", Body: "Shared text of a file filed twice."}}
+	require.NoError(t, st.Replace(ctx, corpus.Source{Kind: "book", Path: path, Title: "As a book", Hash: "hb"}, chunk))
+	require.NoError(t, st.Replace(ctx, corpus.Source{Kind: "paper", Path: path, Title: "As a paper", Hash: "hp"}, chunk))
+
+	for kind, title := range map[string]string{"book": "As a book", "paper": "As a paper"} {
+		sources, err := st.Sources(ctx, kind, "uploads/__test__/")
+		require.NoError(t, err)
+		require.Len(t, sources, 1, kind)
+		require.Equal(t, title, sources[0].Title, kind)
+	}
+
+	unchanged, err := st.Unchanged(ctx, "book", path, "hb", 0)
+	require.NoError(t, err)
+	require.True(t, unchanged, "the book is judged by its own hash")
+
+	_, _, err = st.SourceHash(ctx, "", path)
+	require.Error(t, err, "a path two sources share needs its kind")
+	hash, found, err := st.SourceHash(ctx, "paper", path)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, "hp", hash)
+
+	forgot, err := st.Forget(ctx, "paper", path)
+	require.NoError(t, err)
+	require.True(t, forgot)
+	books, err := st.Sources(ctx, "book", "uploads/__test__/")
+	require.NoError(t, err)
+	require.Len(t, books, 1, "forgetting the paper leaves the book")
+
+	hash, found, err = st.SourceHash(ctx, "", path)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, "hb", hash, "with the paper gone, the path is the book's alone")
+}
