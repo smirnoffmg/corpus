@@ -169,6 +169,7 @@ export interface Status {
   hnsw_ef_search?: number
   settings?: Record<string, string> // the server's flags, as it started with them
   indexer?: IndexerPulse
+  unindexed?: Partial<Record<Kind, string[]>> // files on disk no pass has read yet
 }
 
 // SearchParams mirrors every knob /search takes, including the ones the page

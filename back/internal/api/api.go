@@ -14,6 +14,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -60,6 +61,7 @@ type Service struct {
 	maxUpload   int64
 	vault       string
 	settings    map[string]string
+	shelf       Shelf
 
 	citations          Citations
 	bibliography       Bibliography
@@ -95,6 +97,14 @@ func WithVault(name string) Option {
 // show; nothing here is read back.
 func WithSettings(settings map[string]string) Option {
 	return func(s *Service) { s.settings = settings }
+}
+
+// Shelf lists, by kind, the files on disk that the indexer would read.
+type Shelf func() (map[string][]string, error)
+
+// WithShelf has /status name the files on disk that no pass has indexed yet.
+func WithShelf(shelf Shelf) Option {
+	return func(s *Service) { s.shelf = shelf }
 }
 
 func New(store Store, embedder Embedder, opts ...Option) *Service {
@@ -321,6 +331,39 @@ func (s *Service) Compare(ctx context.Context, q corpus.Query) (map[string][]cor
 	}, nil
 }
 
+// unindexed is what is on the shelf with no source behind it: a file copied
+// in since the last pass, or one every pass has failed to read.
+func (s *Service) unindexed(ctx context.Context) (map[string][]string, error) {
+	shelf, err := s.shelf()
+	if err != nil {
+		return nil, err
+	}
+	out := map[string][]string{}
+	for kind, files := range shelf {
+		sources, err := s.store.Sources(ctx, kind, "")
+		if err != nil {
+			return nil, err
+		}
+		known := make(map[string]bool, len(sources))
+		for i := range sources {
+			if sources[i].Kind == kind {
+				known[sources[i].Path] = true
+			}
+		}
+		var missing []string
+		for _, f := range files {
+			if !known[f] {
+				missing = append(missing, f)
+			}
+		}
+		if len(missing) > 0 {
+			slices.Sort(missing)
+			out[kind] = missing
+		}
+	}
+	return out, nil
+}
+
 // Read returns the full text behind a hit.
 func (s *Service) Read(ctx context.Context, id int64, neighbours bool) (corpus.Passage, error) {
 	return s.store.Read(ctx, id, neighbours)
@@ -472,6 +515,13 @@ func (s *Service) Handler() http.Handler {
 		}
 		if pulse, found, err := s.store.Pulse(r.Context()); err == nil && found {
 			status["indexer"] = indexerStatus(&pulse)
+		}
+		if s.shelf != nil {
+			if unindexed, err := s.unindexed(r.Context()); err == nil {
+				status["unindexed"] = unindexed
+			} else {
+				status["unindexed_error"] = err.Error()
+			}
 		}
 		writeJSON(w, status)
 	})

@@ -56,6 +56,17 @@ describe('SystemPage', () => {
     expect(rowOf(indexing, 'Статьи')).toHaveTextContent('Пусто')
   })
 
+  it('names the files on disk that no pass has indexed yet', async () => {
+    stubApi((url) => (url.pathname === '/api/status'
+      ? { body: status({ unindexed: { book: ['INSPIRED.epub', 'uploads/new.pdf'] } }) }
+      : { body: { sources: [] } }))
+    renderSystem()
+
+    const waiting = await screen.findByRole('list', { name: 'Ещё не в индексе' })
+    expect(within(waiting).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['INSPIRED.epub', 'uploads/new.pdf'])
+    expect(screen.getByText(/2 файла лежат в библиотеке/)).toBeInTheDocument()
+  })
+
   it('lists the settings the server runs with', async () => {
     stubApi((url) => (url.pathname === '/api/status' ? { body: status() } : { body: { sources: [] } }))
     renderSystem()

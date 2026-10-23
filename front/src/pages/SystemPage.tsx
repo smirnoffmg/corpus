@@ -153,6 +153,7 @@ export function SystemPage({ pollMs = 5000 }: { pollMs?: number }) {
               </tbody>
             </table>
           </div>
+          <Unindexed files={status.unindexed} />
 
           {status.indexer && (
             <>
@@ -176,6 +177,22 @@ export function SystemPage({ pollMs = 5000 }: { pollMs?: number }) {
         </>
       )}
     </div>
+  )
+}
+
+function Unindexed({ files }: { files?: Status['unindexed'] }) {
+  const all = Object.values(files ?? {}).flat()
+  if (all.length === 0) return null
+  return (
+    <>
+      <p className="problem">
+        {all.length} {plural(all.length, ['файл лежит', 'файла лежат', 'файлов лежат'])} в библиотеке, но не в индексе:
+        следующий проход их прочтёт, а если они здесь и после него, прочесть их не удалось.
+      </p>
+      <ul aria-label="Ещё не в индексе">
+        {all.map((f) => <li key={f}>{f}</li>)}
+      </ul>
+    </>
   )
 }
 

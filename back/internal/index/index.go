@@ -91,6 +91,9 @@ type Options struct {
 	Beat      func(ctx context.Context, b *corpus.Beat) error
 	BeatEvery time.Duration     // defaults to corpus.BeatEvery
 	Settings  map[string]string // the flags the process runs with, sent with each beat
+	// Now is the wall clock the interval between passes is counted by;
+	// defaults to time.Now.
+	Now func() time.Time
 }
 
 // Recognizer reads the text of scanned PDFs and keeps it under the file's
@@ -152,6 +155,9 @@ func New(store Store, embedder Embedder, opts Options) *Indexer { //nolint:gocri
 	if opts.BeatEvery <= 0 {
 		opts.BeatEvery = corpus.BeatEvery
 	}
+	if opts.Now == nil {
+		opts.Now = time.Now
+	}
 	return &Indexer{store: store, embedder: embedder, opts: opts}
 }
 
@@ -178,7 +184,7 @@ func (ix *Indexer) Index(ctx context.Context) error {
 		}
 	}
 
-	books, bookFiles, err := ix.indexKind(ctx, "book", ix.opts.Books, []string{".pdf", ".epub", ".fb2"}, func(path string) ([]corpus.Chunk, error) {
+	books, bookFiles, err := ix.indexKind(ctx, "book", ix.opts.Books, BookExts, func(path string) ([]corpus.Chunk, error) {
 		// An e-book has no pages to keep whole, only chapters, and a chapter is
 		// cut the way a note's section is: one chunk, one thought.
 		switch strings.ToLower(filepath.Ext(path)) {
@@ -199,7 +205,7 @@ func (ix *Indexer) Index(ctx context.Context) error {
 		}
 	}
 
-	papers, paperFiles, err := ix.indexKind(ctx, "paper", ix.opts.Papers, []string{".pdf"}, func(path string) ([]corpus.Chunk, error) {
+	papers, paperFiles, err := ix.indexKind(ctx, "paper", ix.opts.Papers, PaperExts, func(path string) ([]corpus.Chunk, error) {
 		return ix.opts.BookSplitter.Paper(ctx, path)
 	})
 	if err != nil {
@@ -279,7 +285,7 @@ func (ix *Indexer) indexKind(
 	if root == "" {
 		return 0, nil, nil
 	}
-	files, err = collect(root, exts)
+	files, err = Files(root, exts)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -496,21 +502,38 @@ func (ix *Indexer) Run(ctx context.Context, interval time.Duration, listen func(
 		}
 
 		ix.enter(ctx, "waiting")
-		timer := time.NewTimer(interval)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-		case <-timer.C:
-		case _, ok := <-wake:
-			timer.Stop()
-			if !ok {
-				// A closed channel is always ready; selecting on it again would
-				// turn the loop into a spin.
-				wake = nil
-			}
+		if !ix.wait(ctx, interval, wake) {
+			// A closed channel is always ready; selecting on it again would
+			// turn the loop into a spin.
+			wake = nil
 		}
 	}
 	return nil
+}
+
+// wait returns once interval has passed by the wall clock, a reindex is
+// requested or ctx is done, and reports false when wake turned out closed. A
+// timer would count the interval on the monotonic clock, which stands still
+// while the Mac sleeps under Docker's VM: twelve minutes asleep once delayed a
+// pass by twelve minutes, with a new book already on disk.
+func (ix *Indexer) wait(ctx context.Context, interval time.Duration, wake <-chan struct{}) (open bool) {
+	// Round(0) drops the monotonic reading, so the comparisons below are made
+	// on the wall clock.
+	due := ix.opts.Now().Round(0).Add(interval)
+	tick := time.NewTicker(min(interval, ix.opts.BeatEvery))
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return true
+		case _, ok := <-wake:
+			return ok
+		case <-tick.C:
+			if !ix.opts.Now().Round(0).Before(due) {
+				return true
+			}
+		}
+	}
 }
 
 // pass is one Index and Embed for Run, which logs failures rather than
@@ -920,7 +943,15 @@ func (ix *Indexer) title(ctx context.Context, kind, path, rel string) string {
 // and no scan to recognise.
 func isPDF(path string) bool { return strings.EqualFold(filepath.Ext(path), ".pdf") }
 
-func collect(root string, exts []string) ([]string, error) {
+// BookExts and PaperExts are the files a pass reads as books and publications.
+var (
+	BookExts  = []string{".pdf", ".epub", ".fb2"}
+	PaperExts = []string{".pdf"}
+)
+
+// Files lists the files under root that a pass would read, relative to root —
+// the paths sources are stored under.
+func Files(root string, exts []string) ([]string, error) {
 	var files []string
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -395,6 +396,32 @@ func TestReadReturnsThePassageBehindAHit(t *testing.T) {
 
 // The vault's name is what an obsidian:// link needs to open a note, and only
 // the server knows which directory the vault is.
+// A book copied into the library is not searchable until a pass has read it,
+// and nothing else says the pass has not happened yet.
+func TestStatusListsFilesOnDiskThatAreNotIndexed(t *testing.T) {
+	store := &fakeStore{sources: []corpus.SourceStatus{
+		{Kind: "book", Path: "indexed.pdf"},
+		{Kind: "paper", Path: "uploads/new.epub"},
+	}}
+	shelf := func() (map[string][]string, error) {
+		return map[string][]string{
+			"book":  {"indexed.pdf", "uploads/new.epub", "INSPIRED.epub"},
+			"paper": {},
+		}, nil
+	}
+	srv := httptest.NewServer(api.New(store, &fakeEmbedder{}, api.WithShelf(shelf)).Handler())
+	defer srv.Close()
+
+	var status struct {
+		Unindexed map[string][]string `json:"unindexed"`
+	}
+	get(t, srv.URL+"/status", &status)
+	want := map[string][]string{"book": {"INSPIRED.epub", "uploads/new.epub"}}
+	if !reflect.DeepEqual(status.Unindexed, want) {
+		t.Errorf("unindexed = %v, want %v: a path indexed under another kind is not this kind's", status.Unindexed, want)
+	}
+}
+
 func TestStatusNamesTheVaultWhenConfigured(t *testing.T) {
 	srv := httptest.NewServer(api.New(&fakeStore{}, &fakeEmbedder{}, api.WithVault("obsidian")).Handler())
 	defer srv.Close()

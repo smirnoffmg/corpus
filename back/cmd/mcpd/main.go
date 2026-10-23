@@ -18,6 +18,7 @@ import (
 	"github.com/smirnoffmg/corpus/internal/bibfile"
 	"github.com/smirnoffmg/corpus/internal/cite"
 	"github.com/smirnoffmg/corpus/internal/embed"
+	"github.com/smirnoffmg/corpus/internal/index"
 	"github.com/smirnoffmg/corpus/internal/rerank"
 	"github.com/smirnoffmg/corpus/internal/shrink"
 	"github.com/smirnoffmg/corpus/internal/store"
@@ -31,6 +32,26 @@ func main() {
 	if err := run(); err != nil {
 		slog.Error("exit", "err", err)
 		os.Exit(1)
+	}
+}
+
+// shelf walks the books and publications the way a pass does. A directory
+// that is not there holds nothing to index, which is not an error.
+func shelf(books, papers string) api.Shelf {
+	return func() (map[string][]string, error) {
+		out := map[string][]string{}
+		for kind, root := range map[string]string{"book": books, "paper": papers} {
+			exts := index.BookExts
+			if kind == "paper" {
+				exts = index.PaperExts
+			}
+			files, err := index.Files(root, exts)
+			if err != nil && !errors.Is(err, os.ErrNotExist) {
+				return nil, err
+			}
+			out[kind] = files
+		}
+		return out, nil
 	}
 }
 
@@ -104,6 +125,7 @@ func run() error {
 	if *reranker != "" {
 		opts = append(opts, api.WithReranker(rerank.New(*reranker)), api.WithRerankConcurrency(*rerankConcurrency))
 	}
+	opts = append(opts, api.WithShelf(shelf(*books, *papers)))
 	if *bibliography != "" {
 		opts = append(opts, api.WithBibliographyExport(bibfile.New(st, *bibliography).Export))
 	}

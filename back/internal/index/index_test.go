@@ -1771,6 +1771,68 @@ func TestRunBeatsWhileAPhaseLasts(t *testing.T) {
 	runFor(t, ix, ctx, time.Hour, nil)
 }
 
+func TestFilesListsWhatAPassWouldRead(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"a.pdf", "b.EPUB", "notes.txt", "sub/c.fb2", ".upload-tmp/d.pdf", ".git/e.pdf"} {
+		path := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, err := index.Files(root, index.BookExts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(got)
+	if want := []string{"a.pdf", "b.EPUB", "sub/c.fb2"}; !slices.Equal(got, want) {
+		t.Errorf("files = %v, want %v", got, want)
+	}
+}
+
+// A laptop asleep stops the monotonic clock in Docker's VM, so a timer set
+// for the interval fires that much sleep later; the wait is counted by the wall
+// clock instead, which a file copied in meanwhile is stamped by.
+func TestTheIntervalIsCountedByTheWallClockAcrossASleep(t *testing.T) {
+	notes, books := vault(t, 1)
+	store := newStore()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	var mu sync.Mutex
+	now := time.Now()
+	clock := func() time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+		return now
+	}
+	store.onStats = func(calls int) {
+		if calls == 2 {
+			cancel()
+		}
+	}
+	// The second beat while waiting comes from inside the wait, so the sleep
+	// falls after the wait has set its deadline.
+	waiting := 0
+	beat := func(_ context.Context, b *corpus.Beat) error {
+		mu.Lock()
+		defer mu.Unlock()
+		if b.Phase == "waiting" {
+			waiting++
+			if waiting == 2 {
+				now = now.Add(2 * time.Hour)
+			}
+		}
+		return nil
+	}
+	ix := index.New(store, nopEmbedder{}, index.Options{Books: books, Vault: notes, BeatEvery: 5 * time.Millisecond, Beat: beat, Now: clock})
+
+	runFor(t, ix, ctx, time.Hour, nil)
+}
+
 func TestANoteCarriesItsAliases(t *testing.T) {
 	notes, books := vault(t, 0)
 	body := "---\naliases:\n  - cross-entropy\n  - log loss\n---\n## Что это\n\nМера расхождения.\n"
