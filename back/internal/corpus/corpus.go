@@ -306,3 +306,41 @@ type Edition struct {
 	Languages  []string `json:"languages,omitempty"`
 	Catalog    string   `json:"catalog"`
 }
+
+// SearchRecord is one search as the journal keeps it. Origin tells the agents,
+// who search over MCP, from the UI and the evaluation, which use HTTP.
+type SearchRecord struct {
+	Origin string // "mcp" or "http"
+	Query  string
+	Mode   string
+	Kind   string
+	Hits   []int64 // the chunk ids returned, so a later read can be tied back to it
+	Err    string
+}
+
+// LoggedSearch is a journal row read back.
+type LoggedSearch struct {
+	At     time.Time `json:"at"`
+	Origin string    `json:"origin"`
+	Query  string    `json:"query"`
+	Mode   string    `json:"mode"`
+	Kind   string    `json:"kind,omitempty"`
+	Hits   int       `json:"hits"`
+	Err    string    `json:"err,omitempty"`
+}
+
+type SearchFilter struct {
+	Origin string // empty is every origin
+	Empty  bool   // only the searches that answered nothing, without an error
+	Limit  int
+}
+
+// Usage sums up the searches of one origin over a window. Read counts the
+// searches with a hit that was then read in full, the step before a quote.
+type Usage struct {
+	Origin   string `json:"origin"`
+	Searches int64  `json:"searches"`
+	Empty    int64  `json:"empty"`
+	Failed   int64  `json:"failed"`
+	Read     int64  `json:"read"`
+}

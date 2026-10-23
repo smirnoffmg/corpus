@@ -170,6 +170,17 @@ export interface Status {
   settings?: Record<string, string> // the server's flags, as it started with them
   indexer?: IndexerPulse
   unindexed?: Partial<Record<Kind, string[]>> // files on disk no pass has read yet
+  usage?: Usage[] // the last week of searches, one row per origin
+}
+
+// Usage sums up a week of searches from one origin: the agents search over
+// MCP, the UI and the evaluation over HTTP.
+export interface Usage {
+  origin: 'mcp' | 'http'
+  searches: number
+  empty: number
+  failed: number
+  read: number // searches with a hit that was then read in full
 }
 
 // SearchParams mirrors every knob /search takes, including the ones the page

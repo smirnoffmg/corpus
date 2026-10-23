@@ -62,6 +62,7 @@ type Service struct {
 	vault       string
 	settings    map[string]string
 	shelf       Shelf
+	journal     Journal
 
 	citations          Citations
 	bibliography       Bibliography
@@ -200,13 +201,13 @@ type readInput struct {
 }
 
 func (s *Service) Search(ctx context.Context, q corpus.Query) ([]corpus.Hit, error) {
-	hits, _, err := s.searchTraced(ctx, q)
+	hits, _, err := s.searchTraced(ctx, q, "")
 	return hits, err
 }
 
 // searchTraced is Search that also tells what the search did, so a reply can
-// say it ran on text alone.
-func (s *Service) searchTraced(ctx context.Context, q corpus.Query) ([]corpus.Hit, *trace, error) {
+// say it ran on text alone. A search with an origin goes into the journal.
+func (s *Service) searchTraced(ctx context.Context, q corpus.Query, origin string) ([]corpus.Hit, *trace, error) {
 	start := time.Now()
 	tr := &trace{vector: "unused", rerank: "unused"}
 	mode := q.Mode
@@ -217,6 +218,7 @@ func (s *Service) searchTraced(ctx context.Context, q corpus.Query) ([]corpus.Hi
 	logged := q
 	logged.Limit = clampLimit(q.Limit)
 	logSearch(ctx, logged, mode, len(hits), tr, time.Since(start), err)
+	s.journalSearch(ctx, origin, mode, &q, hits, err)
 	return hits, tr, err
 }
 
@@ -397,7 +399,7 @@ func (s *Service) MCP() *mcp.Server {
 			Limit: in.Limit, PerSource: in.PerSource,
 			TitleBoost: defaultTitleBoost, Rerank: in.Rerank,
 			Tag: cleanTag(in.Tag),
-		})
+		}, originMCP)
 		if err != nil {
 			return nil, searchOutput{}, err
 		}
@@ -414,6 +416,7 @@ func (s *Service) MCP() *mcp.Server {
 		if err != nil {
 			return nil, corpus.Passage{}, err
 		}
+		s.journalRead(ctx, originMCP, in.ID)
 		return nil, passage, nil
 	})
 
@@ -444,12 +447,13 @@ func (s *Service) Handler() http.Handler {
 		func(*http.Request) *mcp.Server { return server }, nil))
 
 	s.citationRoutes(mux)
+	s.journalRoutes(mux)
 
 	// The same search over plain HTTP: reaching for it with curl from a shell is
 	// far less ceremony than an MCP handshake.
 	mux.HandleFunc("GET /search", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		hits, tr, err := s.searchTraced(r.Context(), queryFromURL(q))
+		hits, tr, err := s.searchTraced(r.Context(), queryFromURL(q), originHTTP)
 		if err != nil {
 			code := http.StatusInternalServerError
 			if isEmbedderDown(err) {
@@ -482,6 +486,7 @@ func (s *Service) Handler() http.Handler {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
+		s.journalRead(r.Context(), originHTTP, id)
 		writeJSON(w, passage)
 	})
 
@@ -521,6 +526,14 @@ func (s *Service) Handler() http.Handler {
 				status["unindexed"] = unindexed
 			} else {
 				status["unindexed_error"] = err.Error()
+			}
+		}
+		if s.journal != nil {
+			if usage, err := s.journal.Usage(r.Context(), usageWindow); err == nil {
+				if usage == nil {
+					usage = []corpus.Usage{}
+				}
+				status["usage"] = usage
 			}
 		}
 		writeJSON(w, status)

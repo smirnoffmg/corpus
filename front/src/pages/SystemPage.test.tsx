@@ -67,6 +67,19 @@ describe('SystemPage', () => {
     expect(screen.getByText(/2 файла лежат в библиотеке/)).toBeInTheDocument()
   })
 
+  it('sums up the week of searches by where they came from', async () => {
+    stubApi((url) => (url.pathname === '/api/status'
+      ? { body: status({ usage: [{ origin: 'mcp', searches: 40, empty: 6, failed: 1, read: 12 }] }) }
+      : { body: { sources: [] } }))
+    renderSystem()
+
+    const usage = await screen.findByRole('table', { name: 'Поиски за неделю' })
+    const agents = rowOf(usage, 'Агенты (MCP)')
+    expect(agents).toHaveTextContent('40')
+    expect(agents).toHaveTextContent('6')
+    expect(agents).toHaveTextContent('12')
+  })
+
   it('lists the settings the server runs with', async () => {
     stubApi((url) => (url.pathname === '/api/status' ? { body: status() } : { body: { sources: [] } }))
     renderSystem()

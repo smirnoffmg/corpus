@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { sources, status as fetchStatus, type IndexerPulse, type Kind, type SourceStatus, type Status } from '../api'
+import { sources, status as fetchStatus, type IndexerPulse, type Kind, type SourceStatus, type Status, type Usage } from '../api'
 import { kindFilters } from '../kinds'
 import { progress, totalsByKind, withoutVector, type KindTotal } from '../library'
 import { duration, plural } from '../text'
@@ -154,6 +154,7 @@ export function SystemPage({ pollMs = 5000 }: { pollMs?: number }) {
             </table>
           </div>
           <Unindexed files={status.unindexed} />
+          <UsageTable usage={status.usage} />
 
           {status.indexer && (
             <>
@@ -192,6 +193,43 @@ function Unindexed({ files }: { files?: Status['unindexed'] }) {
       <ul aria-label="Ещё не в индексе">
         {all.map((f) => <li key={f}>{f}</li>)}
       </ul>
+    </>
+  )
+}
+
+const originLabel: Record<Usage['origin'], string> = { mcp: 'Агенты (MCP)', http: 'Интерфейс и eval (HTTP)' }
+
+function UsageTable({ usage }: { usage?: Usage[] }) {
+  if (!usage) return null
+  return (
+    <>
+      <h2 id="system-usage">Поиски за неделю</h2>
+      {usage.length === 0 ? (
+        <p className="quiet">Поисков не было.</p>
+      ) : (
+        <table aria-labelledby="system-usage">
+          <thead>
+            <tr>
+              <th scope="col">Откуда</th>
+              <th scope="col">Поисков</th>
+              <th scope="col">Пустых</th>
+              <th scope="col">С ошибкой</th>
+              <th scope="col">Прочитан хит</th>
+            </tr>
+          </thead>
+          <tbody>
+            {usage.map((u) => (
+              <tr key={u.origin}>
+                <th scope="row">{originLabel[u.origin]}</th>
+                <td>{u.searches}</td>
+                <td>{u.empty}</td>
+                <td>{u.failed}</td>
+                <td>{u.read}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </>
   )
 }

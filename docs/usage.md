@@ -16,3 +16,24 @@ The pass interval is counted by the wall clock. It used to be a timer, and a
 timer runs on the monotonic clock, which stands still in Docker's VM while the
 Mac sleeps: twelve minutes asleep delayed a pass by twelve minutes, with four
 new books already on disk and nothing to say so.
+
+## The search journal
+
+Every search and every full read is written to `search_log` and `read_log`,
+with where it came from: `mcp` is the agents, `http` the UI and `cmd/eval`.
+`/status` sums up the last week per origin: searches, empty ones, failed ones,
+and those with a hit that was then read in full within half an hour — the step
+before a quote. `GET /searches` lists the journal, the latest first:
+
+```sh
+curl -s 'localhost:8080/searches?origin=mcp&empty=1&limit=20'
+```
+
+An empty `fts` search worded as a sentence is the failure to look for: `fts`
+joins words with AND, and an agent reads an empty list as the library holding
+nothing on the subject.
+
+The journal keeps the query text. It lives in the database alone, which the
+library backup does not include, and for 180 days: each write drops the rows of
+its table that have aged out, so the journal drains as fast as it fills — the
+Steady State pattern (*Release It!*, p. 124), without a job of its own.

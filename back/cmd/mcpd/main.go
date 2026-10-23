@@ -125,7 +125,7 @@ func run() error {
 	if *reranker != "" {
 		opts = append(opts, api.WithReranker(rerank.New(*reranker)), api.WithRerankConcurrency(*rerankConcurrency))
 	}
-	opts = append(opts, api.WithShelf(shelf(*books, *papers)))
+	opts = append(opts, api.WithShelf(shelf(*books, *papers)), api.WithJournal(st))
 	if *bibliography != "" {
 		opts = append(opts, api.WithBibliographyExport(bibfile.New(st, *bibliography).Export))
 	}
