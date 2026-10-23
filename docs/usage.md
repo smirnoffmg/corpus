@@ -37,3 +37,23 @@ The journal keeps the query text. It lives in the database alone, which the
 library backup does not include, and for 180 days: each write drops the rows of
 its table that have aged out, so the journal drains as fast as it fills — the
 Steady State pattern (*Release It!*, p. 124), without a job of its own.
+
+## Citations in the vault
+
+What the library is for is a quote in a note, so the closest measure of it the
+vault gives is how many of its citations name a book or paper the library
+holds. `cmd/citecount` counts them week by week, reading the vault as it stood
+at the end of each week from its git history:
+
+```sh
+cd back
+go run ./cmd/citecount -weeks 12      # VAULT_DIR, and the server for the titles
+```
+
+A citation is an italic title followed by a locator, the way
+[citing sources](citing.md) writes it — `*Title*, с. 189 (PDF 203)`, `PDF 18`,
+or a chapter for an e-book. It counts as the library's when the cited title
+begins a library title and ends on a word, since notes cite a book by its
+short title. Templates and dot directories are left out: their example
+citations cite nothing. A citation in bold, or in a chat answer rather than a
+note, is not counted.
