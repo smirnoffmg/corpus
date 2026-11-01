@@ -28,8 +28,8 @@ type Meta struct {
 	ISBN   string
 }
 
-// EbookMeta reads an EPUB's package document or an FB2's description; an
-// unreadable file is described by nothing.
+// EbookMeta reads an EPUB's package document, an FB2's description or a
+// MOBI's EXTH header; an unreadable file is described by nothing.
 func EbookMeta(path string) Meta {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".epub":
@@ -41,6 +41,8 @@ func EbookMeta(path string) Meta {
 		return b.meta()
 	case ".fb2":
 		return fb2Meta(path)
+	case ".mobi":
+		return mobiMeta(path)
 	}
 	return Meta{}
 }
@@ -130,7 +132,9 @@ func navigation(body *html.Node) bool {
 			return
 		}
 		if n.DataAtom == atom.A {
-			if href := attr(n, "href"); href != "" && !strings.Contains(href, "://") {
+			// A MOBI links by the byte offset of its target, not by href.
+			href := attr(n, "href")
+			if href != "" && !strings.Contains(href, "://") || attr(n, "filepos") != "" {
 				inLink = true
 			}
 		}

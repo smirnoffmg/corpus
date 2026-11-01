@@ -12,7 +12,7 @@ System_Ext(ollama, "ollama")
 Container_Boundary(indexer, "indexer") {
     Component(loop, "Pass loop", "index.Run", "Index, embed, recognise; waits the interval by the wall clock or for a reindex request; beats")
     Component(walk, "Walk and diff", "index", "Lists files, compares hashes, prunes what is gone")
-    Component(extract, "Extraction and chunking", "extract, lang", "PDF pages via poppler; EPUB and FB2 chapters; note sections; manual pages; reference lists; language")
+    Component(extract, "Extraction and chunking", "extract, lang", "PDF pages via poppler; EPUB, FB2 and MOBI chapters; note sections; manual pages; reference lists; language")
     Component(ocr, "Recognition", "ocr", "Scanned pages via pdftoppm and tesseract, cached by hash")
     Component(embedc, "Embedder client", "embed", "Batches of 16, retried text by text")
     Component(bib, "Bibliography file", "bibfile", "Imports descriptions each pass, exports after drafting")

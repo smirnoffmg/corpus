@@ -15,7 +15,7 @@ System_Boundary(corpus, "Corpus") {
     Container(mcpd, "mcpd", "Go", "The search service: MCP tools and the same over HTTP; uploads, bibliography, journal")
     Container(indexer, "indexer", "Go, poppler, tesseract", "Walks the library and the vault every 15 minutes or on request; extracts, chunks, embeds, recognises scans; applies migrations")
     ContainerDb(db, "Database", "Postgres 18, pgvector", "Sources, chunks, full-text and HNSW indexes, descriptions, citations, the indexer's beat, the search journal")
-    ContainerDb(library, "Library", "files: books/, papers/, manuals/", "PDF, EPUB, FB2 and Sphinx HTML; the system of record for texts")
+    ContainerDb(library, "Library", "files: books/, papers/, manuals/", "PDF, EPUB, FB2, MOBI and Sphinx HTML; the system of record for texts")
     ContainerDb(files, "Bibliography and OCR cache", "files: bibliography/, ocr/", "Descriptions outside the database; recognised pages by the book's hash")
 }
 

@@ -192,6 +192,8 @@ func (ix *Indexer) Index(ctx context.Context) error {
 			return ix.opts.NoteSplitter.EPUB(path)
 		case ".fb2":
 			return ix.opts.NoteSplitter.FB2(path)
+		case ".mobi":
+			return ix.opts.NoteSplitter.MOBI(path)
 		}
 		return ix.opts.BookSplitter.PDF(ctx, path)
 	})
@@ -945,7 +947,7 @@ func isPDF(path string) bool { return strings.EqualFold(filepath.Ext(path), ".pd
 
 // BookExts and PaperExts are the files a pass reads as books and publications.
 var (
-	BookExts  = []string{".pdf", ".epub", ".fb2"}
+	BookExts  = []string{".pdf", ".epub", ".fb2", ".mobi"}
 	PaperExts = []string{".pdf"}
 )
 

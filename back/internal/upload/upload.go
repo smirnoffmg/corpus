@@ -109,10 +109,10 @@ func (l *Library) Close() error {
 	return errors.Join(l.books.Close(), l.docs.Close(), l.papers.Close())
 }
 
-// AddBook saves a PDF, EPUB or FB2 as uploads/<name> under the books root and
+// AddBook saves a PDF, EPUB, FB2 or MOBI as uploads/<name> under the books root and
 // returns that path, which is the path the indexer will give the source.
 func (l *Library) AddBook(name string, r io.Reader) (string, error) {
-	return l.addFile(l.books, name, r, pdfFormat, epubFormat, fb2Format)
+	return l.addFile(l.books, name, r, pdfFormat, epubFormat, fb2Format, mobiFormat)
 }
 
 // AddPaper saves a publication the same way, under the papers root. A paper is
@@ -123,19 +123,22 @@ func (l *Library) AddPaper(name string, r io.Reader) (string, error) {
 }
 
 // format is a kind of file a shelf takes, known by its extension and by how
-// it begins.
+// its first head bytes read.
 type format struct {
 	ext    string
+	head   int
 	starts func(head []byte) bool
 }
 
 var (
-	pdfFormat  = format{".pdf", func(h []byte) bool { return string(h) == "%PDF-" }}
-	epubFormat = format{".epub", func(h []byte) bool { return string(h[:4]) == "PK\x03\x04" }}
+	pdfFormat  = format{".pdf", 5, func(h []byte) bool { return string(h) == "%PDF-" }}
+	epubFormat = format{".epub", 4, func(h []byte) bool { return string(h) == "PK\x03\x04" }}
 	// FictionBook is XML, often after a byte-order mark.
-	fb2Format = format{".fb2", func(h []byte) bool {
-		return h[0] == '<' || string(h[:3]) == "\xef\xbb\xbf"
+	fb2Format = format{".fb2", 3, func(h []byte) bool {
+		return h[0] == '<' || string(h) == "\xef\xbb\xbf"
 	}}
+	// A Palm database names its type and creator after a 60-byte header.
+	mobiFormat = format{".mobi", 68, func(h []byte) bool { return string(h[60:]) == "BOOKMOBI" }}
 )
 
 func (l *Library) addFile(root *os.Root, name string, r io.Reader, formats ...format) (string, error) {
@@ -147,7 +150,7 @@ func (l *Library) addFile(root *os.Root, name string, r io.Reader, formats ...fo
 
 	// The name says what the file is; the first bytes have to agree, or the
 	// reader fails on every pass for as long as the file sits there.
-	head := make([]byte, 5)
+	head := make([]byte, formats[i].head)
 	if _, err := io.ReadFull(r, head); err != nil || !formats[i].starts(head) {
 		return "", fmt.Errorf("%w: %s is not a %s file", ErrInvalid, name, formats[i].ext)
 	}

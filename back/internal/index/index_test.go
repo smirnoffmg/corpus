@@ -1808,7 +1808,7 @@ func TestABookAndAPaperUnderTheSamePathAreBothIndexed(t *testing.T) {
 
 func TestFilesListsWhatAPassWouldRead(t *testing.T) {
 	root := t.TempDir()
-	for _, name := range []string{"a.pdf", "b.EPUB", "notes.txt", "sub/c.fb2", ".upload-tmp/d.pdf", ".git/e.pdf"} {
+	for _, name := range []string{"a.pdf", "b.EPUB", "notes.txt", "sub/c.fb2", "sub/f.mobi", ".upload-tmp/d.pdf", ".git/e.pdf"} {
 		path := filepath.Join(root, name)
 		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 			t.Fatal(err)
@@ -1823,7 +1823,7 @@ func TestFilesListsWhatAPassWouldRead(t *testing.T) {
 		t.Fatal(err)
 	}
 	slices.Sort(got)
-	if want := []string{"a.pdf", "b.EPUB", "sub/c.fb2"}; !slices.Equal(got, want) {
+	if want := []string{"a.pdf", "b.EPUB", "sub/c.fb2", "sub/f.mobi"}; !slices.Equal(got, want) {
 		t.Errorf("files = %v, want %v", got, want)
 	}
 }

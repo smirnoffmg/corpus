@@ -37,7 +37,7 @@ func flagValues() map[string]string {
 
 func run() error {
 	var (
-		booksDir   = flag.String("books", "/data/books", "directory with books: PDF, EPUB and FB2")
+		booksDir   = flag.String("books", "/data/books", "directory with books: PDF, EPUB, FB2 and MOBI")
 		vaultDir   = flag.String("vault", "/data/vault", "Obsidian vault root")
 		docsDir    = flag.String("docs", "/data/docs", "reference manuals, one directory of HTML per manual; empty skips them")
 		papersDir  = flag.String("papers", "/data/papers", "directory with PDF publications; empty skips them")

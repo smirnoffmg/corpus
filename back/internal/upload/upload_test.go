@@ -132,7 +132,9 @@ func TestAddBookTakesEbooks(t *testing.T) {
 
 	epub := archive(t, entry{name: "mimetype", body: "application/epub+zip"}).String()
 	fb2 := "\ufeff<?xml version=\"1.0\" encoding=\"windows-1251\"?><FictionBook/>"
-	for name, body := range map[string]string{"Зов предков.epub": epub, "Детство Никиты.fb2": fb2} {
+	// A Palm database names its type and creator at byte 60.
+	mobi := strings.Repeat("\x00", 60) + "BOOKMOBI" + strings.Repeat("\x00", 16)
+	for name, body := range map[string]string{"Зов предков.epub": epub, "Детство Никиты.fb2": fb2, "Thinking, Fast and Slow.mobi": mobi} {
 		path, err := lib.AddBook(name, strings.NewReader(body))
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
@@ -178,6 +180,7 @@ func TestAddBookRejects(t *testing.T) {
 		"not a book by name":   {"book.txt", pdf, upload.ErrInvalid},
 		"an epub by name only": {"book.epub", pdf, upload.ErrInvalid},
 		"an fb2 by name only":  {"book.fb2", pdf, upload.ErrInvalid},
+		"a mobi by name only":  {"book.mobi", strings.Repeat(pdf, 20), upload.ErrInvalid},
 		"hidden name":          {".book.pdf", pdf, upload.ErrInvalid},
 		"no name":              {".pdf", pdf, upload.ErrInvalid},
 		"empty":                {"book.pdf", "", upload.ErrInvalid},

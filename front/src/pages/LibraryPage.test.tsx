@@ -230,8 +230,8 @@ describe('LibraryPage', () => {
     renderLibrary()
     const user = userEvent.setup({ applyAccept: false })
 
-    await user.upload(screen.getByLabelText('Выбрать файлы'), new File(['x'], 'book.mobi'))
-    expect(screen.getByText(/book\.mobi/).closest('li')).toHaveTextContent('.pdf')
+    await user.upload(screen.getByLabelText('Выбрать файлы'), new File(['x'], 'book.azw3'))
+    expect(screen.getByText(/book\.azw3/).closest('li')).toHaveTextContent('.pdf')
     expect(screen.getByRole('button', { name: 'Загрузить' })).toBeDisabled()
   })
 
@@ -311,13 +311,13 @@ describe('LibraryPage', () => {
     renderLibrary()
     const user = userEvent.setup({ applyAccept: false })
 
-    await user.upload(screen.getByLabelText('Выбрать файлы'), [new File(['x'], 'novel.mobi'), new File(['%PDF-'], 'good.pdf')])
+    await user.upload(screen.getByLabelText('Выбрать файлы'), [new File(['x'], 'novel.azw3'), new File(['%PDF-'], 'good.pdf')])
     expect(screen.getByRole('button', { name: 'Загрузить' })).toBeEnabled()
     await user.click(screen.getByRole('button', { name: 'Загрузить' }))
 
     await screen.findByRole('region', { name: 'Загрузки' })
     expect(FakeXHR.sent).toEqual(['good.pdf -> /api/upload?kind=book'])
-    expect(screen.getByText('novel.mobi').closest('li')).toHaveTextContent('не подойдёт')
+    expect(screen.getByText('novel.azw3').closest('li')).toHaveTextContent('не подойдёт')
   })
 
   it('will not send a manual without a name', async () => {
